@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+/*
+ * 藍の濃淡で「深さ」を、山吹で「行動」を表す。
+ * フェーズ2・3（意味の掘り下げ・動機の変換）と、明日のタスク・約束にだけ山吹を使う。
+ */
+:root {
+  --paper: #f2f5f9;
+  --surface: #ffffff;
+  --surface-2: #e7edf5;
+  --text: #151e36;
+  --muted: #57657f;
+  --line: #cfd9e7;
+  --line-soft: #e2e9f2;
+  --indigo: #2e4a7d;
+  --indigo-soft: #dde6f4;
+  --accent: #a66a0b;
+  --accent-soft: #f6ebd6;
+  --accent-line: #d9a94a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0e1524;
+    --surface: #161f33;
+    --surface-2: #1d2841;
+    --text: #e2e8f4;
+    --muted: #94a3be;
+    --line: #2c3852;
+    --line-soft: #232e45;
+    --indigo: #93acdb;
+    --indigo-soft: #1c2942;
+    --accent: #e2ac4e;
+    --accent-soft: #2e2411;
+    --accent-line: #7a5e24;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-indigo: var(--indigo);
+  --color-indigo-soft: var(--indigo-soft);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-line: var(--accent-line);
+  --font-sans: "Zen Kaku Gothic New", -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
+  --font-serif: "Zen Old Mincho", "Hiragino Mincho ProN", serif;
+}
+
+html,
+body {
+  background: var(--paper);
+  color: var(--text);
+}
+
+body {
+  font-family: "Zen Kaku Gothic New", -apple-system,
+    "Hiragino Kaku Gothic ProN", sans-serif;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* スマホ幅に固定する。PCで開いても実機幅で表示される。 */
+.phone {
+  width: 100%;
+  max-width: 420px;
+  margin-inline: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
