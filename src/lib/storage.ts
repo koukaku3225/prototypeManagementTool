@@ -14,6 +14,7 @@ const KEY = {
   card: "gc.card",
   profile: "gc.profile",
   variant: "gc.variant",
+  archive: "gc.sessions",
 } as const;
 
 /** localStorage は例外を投げうる（プライベートモード、容量超過）。必ず包む。 */
@@ -90,7 +91,21 @@ export const clearCard = () => remove(KEY.card);
 export const loadProfile = () => read<UserProfile>(KEY.profile);
 export const saveProfile = (p: UserProfile) => write(KEY.profile, p);
 
+/**
+ * 完了したセッションを計測用に退避する。
+ * 確定時に gc.session を消すと draftEvents やフェーズ滞在時間が失われ、
+ * M1〜M4 が判定できなくなるため。
+ */
+export function archiveSession(s: Session): void {
+  const all = read<Session[]>(KEY.archive) ?? [];
+  if (all.some((x) => x.id === s.id)) return;
+  write(KEY.archive, [...all, s]);
+}
+
+export const loadArchive = (): Session[] => read<Session[]>(KEY.archive) ?? [];
+
 export function resetAll(): void {
+  remove(KEY.archive);
   remove(KEY.session);
   remove(KEY.card);
   remove(KEY.profile);

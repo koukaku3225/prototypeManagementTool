@@ -8,7 +8,6 @@ import {
   type PhaseId,
   type Session,
 } from "@/types/goal";
-import { PHASE_META } from "@/lib/prompts/phases";
 import { loadProfile, saveSession } from "@/lib/storage";
 
 export const LOCK_MS = 60_000;
@@ -20,8 +19,6 @@ interface State {
   streamingText: string;
   status: ConversationStatus;
   error: string | null;
-  /** 遷移直後に一度だけ出す一言 */
-  transitionNote: string | null;
   lockUntil: number | null;
 }
 
@@ -31,7 +28,6 @@ export function useConversation(initial: Session) {
     streamingText: "",
     status: "idle",
     error: null,
-    transitionNote: null,
     lockUntil: null,
   });
 
@@ -70,7 +66,6 @@ export function useConversation(initial: Session) {
         streamingText: "",
         status: "streaming",
         error: null,
-        transitionNote: null,
         lockUntil: null,
       }));
 
@@ -133,16 +128,10 @@ export function useConversation(initial: Session) {
     if (p) void send(p.text, p.draft);
   }, [send, state.session]);
 
-  const dismissNote = useCallback(
-    () => setState((s) => ({ ...s, transitionNote: null })),
-    [],
-  );
-
   return {
     ...state,
     send,
     retry,
-    dismissNote,
     isLocked: state.lockUntil !== null && Date.now() < state.lockUntil,
   };
 }
@@ -192,8 +181,6 @@ function finalize(s: State, working: Session, phase: PhaseId | "done"): State {
     streamingText: "",
     status: finished ? "done" : "idle",
     error: null,
-    transitionNote:
-      advanced && !finished ? PHASE_META[phase as PhaseId].transitionNote : null,
     lockUntil: shouldLock ? Date.now() + LOCK_MS : null,
   };
 }

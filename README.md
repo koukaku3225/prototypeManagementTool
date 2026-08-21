@@ -1,36 +1,155 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 目標設定コーチ（MVP プロトタイプ）
 
-## Getting Started
+AIとの対話で、抽象的な「なりたい姿」を、意味づけされた1つの目標と、明日実行する
+1つの具体的タスクに変換する。
 
-First, run the development server:
+仕様の全文は [`docs/mvp-spec.md`](docs/mvp-spec.md)、図解版は
+[`docs/spec-overview.html`](docs/spec-overview.html)。
+
+## 検証したい仮説
+
+| # | 仮説 |
+|---|---|
+| **H1** | **AIとの構造化対話は、自力でワークシートを埋めるより深い目標設定ができる** |
+| H2 | 「なぜ」を掘る対話は、外発的・回避的な動機を内発的動機に変換できる |
+| H3 | 疑似人格への「約束」は、翌日の実行率を上げる |
+| H4 | 意図的な待ち時間はユーザーの回答の質を上げる |
+
+H1が偽なら、記録・振り返り・リマインダーを作る意味がない。**このプロトタイプは
+H1の検証装置**であり、取捨選択はすべてそこから逆算している。
+
+## 動かす
 
 ```bash
+npm install
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+APIキーはサーバー側（API Routes）でのみ使う。`NEXT_PUBLIC_` 接頭辞は付けないこと。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 画面
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| ルート | 役割 |
+|---|---|
+| `/` | ランディング。所要時間の明示とコーチ選択 |
+| `/session` | 5フェーズの対話。中断すると次回「続きから」で再開できる |
+| `/card` | 対話から生成した目標カード。全項目インライン編集可 |
+| `/home` | 目標と「明日やること」。Markdown / JSON エクスポート |
+| `/metrics` | **検証用の内部画面。** M1〜M7 の計測とバリアント固定 |
 
-## Learn More
+`/metrics` はテスト参加者には案内しない。
 
-To learn more about Next.js, take a look at the following resources:
+## 5フェーズ
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| # | フェーズ | ゴール | 待ち時間 |
+|---|---|---|---|
+| 1 | `diverge` | 「なりたい姿」を自由に語らせる。要約も評価もしない | — |
+| 2 | `meaning` | 「なぜ大事か」を表現を変えて3回問う | **60秒ロック** |
+| 3 | `reframe` | 外発的・回避的な動機を検出し、言い換えを一緒に作る | **60秒ロック** |
+| 4 | `smart` | 何を / どれくらい / いつまでに / どうやって | — |
+| 5 | `woop_wbs` | つまずく状況 → If-Thenプラン → 明日の1タスク → 約束 | — |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+フェーズ2・3がこのアプリの価値の中心。4・5は本来フォームでも書ける内容で、
+AIでなければできないのは「なぜを掘って動機を言い換える」ところだけ。
+待ち時間をこの2フェーズに限定するのも同じ理由（事務的なフェーズで待たせると
+苛立ちしか生まない）。
 
-## Deploy on Vercel
+### フェーズ遷移
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+対話生成と同じ API 呼び出しで判定する（追加コストなし）。モデルは応答末尾に
+`<<<PHASE:meaning>>>` を出し、クライアント側で剥がす。加えて:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **最低ターン数**に満たなければ、モデルが先に進みたがっても留まる
+- **上限ターン数**を超えたら、システム側で強制的に進める（堂々巡りの防止）
+- **後退させない / 2つ以上飛ばさせない**（`meaning` を飛ばされると価値が消えるため）
+
+## モデル構成
+
+呼び出し回数が多いところを最安に、失敗コストが高いところに上位モデルを払う。
+
+| 用途 | モデル | 回数 / セッション |
+|---|---|---|
+| 対話の各ターン | `claude-haiku-4-5` | 18〜31 |
+| 構造化抽出・プロフィール抽出 | `claude-sonnet-5` | 2 |
+
+1セッション約 $0.14（20〜25円）。対話品質が足りなければ、フェーズ2・3だけ
+`claude-sonnet-5` に上げる。最初から上位モデルを敷くと、どこに効いているのか
+分からなくなる。
+
+**抽出プロンプトの最重要制約**: ユーザーが言っていないことを補完せず、不足項目は
+`null` にする。AIが勝手に立派な目標を作ると、ユーザーが「自分の目標」だと感じられ
+なくなり、H1の検証そのものが汚染される。
+
+## 対話が残す2つのもの
+
+```
+対話ログ ──> 構造化抽出 ──┬──> GoalCard    （ユーザーに見せる・編集できる）
+                          └──> UserProfile （見せない・裏で蓄積する）
+                                    │
+                                    └─> 次回のシステムプロンプトに載る
+```
+
+独立した自己分析モードは作らない。診断を先にやらせると目標に辿り着く前に離脱する
+ため、対話の中で価値観・生活パターン・過去の挫折を聞き出し、副産物として
+`UserProfile` に溜める。対話するほど2回目以降の質が上がる。
+
+## 計測
+
+`/metrics` で確認し、JSON で書き出せる。
+
+| # | 指標 | 目安 |
+|---|---|---|
+| M1 | 対話完走率 | 60%以上 |
+| M2 | 離脱フェーズ分布 | 特定フェーズに集中していないか |
+| M3 | フェーズ2の滞在時間 | 8分以上 |
+| M4 | フェーズ2の回答文字数 | 待ち時間あり > なし |
+| M5 | 目標カードの編集箇所 | 編集率50%超の項目は抽出プロンプトを要改善 |
+| M6 | 動機タイプの変換率 | 50%以上 |
+| M7 | **翌日タスク実行率** | 約束あり > なし |
+
+M7が最重要。翌日の追跡には再訪が必要なので、参加者には事前に「明日もう一度開いて
+ください」と伝える運用にする。
+
+A/Bバリアント（`commitmentStep` / `deliberateDelay`）は初回訪問時にランダムに
+割り当てて固定する。`/metrics` から手動で固定もできる。
+
+## 構成
+
+```
+src/
+├── app/
+│   ├── page.tsx              S1 ランディング
+│   ├── session/page.tsx      S2 対話
+│   ├── card/page.tsx         S3 目標カード
+│   ├── home/page.tsx         S4 ホーム
+│   ├── metrics/page.tsx      計測（内部用）
+│   └── api/
+│       ├── chat/route.ts     SSEストリーミング対話
+│       └── structure/route.ts 構造化抽出（Zod + messages.parse）
+├── components/               ChatBubble / Composer / DelayLock / PhaseProgress /
+│                             EditableField
+├── hooks/useConversation.ts  ストリーミング受信・フェーズ遷移・ロック判定
+├── lib/
+│   ├── anthropic.ts          クライアントとモデル定数
+│   ├── phase-machine.ts      制御トークン抽出とフェーズ遷移
+│   ├── prompts/              principles / coaches / phases / extraction
+│   ├── storage.ts            localStorage（セッション・カード・プロフィール・
+│   │                         アーカイブ）
+│   ├── metrics.ts            M1〜M7 の集計
+│   └── export.ts             Markdown / JSON 出力
+└── types/goal.ts             GoalCard / UserProfile / Session
+```
+
+## MVPに入れていないもの
+
+日々の記録、週次振り返り、複数目標の優先順位づけ、プッシュ通知、ウィジェット、
+Notion連携、目標の依存関係グラフ、音声入力、ユーザー認証。すべてH1の検証後に
+判断する。
+
+## 既知の制約
+
+- 永続化は localStorage のみ。ブラウザを変えるとデータは引き継がれない
+- 目標は1件固定。複数目標は持てない
+- Google Fonts をブラウザ側で読み込む（`next/font` は日本語サブセットの
+  ビルド時取得に失敗するため）

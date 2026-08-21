@@ -8,6 +8,7 @@ import { DelayLock } from "@/components/DelayLock";
 import { PhaseProgress } from "@/components/PhaseProgress";
 import { useConversation } from "@/hooks/useConversation";
 import { COACHES } from "@/lib/prompts/coaches";
+import { PHASE_META } from "@/lib/prompts/phases";
 import { loadSession } from "@/lib/storage";
 import type { Session } from "@/types/goal";
 
@@ -50,7 +51,7 @@ function Conversation({ initial }: { initial: Session }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [, forceTick] = useState(0);
 
-  const { session, streamingText, status, error, transitionNote, lockUntil } = conv;
+  const { session, streamingText, status, error, lockUntil } = conv;
   const coach = COACHES[session.coachId];
 
   // 初回だけコーチから話しかける
@@ -65,7 +66,7 @@ function Conversation({ initial }: { initial: Session }) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [session.messages.length, streamingText, transitionNote]);
+  }, [session.messages.length, streamingText]);
 
   useEffect(() => {
     if (status === "done") {
@@ -94,14 +95,20 @@ function Conversation({ initial }: { initial: Session }) {
       </header>
 
       <div className="flex flex-1 flex-col gap-3.5 px-5 py-5">
-        {session.messages.map((m, i) => (
-          <ChatBubble
-            key={`${m.timestamp}-${i}`}
-            role={m.role}
-            content={m.content}
-            coachId={session.coachId}
-          />
-        ))}
+        {session.messages.map((m, i) => {
+          const prev = i > 0 ? session.messages[i - 1] : null;
+          const crossed = prev !== null && prev.phase !== m.phase;
+          return (
+            <div key={`${m.timestamp}-${i}`} className="flex flex-col gap-3.5">
+              {crossed && <PhaseDivider note={PHASE_META[m.phase].transitionNote} />}
+              <ChatBubble
+                role={m.role}
+                content={m.content}
+                coachId={session.coachId}
+              />
+            </div>
+          );
+        })}
 
         {status === "streaming" && (
           <ChatBubble
@@ -110,14 +117,6 @@ function Conversation({ initial }: { initial: Session }) {
             coachId={session.coachId}
             pending
           />
-        )}
-
-        {transitionNote && (
-          <div className="my-1 flex items-center gap-3" role="status">
-            <span className="h-px flex-1 bg-line" />
-            <span className="text-[11.5px] text-muted">{transitionNote}</span>
-            <span className="h-px flex-1 bg-line" />
-          </div>
         )}
 
         {status === "done" && (
@@ -154,6 +153,18 @@ function Conversation({ initial }: { initial: Session }) {
           onSend={(text, draft) => void conv.send(text, draft)}
         />
       </div>
+    </div>
+  );
+}
+
+/** フェーズが変わった位置に残る区切り。リロードしても消えない。 */
+function PhaseDivider({ note }: { note: string }) {
+  if (!note) return null;
+  return (
+    <div className="my-1 flex items-center gap-3">
+      <span className="h-px flex-1 bg-line" />
+      <span className="text-[11.5px] leading-relaxed text-muted">{note}</span>
+      <span className="h-px flex-1 bg-line" />
     </div>
   );
 }
