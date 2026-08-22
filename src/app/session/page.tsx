@@ -70,10 +70,11 @@ function Conversation({ initial }: { initial: Session }) {
 
   useEffect(() => {
     if (status === "done") {
-      const t = setTimeout(() => router.push("/card"), 1200);
+      const dest = session.mode === "big" ? "/big" : "/card";
+      const t = setTimeout(() => router.push(dest), 1200);
       return () => clearTimeout(t);
     }
-  }, [status, router]);
+  }, [status, router, session.mode]);
 
   const locked = lockUntil !== null && Date.now() < lockUntil;
 

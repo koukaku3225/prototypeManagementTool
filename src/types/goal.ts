@@ -46,16 +46,22 @@ export const FLOW: Record<StoryMode, readonly AnyPhaseId[]> = {
   big: ["big_vision", "big_why", "big_position"],
 };
 
+/**
+ * カウントの注意: 各フェーズの最初のアシスタント発言（そのフェーズの問いかけ自体）が
+ * ユーザーの回答なしに turnsInPhase を1消費する。そのため「ユーザーが1回答えたら
+ * 進めてよい」を表すには min=2 が必要（1=問いかけ、2=回答を受けた返信）。
+ * min=1 のままだとユーザーが答える前に強制終了しうる（実機検証で確認済みの不具合）。
+ */
 export const BIG_PHASE_TURN_MIN: Record<BigPhaseId, number> = {
-  big_vision: 1,
-  big_why: 1,
-  big_position: 1,
+  big_vision: 2,
+  big_why: 2,
+  big_position: 2,
 };
 
 export const BIG_PHASE_TURN_LIMIT: Record<BigPhaseId, number> = {
-  big_vision: 2,
-  big_why: 3,
-  big_position: 2,
+  big_vision: 3,
+  big_why: 4,
+  big_position: 3,
 };
 
 export type PhaseStatus = "done" | "current" | "upcoming" | "stale";

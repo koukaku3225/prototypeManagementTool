@@ -31,6 +31,7 @@ export default function CardPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          mode: "small",
           messages: session.messages,
           coachId: session.coachId,
         }),

@@ -44,15 +44,28 @@ eq(nextPhase('small', 'diverge'), 'meaning', 'smallモードはPHASE_ORDER通り
 eq(nextPhase('big', 'big_vision'), 'big_why', 'bigモードはFLOW.big通りに進む');
 eq(nextPhase('big', 'big_position'), 'done', 'bigモード最終フェーズの次はdone');
 
+// bigモードの各フェーズは「1ターン目=問いかけ（ユーザー未回答）」を消費するため、
+// min=1だとユーザーが答える前に進んでしまう不具合があった（実機検証で発覚）。
+// min=2にして「問いかけ(1)+回答を受けた返信(2)」で初めて進めるようにする。
 eq(
   resolvePhase({ mode: 'big', current: 'big_vision', claimed: 'big_why', turnsInPhase: 1 }),
-  { phase: 'big_why', forced: false },
-  'bigモードはmin=1で1ターン目から進める',
+  { phase: 'big_vision', forced: false },
+  'bigモードは問いかけ直後(1ターン目)では進まない（ユーザー未回答のため）',
 );
 eq(
-  resolvePhase({ mode: 'big', current: 'big_why', claimed: 'big_why', turnsInPhase: 3 }),
+  resolvePhase({ mode: 'big', current: 'big_vision', claimed: 'big_why', turnsInPhase: 2 }),
+  { phase: 'big_why', forced: false },
+  'bigモードはユーザーの回答を受けた2ターン目で進める',
+);
+eq(
+  resolvePhase({ mode: 'big', current: 'big_vision', claimed: 'big_vision', turnsInPhase: 3 }),
+  { phase: 'big_why', forced: true },
+  'bigモードのvisionは上限3で強制遷移',
+);
+eq(
+  resolvePhase({ mode: 'big', current: 'big_why', claimed: 'big_why', turnsInPhase: 4 }),
   { phase: 'big_position', forced: true },
-  'bigモードの上限3で強制遷移',
+  'bigモードのwhyは上限4で強制遷移',
 );
 
 // --- invalidateFrom ---
