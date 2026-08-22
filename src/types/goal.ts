@@ -35,6 +35,31 @@ export const PHASE_TURN_MIN: Record<PhaseId, number> = {
   woop_wbs: 4,
 };
 
+export type StoryMode = "big" | "small";
+export type BigPhaseId = "big_vision" | "big_why" | "big_position";
+export type AnyPhaseId = PhaseId | BigPhaseId;
+
+export const MAX_SMALL_STORIES = 3;
+
+export const FLOW: Record<StoryMode, readonly AnyPhaseId[]> = {
+  small: PHASE_ORDER,
+  big: ["big_vision", "big_why", "big_position"],
+};
+
+export const BIG_PHASE_TURN_MIN: Record<BigPhaseId, number> = {
+  big_vision: 1,
+  big_why: 1,
+  big_position: 1,
+};
+
+export const BIG_PHASE_TURN_LIMIT: Record<BigPhaseId, number> = {
+  big_vision: 2,
+  big_why: 3,
+  big_position: 2,
+};
+
+export type PhaseStatus = "done" | "current" | "upcoming" | "stale";
+
 // ---------------------------------------------------------------- 成果物
 
 export interface Task {
@@ -42,6 +67,31 @@ export interface Task {
   title: string;
   estimateMin: number;
   dueDate: string; // ISO8601 date
+  completedAt: string | null;
+}
+
+export interface BigStory {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  coachId: CoachId;
+  horizonYears: number;
+  vision: { raw: string; refined: string };
+  values: string[];
+  currentPosition: string;
+  milestones: { label: string; state: string }[];
+  editedFields: string[];
+}
+
+export interface SmallStory {
+  id: string;
+  bigStoryId: string | null;
+  title: string;
+  rationale: string;
+  flowNote: string;
+  status: "proposed" | "active" | "done";
+  cardId: string | null;
+  createdAt: string;
   completedAt: string | null;
 }
 
@@ -127,9 +177,10 @@ export interface DraftEvents {
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
-  phase: PhaseId;
+  phase: AnyPhaseId;
   timestamp: string;
   draftEvents?: DraftEvents;
+  invalidated?: boolean;
 }
 
 export interface ExperimentVariant {
@@ -139,15 +190,17 @@ export interface ExperimentVariant {
 
 export interface Session {
   id: string;
+  mode: StoryMode;
   coachId: CoachId;
-  currentPhase: PhaseId;
-  phaseTurnCounts: Record<PhaseId, number>;
+  currentPhase: AnyPhaseId;
+  phaseTurnCounts: Record<string, number>;
+  phaseStatus: Partial<Record<AnyPhaseId, PhaseStatus>>;
   messages: ChatMessage[];
   startedAt: string;
   completedAt: string | null;
   variant: ExperimentVariant;
   /** フェーズごとの滞在時間計測（M3）。フェーズ開始時刻 */
-  phaseEnteredAt: Partial<Record<PhaseId, string>>;
+  phaseEnteredAt: Partial<Record<AnyPhaseId, string>>;
 }
 
 export function emptyPhaseCounts(): Record<PhaseId, number> {
