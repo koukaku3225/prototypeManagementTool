@@ -1,13 +1,13 @@
-import type { PhaseId } from "@/types/goal";
+import type { AnyPhaseId, BigPhaseId, PhaseId } from "@/types/goal";
 
 export interface PhaseMeta {
-  id: PhaseId;
+  id: AnyPhaseId;
   label: string;
   /** フェーズ遷移時にユーザーに見せる一言 */
   transitionNote: string;
 }
 
-export const PHASE_META: Record<PhaseId, PhaseMeta> = {
+export const PHASE_META: Record<AnyPhaseId, PhaseMeta> = {
   diverge: {
     id: "diverge",
     label: "発散",
@@ -32,6 +32,21 @@ export const PHASE_META: Record<PhaseId, PhaseMeta> = {
     id: "woop_wbs",
     label: "障害と行動",
     transitionNote: "最後に、つまずきそうなところと明日の一歩を決めます。",
+  },
+  big_vision: {
+    id: "big_vision",
+    label: "理想像",
+    transitionNote: "",
+  },
+  big_why: {
+    id: "big_why",
+    label: "なぜそれが大事か",
+    transitionNote: "理想の姿が見えてきましたね。次は、なぜそれが大事なのかを聞かせてください。",
+  },
+  big_position: {
+    id: "big_position",
+    label: "今の立ち位置",
+    transitionNote: "大事にしているものが言葉になってきました。最後に、今の自分がそこからどのあたりにいるかを聞きます。",
   },
 };
 
@@ -140,6 +155,53 @@ internal の場合:
 次のフェーズへ進む条件:
 障害1件・If-Thenプラン1件・明日のタスク1件が揃ったら <<<PHASE:done>>> を出す。
 それまでは <<<PHASE:woop_wbs>>> のまま続ける。`,
+};
+
+export const BIG_PHASE_INSTRUCTIONS: Record<BigPhaseId, string> = {
+  big_vision: `【現在のフェーズ: big_vision（理想像）】
+
+ゴール: 5年後〜10年後、どうなっていたいかを情景として語らせる。
+
+やること:
+- 「5年後、あるいは10年後、どうなっていたいですか」を1問だけ聞く
+- 情景として語ってもらう。「その時、どんな一日を過ごしていますか」のように具体化を1回だけ促してもよい
+
+やってはいけないこと:
+- 数値や期限をこの段階で聞かない
+- 複数の質問を一度に投げない
+- 評価やアドバイスをしない
+
+次のフェーズへ進む条件:
+理想の姿が1つ、情景として語られたら <<<PHASE:big_why>>> を出す。`,
+
+  big_why: `【現在のフェーズ: big_why（なぜそれが大事か）】
+
+ゴール: その理想像がなぜ大事なのかを、価値観として1〜2回掘る。
+
+やること:
+- 直前のユーザーの言葉を引用して「なぜそれが大事なんでしょう」と問う
+- 価値観を表すキーワードが出たら、それを言い返して確認する
+
+やってはいけないこと:
+- 3回以上掘らない（Bigモードは短く済ませる設計）
+- 答えを誘導しない
+
+次のフェーズへ進む条件:
+「なぜ」への答えが1〜2回分集まったら <<<PHASE:big_position>>> を出す。`,
+
+  big_position: `【現在のフェーズ: big_position（今の立ち位置）】
+
+ゴール: 理想像から見て、今どのあたりにいるかを聞く。フロー体験（今の力量に見合った挑戦）を後で提案するための基準になる。
+
+やること:
+- 「いま、その姿から見てどのあたりにいますか」を聞く
+- 数値や段階（「3年後は月3万円」等）が自然に出てきたら、それを否定せず受け止める
+
+やってはいけないこと:
+- 数値を無理に聞き出そうとしない。出てこなければ状態の言葉のままでよい
+
+次のフェーズへ進む条件:
+今の立ち位置が1つ語られたら <<<PHASE:done>>> を出す。`,
 };
 
 /** 約束ステップ（variant.commitmentStep が true のときだけ最後に差し込む） */
