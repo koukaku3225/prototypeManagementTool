@@ -19,8 +19,13 @@ export const STRUCTURE_EXTRACTION_PROMPT = `対話ログから情報を抽出す
 - smart.metricTarget / metricUnit: 数値と単位が明示されていれば入れる。なければ null
 - smart.deadline: YYYY-MM-DD 形式。年が明示されていなければ対話日から推定してよいが、
   月日が不明なら null
-- woop.obstacles: 障害と、それに対する If-Then プラン
-- tasks: 明日やる1件だけ。estimateMin は本人が言った所要時間、なければ 45
+- woop.obstacles: 障害と、それに対する If-Then プラン。
+  plan.if / plan.then が対話で決まっていなければ空文字にする（作らない）
+- tasks: 明日やる1件だけ。estimateMin は本人が言った所要時間、なければ 45。
+  明日やることが決まっていなければ空配列にする
+- rationale: この目標が「大きな物語」にどう効くのかを1文で。
+  システムプロンプトに大きな物語が与えられている場合のみ書く。
+  与えられていない、または対話で触れられていなければ空文字にする
 
 出力は指定されたスキーマに厳密に従う。`;
 

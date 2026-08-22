@@ -54,6 +54,8 @@ const GoalCardSchema = z.object({
   commitment: z.object({
     userWords: z.string().nullable(),
   }),
+  /** この目標が大きな物語にどう効くか。ツリーの辺のラベルになる */
+  rationale: z.string(),
 });
 
 const ProfileSchema = z.object({
@@ -96,7 +98,13 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { messages: ChatMessage[]; coachId: CoachId; mode: StoryMode };
+  let body: {
+    messages: ChatMessage[];
+    coachId: CoachId;
+    mode: StoryMode;
+    /** small のとき、rationale を書くために渡す */
+    bigStorySummary?: string | null;
+  };
   try {
     body = await req.json();
   } catch {
@@ -148,7 +156,9 @@ export async function POST(req: Request) {
       client.messages.parse({
         model: STRUCTURE_MODEL,
         max_tokens: 8000,
-        system: STRUCTURE_EXTRACTION_PROMPT,
+        system: body.bigStorySummary
+          ? `${STRUCTURE_EXTRACTION_PROMPT}\n\n【大きな物語】\n${body.bigStorySummary}`
+          : STRUCTURE_EXTRACTION_PROMPT,
         messages: [{ role: "user", content: transcript }],
         output_config: { format: zodOutputFormat(GoalCardSchema) },
       }),

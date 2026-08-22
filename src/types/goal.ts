@@ -2,7 +2,7 @@
 
 export type MotivationType = "internal" | "external" | "avoidance";
 export type PhaseId = "diverge" | "meaning" | "reframe" | "smart" | "woop_wbs";
-export type CoachId = "kaede" | "rin" | "sou";
+export type CoachId = "kaede" | "rin" | "sou" | "nagi" | "hinata" | "kuro";
 
 export const PHASE_ORDER: readonly PhaseId[] = [
   "diverge",
@@ -12,8 +12,13 @@ export const PHASE_ORDER: readonly PhaseId[] = [
   "woop_wbs",
 ] as const;
 
-/** 待ち時間ロックを発動するフェーズ（熟考が要る「理想の姿」に限定する） */
-export const DELAY_PHASES: readonly PhaseId[] = ["diverge"] as const;
+/**
+ * 待ち時間ロックを発動するフェーズ。
+ *
+ * 空 ＝ 現在は無効。60秒の強制待機は「イライラする」「いつまで続くのか」
+ * という実使用の声を受けて廃止した。仕組み自体は A/B の枠組みとして残してある。
+ */
+export const DELAY_PHASES: readonly PhaseId[] = [] as const;
 
 /**
  * 堂々巡り防止のための最大ターン数。超えたらシステム側で強制遷移する。
@@ -135,12 +140,25 @@ export interface Obstacle {
   };
 }
 
-/** 対話から生成される、ユーザーに見せる成果物 */
+/**
+ * 対話（または手入力）から生まれる、ユーザーに見せる成果物。
+ * これが「Small目標」の実体で、bigStoryId で大きな物語にぶら下がる。
+ * 既存データを壊さないため、追加分はすべて任意にしてある。
+ */
 export interface GoalCard {
   id: string;
   createdAt: string;
   updatedAt: string;
   coachId: CoachId;
+
+  /** どの大きな物語にぶら下がるか。単独の目標なら null */
+  bigStoryId?: string | null;
+  /** なぜこれが大きな物語に効くのか。ツリー表示で辺のラベルになる */
+  rationale?: string;
+  /** done は3枠を消費しない */
+  status?: "active" | "done";
+  /** 手入力で作ったか。対話由来と区別して表示する */
+  source?: "dialogue" | "manual";
 
   vision: {
     raw: string; // ユーザーが最初に語った生の言葉

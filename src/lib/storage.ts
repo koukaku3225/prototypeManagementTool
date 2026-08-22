@@ -164,6 +164,60 @@ export function loadCard(): GoalCard | null {
 /** 後方互換シム */
 export const saveCard = (c: GoalCard) => upsertCard(c);
 
+/** 3枠を消費しているカード。done は数えない */
+export const activeCards = (): GoalCard[] =>
+  loadCards().filter((c) => (c.status ?? "active") !== "done");
+
+export const canAddGoal = (): boolean => activeCards().length < MAX_SMALL_STORIES;
+
+export function setCardStatus(id: string, status: "active" | "done"): void {
+  const c = loadCardById(id);
+  if (!c) return;
+  upsertCard({ ...c, status, updatedAt: new Date().toISOString() });
+}
+
+export function deleteCard(id: string): void {
+  write(
+    KEY.cards,
+    loadCards().filter((c) => c.id !== id),
+  );
+}
+
+/** 空のカード。手入力で最初から埋めるときの土台にする */
+export function emptyCard(coachId: CoachId, bigStoryId: string | null): GoalCard {
+  const now = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    createdAt: now,
+    updatedAt: now,
+    coachId,
+    bigStoryId,
+    rationale: "",
+    status: "active",
+    source: "manual",
+    vision: { raw: "", refined: "" },
+    meaning: {
+      whyChain: [],
+      values: [],
+      motivationType: "internal",
+      reframed: null,
+      reframedFrom: null,
+    },
+    smart: {
+      specific: "",
+      measurable: "",
+      metricUnit: null,
+      metricTarget: null,
+      deadline: "",
+      achievableNote: "",
+    },
+    woop: { wish: "", outcome: "", obstacles: [] },
+    tasks: [],
+    commitment: { accepted: false, acceptedAt: null, userWords: null },
+    editedFields: [],
+  };
+}
+
 export const clearCard = () => remove(KEY.cards);
 
 export const loadProfile = () => read<UserProfile>(KEY.profile);
@@ -190,4 +244,99 @@ export function resetAll(): void {
   remove(KEY.bigstory);
   remove(KEY.stories);
   remove(KEY.profile);
+}
+
+// ---------------------------------------------------------------- スナップショット
+
+/**
+ * 開発中に毎回ゼロから対話をやり直すのは手間もAPIコストもかかる。
+ * いまの状態に名前を付けて保存し、ワンクリックで戻せるようにする。
+ * スナップショット自体は保存対象に含めない（入れ子になるため）。
+ */
+const SNAPSHOT_TARGETS = [
+  KEY.session,
+  KEY.cards,
+  KEY.bigstory,
+  KEY.stories,
+  KEY.profile,
+  KEY.variant,
+  KEY.archive,
+] as const;
+
+export interface Snapshot {
+  id: string;
+  name: string;
+  createdAt: string;
+  data: Record<string, string>;
+}
+
+const SNAPSHOT_KEY = "gc.snapshots";
+
+/** いまの状態を丸ごと取り出す。JSON書き出しにも使う */
+export function captureState(): Record<string, string> {
+  const data: Record<string, string> = {};
+  for (const k of SNAPSHOT_TARGETS) {
+    try {
+      const v = localStorage.getItem(k);
+      if (v !== null) data[k] = v;
+    } catch {
+      /* 読めないキーは飛ばす */
+    }
+  }
+  return data;
+}
+
+/** 取り出した状態を書き戻す。対象キーは一度消してから入れる */
+export function restoreState(data: Record<string, string>): void {
+  for (const k of SNAPSHOT_TARGETS) remove(k);
+  for (const [k, v] of Object.entries(data)) {
+    if (!(SNAPSHOT_TARGETS as readonly string[]).includes(k)) continue;
+    try {
+      localStorage.setItem(k, v);
+    } catch {
+      /* 容量超過なら諦める */
+    }
+  }
+}
+
+export const listSnapshots = (): Snapshot[] =>
+  read<Snapshot[]>(SNAPSHOT_KEY) ?? [];
+
+export function saveSnapshot(name: string): Snapshot {
+  const snap: Snapshot = {
+    id: crypto.randomUUID(),
+    name: name.trim() || new Date().toLocaleString("ja-JP"),
+    createdAt: new Date().toISOString(),
+    data: captureState(),
+  };
+  write(SNAPSHOT_KEY, [...listSnapshots(), snap]);
+  return snap;
+}
+
+export function applySnapshot(id: string): boolean {
+  const snap = listSnapshots().find((s) => s.id === id);
+  if (!snap) return false;
+  restoreState(snap.data);
+  return true;
+}
+
+export function deleteSnapshot(id: string): void {
+  write(
+    SNAPSHOT_KEY,
+    listSnapshots().filter((s) => s.id !== id),
+  );
+}
+
+/** JSON文字列から復元する。形が違えば false を返して何も壊さない */
+export function importStateJson(json: string): boolean {
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    if (!entries.every(([, v]) => typeof v === "string")) return false;
+    restoreState(Object.fromEntries(entries) as Record<string, string>);
+    return true;
+  } catch {
+    return false;
+  }
 }
