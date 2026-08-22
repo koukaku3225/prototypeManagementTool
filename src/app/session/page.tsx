@@ -90,7 +90,9 @@ function Conversation({ initial }: { initial: Session }) {
         </button>
         <span className="text-[14px] font-medium">{coach.name}</span>
         <div className="ml-auto">
-          <PhaseProgress current={session.currentPhase} />
+          {session.mode === "small" && (
+            <PhaseProgress current={session.currentPhase as any} />
+          )}
         </div>
       </header>
 

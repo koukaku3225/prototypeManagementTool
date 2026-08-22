@@ -1,5 +1,6 @@
 import {
   PHASE_ORDER,
+  type AnyPhaseId,
   type GoalCard,
   type PhaseId,
   type Session,
@@ -11,7 +12,7 @@ export interface SessionMetrics {
   /** M1: 完走したか */
   completed: boolean;
   /** M2: 中断した場合、どのフェーズで離脱したか */
-  droppedAtPhase: PhaseId | null;
+  droppedAtPhase: AnyPhaseId | null;
   /** M3: フェーズ2の滞在時間（分） */
   meaningMinutes: number | null;
   /** M4: フェーズ2でのユーザー回答の平均文字数 */
