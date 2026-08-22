@@ -10,7 +10,12 @@ import {
   type StoryMode,
 } from "@/types/goal";
 
-export const PHASE_TOKEN_RE = /<<<PHASE:([a-z_]+)>>>/;
+/**
+ * 数字も許容する。モデルが `step1` のような想定外のIDを書いたとき、
+ * マッチしないと制御トークンがそのまま本文に漏れて画面に出てしまうため。
+ * 未知のIDは isValidPhase 側で弾かれるので、広く拾って捨てる方が安全。
+ */
+export const PHASE_TOKEN_RE = /<<<PHASE:([a-z0-9_]+)>>>/;
 
 /** ストリーミング中に制御トークンを取り除くためのバッファ。 */
 export class PhaseTokenFilter {

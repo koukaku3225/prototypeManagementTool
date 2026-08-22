@@ -9,7 +9,15 @@ import {
   PHASE_INSTRUCTIONS,
 } from "@/lib/prompts/phases";
 import { PhaseTokenFilter, resolvePhase } from "@/lib/phase-machine";
-import type { AnyPhaseId, BigPhaseId, CoachId, PhaseId, StoryMode, UserProfile } from "@/types/goal";
+import type {
+  AnyPhaseId,
+  BigPhaseId,
+  BigStory,
+  CoachId,
+  PhaseId,
+  StoryMode,
+  UserProfile,
+} from "@/types/goal";
 
 export const runtime = "nodejs";
 
@@ -20,8 +28,35 @@ interface ChatRequest {
   turnsInPhase: number;
   messages: { role: "user" | "assistant"; content: string }[];
   profile: UserProfile | null;
+  /** small を Big Story の細分化として扱うために渡す。big モードでは null */
+  bigStory: BigStory | null;
   /** variant.commitmentStep。最終フェーズの締め方を切り替える（smallモードのみ） */
   commitmentStep: boolean;
+}
+
+/**
+ * small モードで「大きな物語のどこを削るか」をコーチに意識させるための文脈。
+ * これが無いと small が Big Story と無関係な別の目標設定になってしまう。
+ */
+function renderBigStory(big: BigStory | null): string {
+  if (!big) {
+    return `【大きな物語】
+まだ設定されていない。今回は単独の目標として扱う。`;
+  }
+  const milestones = big.milestones.length
+    ? big.milestones.map((m) => `- ${m.label}: ${m.state}`).join("\n")
+    : "（未設定）";
+
+  return `【大きな物語（Big Story）】
+これはユーザーが別の対話で言葉にした ${big.horizonYears} 年スケールの理想像である。
+今回の対話は、この物語を細分化して直近の一歩に落とすためのもの。
+候補の提案・相槌・言い換えは、必ずこの物語と価値観に接続すること。
+
+理想像: ${big.vision.refined || big.vision.raw}
+大事にしているもの: ${big.values.join(" / ") || "（未取得）"}
+今の立ち位置: ${big.currentPosition || "（未取得）"}
+節目:
+${milestones}`;
 }
 
 function renderProfile(profile: UserProfile | null): string {
@@ -77,6 +112,9 @@ export async function POST(req: Request) {
       // ---- ここから下は不変。プロンプトキャッシュの対象にする ----
       { type: "text", text: COACHING_PRINCIPLES },
       { type: "text", text: coach.persona },
+      ...(body.mode === "small"
+        ? [{ type: "text" as const, text: renderBigStory(body.bigStory) }]
+        : []),
       {
         type: "text",
         text: renderProfile(body.profile),

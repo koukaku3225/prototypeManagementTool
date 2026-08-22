@@ -8,7 +8,7 @@ import {
   type DraftEvents,
   type Session,
 } from "@/types/goal";
-import { loadProfile, saveSession } from "@/lib/storage";
+import { loadBigStory, loadProfile, saveSession } from "@/lib/storage";
 
 export const LOCK_MS = 60_000;
 
@@ -20,6 +20,16 @@ interface State {
   status: ConversationStatus;
   error: string | null;
   lockUntil: number | null;
+  /**
+   * 次へ進む準備ができたステップ。ユーザーが「次へ」を押すまで適用しない。
+   * 自動で進んでしまうと「どこに向かっているのか分からない」ため、
+   * 遷移の主導権はユーザーに残す（上限到達時の強制遷移だけは例外）。
+   */
+  pendingPhase: AnyPhaseId | "done" | null;
+  /** ターン上限に達しての遷移提案か（文言を変えるためだけに使う） */
+  pendingForced: boolean;
+  /** ステップ確定直後に、新しいステップの問いをコーチから切り出させる */
+  autoSend: boolean;
 }
 
 export function useConversation(initial: Session) {
@@ -29,6 +39,9 @@ export function useConversation(initial: Session) {
     status: "idle",
     error: null,
     lockUntil: null,
+    pendingPhase: null,
+    pendingForced: false,
+    autoSend: false,
   });
 
   const abortRef = useRef<AbortController | null>(null);
@@ -79,11 +92,9 @@ export function useConversation(initial: Session) {
             coachId: working.coachId,
             phase: working.currentPhase,
             turnsInPhase: working.phaseTurnCounts[working.currentPhase] ?? 0,
-            messages: working.messages.map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
+            messages: toApiMessages(working),
             profile: loadProfile(),
+            bigStory: working.mode === "small" ? loadBigStory() : null,
             commitmentStep: working.variant.commitmentStep,
           }),
         });
@@ -101,9 +112,9 @@ export function useConversation(initial: Session) {
           onError: (message) => {
             throw new Error(message);
           },
-          onDone: ({ phase }) => {
+          onDone: ({ phase, forced }) => {
             pendingRef.current = null;
-            setState((s) => finalize(s, working, phase));
+            setState((s) => finalize(s, working, phase, forced));
           },
         });
       } catch (err) {
@@ -117,6 +128,32 @@ export function useConversation(initial: Session) {
     },
     [state.session],
   );
+
+  /** 「次へ」を押したときにだけステップを進める */
+  const advance = useCallback(() => {
+    setState((s) => {
+      if (!s.pendingPhase || s.status === "streaming") return s;
+      const session = applyPhase(s.session, s.pendingPhase, new Date().toISOString());
+      const finished = s.pendingPhase === "done";
+      return {
+        ...s,
+        session,
+        pendingPhase: null,
+        pendingForced: false,
+        lockUntil: null,
+        status: finished ? "done" : "idle",
+        // 新しいステップの問いは、ユーザーに書かせるのではなくコーチから切り出す
+        autoSend: !finished,
+      };
+    });
+  }, []);
+
+  // ステップ確定直後の1回だけ、コーチに次の問いを出させる
+  useEffect(() => {
+    if (!state.autoSend) return;
+    setState((s) => ({ ...s, autoSend: false }));
+    void send(null);
+  }, [state.autoSend, send]);
 
   /** 直前の失敗を再送する（ユーザー発言は重複させない） */
   const retry = useCallback(() => {
@@ -133,12 +170,24 @@ export function useConversation(initial: Session) {
     ...state,
     send,
     retry,
+    advance,
     isLocked: state.lockUntil !== null && Date.now() < state.lockUntil,
   };
 }
 
-/** ストリーム完了時にセッションを確定させる */
-function finalize(s: State, working: Session, phase: AnyPhaseId | "done"): State {
+/**
+ * ストリーム完了時にセッションを確定させる。
+ *
+ * ステップが進む判定が出ても、ここでは適用せず pendingPhase に置くだけにする。
+ * 実際の遷移は advance()（ユーザーの「次へ」）で行う。
+ * ただし forced（ターン上限到達）のときは堂々巡り防止が優先なので即座に進める。
+ */
+function finalize(
+  s: State,
+  working: Session,
+  phase: AnyPhaseId | "done",
+  forced: boolean,
+): State {
   const text = s.streamingText;
   const prevPhase = working.currentPhase;
 
@@ -150,43 +199,85 @@ function finalize(s: State, working: Session, phase: AnyPhaseId | "done"): State
   };
 
   const advanced = phase !== prevPhase;
-  const finished = phase === "done";
   const now = new Date().toISOString();
 
-  const session: Session = {
+  const counted: Session = {
     ...working,
     messages: [...working.messages, assistantMsg],
-    currentPhase: finished ? prevPhase : (phase as AnyPhaseId),
-    completedAt: finished ? now : null,
     phaseTurnCounts: {
       ...working.phaseTurnCounts,
       [prevPhase]: (working.phaseTurnCounts[prevPhase] ?? 0) + 1,
     },
-    phaseStatus:
-      advanced && !finished
-        ? { ...working.phaseStatus, [prevPhase]: "done", [phase as AnyPhaseId]: "current" }
-        : working.phaseStatus,
-    phaseEnteredAt:
-      advanced && !finished
-        ? { ...working.phaseEnteredAt, [phase as AnyPhaseId]: now }
-        : working.phaseEnteredAt,
   };
 
-  // 待ち時間ロックは「深さが要る2フェーズで、問いで終わっている」ときだけ
-  const nextPhase = session.currentPhase;
+  // 待ち時間ロックは「熟考が要るステップで、問いで終わっている」ときだけ
   const shouldLock =
-    !finished &&
-    session.variant.deliberateDelay &&
-    (DELAY_PHASES as readonly string[]).includes(nextPhase) &&
+    !advanced &&
+    counted.variant.deliberateDelay &&
+    (DELAY_PHASES as readonly string[]).includes(prevPhase) &&
     endsWithQuestion(text);
 
   return {
     ...s,
-    session,
+    session: counted,
     streamingText: "",
-    status: finished ? "done" : "idle",
+    status: "idle",
     error: null,
     lockUntil: shouldLock ? Date.now() + LOCK_MS : null,
+    // forced（上限到達）でも自動では進めない。コーチが問いを投げた直後に
+    // 画面が切り替わると「質問が打ち切られた」ように見えるため、
+    // 進むかどうかは必ずユーザーに選ばせる。
+    pendingPhase: advanced ? phase : null,
+    pendingForced: advanced ? forced : false,
+    autoSend: false,
+  };
+}
+
+/**
+ * API に渡す会話履歴を組み立てる。
+ *
+ * - 末尾の空白は落とす。アシスタント発言が空白で終わっていると 400 になる
+ * - 末尾がアシスタントのままだと役割が交互にならないので、
+ *   合図となるユーザー発言を足す（保存はしない。この1回のリクエスト限り）
+ */
+function toApiMessages(
+  session: Session,
+): { role: "user" | "assistant"; content: string }[] {
+  const msgs = session.messages
+    .map((m) => ({ role: m.role, content: m.content.trim() }))
+    .filter((m) => m.content.length > 0);
+
+  if (msgs.length === 0) {
+    return [{ role: "user", content: "（対話を始めてください）" }];
+  }
+  if (msgs[msgs.length - 1].role === "assistant") {
+    return [...msgs, { role: "user", content: "（次のステップに進んでください）" }];
+  }
+  return msgs;
+}
+
+/** ステップ遷移をセッションに反映する */
+function applyPhase(
+  session: Session,
+  phase: AnyPhaseId | "done",
+  now: string,
+): Session {
+  if (phase === "done") {
+    return {
+      ...session,
+      completedAt: now,
+      phaseStatus: { ...session.phaseStatus, [session.currentPhase]: "done" },
+    };
+  }
+  return {
+    ...session,
+    currentPhase: phase,
+    phaseStatus: {
+      ...session.phaseStatus,
+      [session.currentPhase]: "done",
+      [phase]: "current",
+    },
+    phaseEnteredAt: { ...session.phaseEnteredAt, [phase]: now },
   };
 }
 
@@ -196,7 +287,7 @@ function endsWithQuestion(text: string): boolean {
 
 interface SseHandlers {
   onDelta: (text: string) => void;
-  onDone: (payload: { phase: AnyPhaseId | "done" }) => void;
+  onDone: (payload: { phase: AnyPhaseId | "done"; forced: boolean }) => void;
   onError: (message: string) => void;
 }
 

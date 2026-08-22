@@ -9,8 +9,14 @@ import { PhaseProgress } from "@/components/PhaseProgress";
 import { useConversation } from "@/hooks/useConversation";
 import { COACHES } from "@/lib/prompts/coaches";
 import { PHASE_META } from "@/lib/prompts/phases";
-import { loadSession } from "@/lib/storage";
-import type { PhaseId, Session } from "@/types/goal";
+import { loadBigStory, loadSession } from "@/lib/storage";
+import {
+  FLOW,
+  type AnyPhaseId,
+  type BigStory,
+  type Session,
+  type StoryMode,
+} from "@/types/goal";
 
 export default function SessionPage() {
   const router = useRouter();
@@ -91,11 +97,15 @@ function Conversation({ initial }: { initial: Session }) {
         </button>
         <span className="text-[14px] font-medium">{coach.name}</span>
         <div className="ml-auto">
-          {session.mode === "small" && (
-            <PhaseProgress current={session.currentPhase as PhaseId} />
-          )}
+          <PhaseProgress
+            mode={session.mode}
+            current={session.currentPhase}
+            turnsInPhase={session.phaseTurnCounts[session.currentPhase] ?? 0}
+          />
         </div>
       </header>
+
+      {session.mode === "small" && <BigStoryStrip />}
 
       <div className="flex flex-1 flex-col gap-3.5 px-5 py-5">
         {session.messages.map((m, i) => {
@@ -149,6 +159,15 @@ function Conversation({ initial }: { initial: Session }) {
           <DelayLock until={lockUntil} onExpire={() => forceTick((n) => n + 1)} />
         )}
 
+        {conv.pendingPhase && status !== "streaming" && (
+          <StepAdvance
+            pending={conv.pendingPhase}
+            forced={conv.pendingForced}
+            mode={session.mode}
+            onAdvance={conv.advance}
+          />
+        )}
+
         <Composer
           disabled={status === "streaming" || status === "done"}
           locked={locked}
@@ -156,6 +175,94 @@ function Conversation({ initial }: { initial: Session }) {
           onSend={(text, draft) => void conv.send(text, draft)}
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * ステップが揃ったことを知らせ、進むかどうかをユーザーに委ねる。
+ * 自動遷移だと「どこに向かっているのか」が分からなくなるため、
+ * ここで一度止めて、続けるか進むかを選べるようにしている。
+ */
+function StepAdvance({
+  pending,
+  forced,
+  mode,
+  onAdvance,
+}: {
+  pending: AnyPhaseId | "done";
+  forced: boolean;
+  mode: StoryMode;
+  onAdvance: () => void;
+}) {
+  const finished = pending === "done";
+  const order = FLOW[mode];
+  const stepNo = finished ? null : order.indexOf(pending) + 1;
+
+  return (
+    <div className="rounded-xl border border-accent-line bg-accent-soft px-4 py-3">
+      <p className="text-[12.5px] leading-relaxed text-muted">
+        {finished
+          ? "ここまでで必要なことは揃いました。"
+          : forced
+            ? "このステップは十分に話せました。そろそろ次に進みましょう。"
+            : "このステップは揃いました。まだ話し足りなければ、そのまま続けられます。"}
+      </p>
+      <button
+        type="button"
+        onClick={onAdvance}
+        className="mt-2.5 w-full rounded-lg bg-indigo px-4 py-2.5 text-[14px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      >
+        {finished
+          ? "これで完了する →"
+          : `次へ：${stepNo}/${order.length} ${PHASE_META[pending].label} →`}
+      </button>
+    </div>
+  );
+}
+
+/** small 対話中に「何を細分化しているのか」を見失わないための帯 */
+function BigStoryStrip() {
+  const [big, setBig] = useState<BigStory | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => setBig(loadBigStory()), []);
+  if (!big) return null;
+
+  return (
+    <div className="border-b border-line bg-surface px-5 py-2.5">
+      <div className="flex items-baseline gap-2">
+        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+          大きな物語
+        </p>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="ml-auto text-[11.5px] text-muted underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          {open ? "閉じる" : "詳しく"}
+        </button>
+      </div>
+      <p className="mt-1 text-[12.5px] leading-relaxed">
+        {big.vision.refined || big.vision.raw}
+      </p>
+      {open && (
+        <dl className="mt-2 flex flex-col gap-1.5 border-t border-line-soft pt-2">
+          <div>
+            <dt className="text-[11px] text-muted">大事にしているもの</dt>
+            <dd className="text-[12.5px] leading-relaxed">
+              {big.values.join(" / ") || "（未取得）"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[11px] text-muted">今の立ち位置</dt>
+            <dd className="text-[12.5px] leading-relaxed">
+              {big.currentPosition || "（未取得）"}
+            </dd>
+          </div>
+        </dl>
+      )}
     </div>
   );
 }

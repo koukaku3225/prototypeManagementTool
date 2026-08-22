@@ -12,27 +12,37 @@ export const PHASE_ORDER: readonly PhaseId[] = [
   "woop_wbs",
 ] as const;
 
-/** 待ち時間ロックを発動するフェーズ（深さが要る2つに限定する） */
-export const DELAY_PHASES: readonly PhaseId[] = ["meaning", "reframe"] as const;
+/** 待ち時間ロックを発動するフェーズ（熟考が要る「理想の姿」に限定する） */
+export const DELAY_PHASES: readonly PhaseId[] = ["diverge"] as const;
 
-/** 堂々巡り防止のための最大ターン数。超えたらシステム側で強制遷移する。 */
+/**
+ * 堂々巡り防止のための最大ターン数。超えたらシステム側で強制遷移する。
+ *
+ * small は diverge/smart/woop_wbs の3ステップで最大13ターン。
+ * 以前は5フェーズ最大39ターンあり「いつまで続くのか分からない」という
+ * 実使用フィードバックを受けて短縮した（meaning/reframe は big 側に集約）。
+ * meaning/reframe の値はレガシーセッションの再生用に残している。
+ */
 export const PHASE_TURN_LIMIT: Record<PhaseId, number> = {
-  diverge: 6,
+  diverge: 4,
   meaning: 10,
   reframe: 6,
-  smart: 9,
-  woop_wbs: 8,
+  smart: 5,
+  woop_wbs: 5,
 };
 
-/** 各フェーズを抜けるのに最低限必要なターン数 */
+/**
+ * 各フェーズを抜けるのに最低限必要なターン数。
+ *
+ * 1ターン目は「そのフェーズの問いかけ」自体が消費する（ユーザーは未回答）。
+ * したがって「ユーザーが1回答えたら進んでよい」は min=2 で表す。
+ */
 export const PHASE_TURN_MIN: Record<PhaseId, number> = {
-  diverge: 3,
-  // 指示（phases.ts）は「なぜ」を3回問う設計。5にしていると
-  // AIが3回で十分と判断しても水増しの深掘りを強制してしまうため3に合わせる。
+  diverge: 2,
   meaning: 3,
   reframe: 2,
-  smart: 4,
-  woop_wbs: 4,
+  smart: 3,
+  woop_wbs: 3,
 };
 
 export type StoryMode = "big" | "small";
@@ -41,8 +51,22 @@ export type AnyPhaseId = PhaseId | BigPhaseId;
 
 export const MAX_SMALL_STORIES = 3;
 
+/**
+ * small の対話ステップ。
+ *
+ * 「なぜ大事か」（meaning / reframe）は big 側の big_why で取得済みなので
+ * small では掘り直さない。small は Big Story から絞り込んだ1件について
+ * 「1〜3年後の理想の姿 → 具体化 → 障害と明日の一歩」だけを扱う。
+ * PHASE_ORDER は過去セッションの再生とメトリクス用に残してある。
+ */
+export const SMALL_FLOW: readonly AnyPhaseId[] = [
+  "diverge",
+  "smart",
+  "woop_wbs",
+] as const;
+
 export const FLOW: Record<StoryMode, readonly AnyPhaseId[]> = {
-  small: PHASE_ORDER,
+  small: SMALL_FLOW,
   big: ["big_vision", "big_why", "big_position"],
 };
 
