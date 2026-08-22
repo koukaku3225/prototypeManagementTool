@@ -27,7 +27,9 @@ export const PHASE_TURN_LIMIT: Record<PhaseId, number> = {
 /** 各フェーズを抜けるのに最低限必要なターン数 */
 export const PHASE_TURN_MIN: Record<PhaseId, number> = {
   diverge: 3,
-  meaning: 5,
+  // 指示（phases.ts）は「なぜ」を3回問う設計。5にしていると
+  // AIが3回で十分と判断しても水増しの深掘りを強制してしまうため3に合わせる。
+  meaning: 3,
   reframe: 2,
   smart: 4,
   woop_wbs: 4,

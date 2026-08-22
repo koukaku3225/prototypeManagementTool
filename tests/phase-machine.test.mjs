@@ -23,8 +23,8 @@ eq(out,'トークンなしの本文','トークンが無ければ素通し');
 eq(f.phase,null,'検出なし');
 
 // --- 最低ターン数に満たなければ進まない ---
-eq(resolvePhase({current:'meaning',claimed:'reframe',turnsInPhase:2}),{phase:'meaning',forced:false},'meaning は5ターン未満では進まない');
-eq(resolvePhase({current:'meaning',claimed:'reframe',turnsInPhase:5}),{phase:'reframe',forced:false},'5ターン到達で進む');
+eq(resolvePhase({current:'meaning',claimed:'reframe',turnsInPhase:2}),{phase:'meaning',forced:false},'meaning は3ターン未満では進まない');
+eq(resolvePhase({current:'meaning',claimed:'reframe',turnsInPhase:3}),{phase:'reframe',forced:false},'3ターン到達で進む');
 
 // --- 上限で強制遷移 ---
 eq(resolvePhase({current:'meaning',claimed:'meaning',turnsInPhase:10}),{phase:'reframe',forced:true},'上限10で強制遷移');
