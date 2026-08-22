@@ -3,12 +3,13 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { getClient, isApiKeyConfigured, STRUCTURE_MODEL } from "@/lib/anthropic";
 import {
+  BIG_STRUCTURE_EXTRACTION_PROMPT,
   PROFILE_EXTRACTION_PROMPT,
   STRUCTURE_EXTRACTION_PROMPT,
 } from "@/lib/prompts/extraction";
 import { PHASE_META } from "@/lib/prompts/phases";
 import { COACHES } from "@/lib/prompts/coaches";
-import type { CoachId, ChatMessage } from "@/types/goal";
+import type { CoachId, ChatMessage, StoryMode } from "@/types/goal";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -61,6 +62,22 @@ const ProfileSchema = z.object({
   valuesAccumulated: z.array(z.string()),
 });
 
+const BigStorySchema = z.object({
+  horizonYears: z.number(),
+  vision: z.object({
+    raw: z.string(),
+    refined: z.string(),
+  }),
+  values: z.array(z.string()),
+  currentPosition: z.string(),
+  milestones: z.array(
+    z.object({
+      label: z.string(),
+      state: z.string(),
+    }),
+  ),
+});
+
 function renderTranscript(messages: ChatMessage[], coachId: CoachId): string {
   const coachName = COACHES[coachId].name;
   const lines = messages.map((m) => {
@@ -79,7 +96,7 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { messages: ChatMessage[]; coachId: CoachId };
+  let body: { messages: ChatMessage[]; coachId: CoachId; mode: StoryMode };
   try {
     body = await req.json();
   } catch {
@@ -90,6 +107,41 @@ export async function POST(req: Request) {
   const client = getClient();
 
   try {
+    if (body.mode === "big") {
+      const [bigRes, profileRes] = await Promise.all([
+        client.messages.parse({
+          model: STRUCTURE_MODEL,
+          max_tokens: 2000,
+          system: BIG_STRUCTURE_EXTRACTION_PROMPT,
+          messages: [{ role: "user", content: transcript }],
+          output_config: { format: zodOutputFormat(BigStorySchema) },
+        }),
+        client.messages.parse({
+          model: STRUCTURE_MODEL,
+          max_tokens: 2000,
+          system: PROFILE_EXTRACTION_PROMPT,
+          messages: [{ role: "user", content: transcript }],
+          output_config: { format: zodOutputFormat(ProfileSchema) },
+        }),
+      ]);
+
+      if (!bigRes.parsed_output) {
+        return Response.json(
+          { error: "parse_failed", message: "対話の整理に失敗しました。" },
+          { status: 502 },
+        );
+      }
+
+      return Response.json({
+        bigStory: bigRes.parsed_output,
+        profile: profileRes.parsed_output ?? {
+          lifePatterns: [],
+          pastFailures: [],
+          valuesAccumulated: [],
+        },
+      });
+    }
+
     // 目標カードとプロフィールは別スキーマなので2回に分ける。
     // どちらも1セッションに1回だけなのでコストは小さい。
     const [cardRes, profileRes] = await Promise.all([
