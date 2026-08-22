@@ -1,8 +1,13 @@
 import {
-  PHASE_ORDER,
+  FLOW,
   PHASE_TURN_LIMIT,
   PHASE_TURN_MIN,
-  type PhaseId,
+  BIG_PHASE_TURN_LIMIT,
+  BIG_PHASE_TURN_MIN,
+  type AnyPhaseId,
+  type PhaseStatus,
+  type Session,
+  type StoryMode,
 } from "@/types/goal";
 
 export const PHASE_TOKEN_RE = /<<<PHASE:([a-z_]+)>>>/;
@@ -55,42 +60,69 @@ function partialTokenTailLength(s: string): number {
   return 0;
 }
 
-export function isValidPhase(v: string | null): v is PhaseId {
-  return v !== null && (PHASE_ORDER as readonly string[]).includes(v);
+export function isValidPhase(mode: StoryMode, v: string | null): v is AnyPhaseId {
+  return v !== null && (FLOW[mode] as readonly string[]).includes(v);
 }
 
-export function nextPhase(current: PhaseId): PhaseId | "done" {
-  const i = PHASE_ORDER.indexOf(current);
-  return i === PHASE_ORDER.length - 1 ? "done" : PHASE_ORDER[i + 1];
+export function nextPhase(mode: StoryMode, current: AnyPhaseId): AnyPhaseId | "done" {
+  const order = FLOW[mode];
+  const i = order.indexOf(current);
+  return i === -1 || i === order.length - 1 ? "done" : order[i + 1];
 }
 
-/**
- * モデルの申告・最低ターン数・上限ターン数を突き合わせて、実際の次フェーズを決める。
- * モデルが早すぎる遷移を申告しても最低ターン数までは留め、
- * 逆に堂々巡りしていれば上限で強制的に進める。
- */
+function turnMin(mode: StoryMode, phase: AnyPhaseId): number {
+  return mode === "big" ? BIG_PHASE_TURN_MIN[phase as never] : PHASE_TURN_MIN[phase as never];
+}
+function turnLimit(mode: StoryMode, phase: AnyPhaseId): number {
+  return mode === "big" ? BIG_PHASE_TURN_LIMIT[phase as never] : PHASE_TURN_LIMIT[phase as never];
+}
+
 export function resolvePhase(args: {
-  current: PhaseId;
+  mode: StoryMode;
+  current: AnyPhaseId;
   claimed: string | null;
   turnsInPhase: number;
-}): { phase: PhaseId | "done"; forced: boolean } {
-  const { current, claimed, turnsInPhase } = args;
+}): { phase: AnyPhaseId | "done"; forced: boolean } {
+  const { mode, current, claimed, turnsInPhase } = args;
+  const order = FLOW[mode];
 
-  if (turnsInPhase >= PHASE_TURN_LIMIT[current]) {
-    return { phase: nextPhase(current), forced: true };
+  if (turnsInPhase >= turnLimit(mode, current)) {
+    return { phase: nextPhase(mode, current), forced: true };
   }
 
-  // モデルが前のフェーズに戻そうとしても従わない。進むか留まるかだけ。
-  const currentIndex = PHASE_ORDER.indexOf(current);
+  const currentIndex = order.indexOf(current);
   const wantsAdvance =
     claimed === "done" ||
-    (isValidPhase(claimed) && PHASE_ORDER.indexOf(claimed) > currentIndex);
+    (isValidPhase(mode, claimed) && order.indexOf(claimed as AnyPhaseId) > currentIndex);
 
-  // 2つ以上先を申告されても1つずつしか進めない。
-  // meaning / reframe を飛ばされるとこのアプリの価値が消えるため。
-  if (wantsAdvance && turnsInPhase >= PHASE_TURN_MIN[current]) {
-    return { phase: nextPhase(current), forced: false };
+  if (wantsAdvance && turnsInPhase >= turnMin(mode, current)) {
+    return { phase: nextPhase(mode, current), forced: false };
   }
 
   return { phase: current, forced: false };
+}
+
+/**
+ * 過去フェーズの回答が編集されたとき、それより後続のフェーズと
+ * メッセージを「やり直し」状態にする。削除はしない（監査ログとして残す）。
+ */
+export function invalidateFrom(session: Session, fromPhase: AnyPhaseId): Session {
+  const order = FLOW[session.mode];
+  const fromIndex = order.indexOf(fromPhase);
+  if (fromIndex === -1) return session;
+
+  const laterPhases = new Set(order.slice(fromIndex + 1));
+
+  const phaseStatus = { ...session.phaseStatus };
+  for (const p of laterPhases) phaseStatus[p] = "stale";
+  phaseStatus[fromPhase] = "current";
+
+  const phaseTurnCounts = { ...session.phaseTurnCounts };
+  for (const p of laterPhases) phaseTurnCounts[p] = 0;
+
+  const messages = session.messages.map((m) =>
+    laterPhases.has(m.phase) ? { ...m, invalidated: true } : m,
+  );
+
+  return { ...session, currentPhase: fromPhase, phaseStatus, phaseTurnCounts, messages };
 }
