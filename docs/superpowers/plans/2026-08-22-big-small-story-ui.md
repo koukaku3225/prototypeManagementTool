@@ -1115,8 +1115,10 @@ git commit -m "feat: ランディングにbig/small目標モードの選択UIを
 - Create: `src/app/big/page.tsx`
 
 **Interfaces:**
-- Consumes: `loadSession()`, `loadBigStory()`, `saveBigStory()`（Stage 1 Task 2）、`EditableField`（既存コンポーネント、`src/components/EditableField.tsx`）、`POST /api/structure`（Task 7, `mode: "big"` で `{bigStory, profile}` を返す）
+- Consumes: `loadSession()`, `archiveSession()`, `loadBigStory()`, `saveBigStory()`（Stage 1 Task 2）、`EditableField`（既存コンポーネント、`src/components/EditableField.tsx`）、`POST /api/structure`（Task 7, `mode: "big"` で `{bigStory, profile}` を返す）
 - Produces: `/big` ルート。Small候補の表示・確定はまだ行わない（Stage 3で追加）
+
+`card/page.tsx` には無いが、既存の `session/page.tsx`（確定操作の前に `archiveSession()` してから `clearSession()` する既存パターン）に倣い、Big Storyの元セッションも確定時にアーカイブする。M1〜M4計測の対象から漏れないようにするため。
 
 `src/app/card/page.tsx` の `generate`/`useEffect`/`update` パターン（`loadCard()` → 無ければ `loadSession()` から `/api/structure` を叩いて生成、という流れ）を踏襲する。
 
@@ -1129,6 +1131,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { EditableField } from "@/components/EditableField";
 import {
+  archiveSession,
   clearSession,
   loadBigStory,
   loadSession,
@@ -1144,6 +1147,7 @@ export default function BigStoryPage() {
   const [story, setStory] = useState<BigStory | null>(null);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
+  const sessionRef = useRef<Session | null>(null);
   const ran = useRef(false);
 
   const generate = useCallback(async (session: Session, isRetry: boolean) => {
@@ -1212,6 +1216,7 @@ export default function BigStoryPage() {
       setStatus("error");
       return;
     }
+    sessionRef.current = session;
     void generate(session, false);
   }, [generate]);
 
@@ -1229,6 +1234,7 @@ export default function BigStoryPage() {
   }
 
   function confirm() {
+    if (sessionRef.current) archiveSession(sessionRef.current);
     clearSession();
     router.push("/home");
   }
