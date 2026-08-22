@@ -3,22 +3,24 @@ import { CHAT_MODEL, getClient, isApiKeyConfigured } from "@/lib/anthropic";
 import { COACHES } from "@/lib/prompts/coaches";
 import { COACHING_PRINCIPLES } from "@/lib/prompts/principles";
 import {
+  BIG_PHASE_INSTRUCTIONS,
   CLOSING_INSTRUCTION,
   COMMITMENT_INSTRUCTION,
   PHASE_INSTRUCTIONS,
 } from "@/lib/prompts/phases";
 import { PhaseTokenFilter, resolvePhase } from "@/lib/phase-machine";
-import type { CoachId, PhaseId, UserProfile } from "@/types/goal";
+import type { AnyPhaseId, BigPhaseId, CoachId, PhaseId, StoryMode, UserProfile } from "@/types/goal";
 
 export const runtime = "nodejs";
 
 interface ChatRequest {
+  mode: StoryMode;
   coachId: CoachId;
-  phase: PhaseId;
+  phase: AnyPhaseId;
   turnsInPhase: number;
   messages: { role: "user" | "assistant"; content: string }[];
   profile: UserProfile | null;
-  /** variant.commitmentStep。最終フェーズの締め方を切り替える */
+  /** variant.commitmentStep。最終フェーズの締め方を切り替える（smallモードのみ） */
   commitmentStep: boolean;
 }
 
@@ -37,6 +39,12 @@ function renderProfile(profile: UserProfile | null): string {
 ${section("生活パターン", profile.lifePatterns)}
 ${section("過去の挫折", profile.pastFailures)}
 ${section("大事にしているもの", profile.valuesAccumulated)}`;
+}
+
+function instructionsFor(mode: StoryMode, phase: AnyPhaseId): string {
+  return mode === "big"
+    ? BIG_PHASE_INSTRUCTIONS[phase as BigPhaseId]
+    : PHASE_INSTRUCTIONS[phase as PhaseId];
 }
 
 export async function POST(req: Request) {
@@ -58,7 +66,7 @@ export async function POST(req: Request) {
   if (!coach) return Response.json({ error: "bad_request" }, { status: 400 });
 
   const isFinalTurn =
-    body.phase === "woop_wbs" && body.turnsInPhase >= 3;
+    body.mode === "small" && body.phase === "woop_wbs" && body.turnsInPhase >= 3;
 
   const client = getClient();
 
@@ -75,7 +83,7 @@ export async function POST(req: Request) {
         cache_control: { type: "ephemeral" },
       },
       // ---- ここから上は毎ターン差し替わる ----
-      { type: "text", text: PHASE_INSTRUCTIONS[body.phase] },
+      { type: "text", text: instructionsFor(body.mode, body.phase) },
       ...(isFinalTurn
         ? [
             {
@@ -118,6 +126,7 @@ export async function POST(req: Request) {
         if (tail) send("delta", { text: tail });
 
         const resolved = resolvePhase({
+          mode: body.mode,
           current: body.phase,
           claimed: filter.phase,
           turnsInPhase: body.turnsInPhase + 1,

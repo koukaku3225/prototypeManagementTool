@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DELAY_PHASES,
+  type AnyPhaseId,
   type ChatMessage,
   type DraftEvents,
-  type PhaseId,
   type Session,
 } from "@/types/goal";
 import { loadProfile, saveSession } from "@/lib/storage";
@@ -75,9 +75,10 @@ export function useConversation(initial: Session) {
           headers: { "Content-Type": "application/json" },
           signal: ctrl.signal,
           body: JSON.stringify({
+            mode: working.mode,
             coachId: working.coachId,
             phase: working.currentPhase,
-            turnsInPhase: working.phaseTurnCounts[working.currentPhase],
+            turnsInPhase: working.phaseTurnCounts[working.currentPhase] ?? 0,
             messages: working.messages.map((m) => ({
               role: m.role,
               content: m.content,
@@ -137,7 +138,7 @@ export function useConversation(initial: Session) {
 }
 
 /** ストリーム完了時にセッションを確定させる */
-function finalize(s: State, working: Session, phase: PhaseId | "done"): State {
+function finalize(s: State, working: Session, phase: AnyPhaseId | "done"): State {
   const text = s.streamingText;
   const prevPhase = working.currentPhase;
 
@@ -155,15 +156,19 @@ function finalize(s: State, working: Session, phase: PhaseId | "done"): State {
   const session: Session = {
     ...working,
     messages: [...working.messages, assistantMsg],
-    currentPhase: finished ? prevPhase : (phase as PhaseId),
+    currentPhase: finished ? prevPhase : (phase as AnyPhaseId),
     completedAt: finished ? now : null,
     phaseTurnCounts: {
       ...working.phaseTurnCounts,
-      [prevPhase]: working.phaseTurnCounts[prevPhase] + 1,
+      [prevPhase]: (working.phaseTurnCounts[prevPhase] ?? 0) + 1,
     },
+    phaseStatus:
+      advanced && !finished
+        ? { ...working.phaseStatus, [prevPhase]: "done", [phase as AnyPhaseId]: "current" }
+        : working.phaseStatus,
     phaseEnteredAt:
       advanced && !finished
-        ? { ...working.phaseEnteredAt, [phase as PhaseId]: now }
+        ? { ...working.phaseEnteredAt, [phase as AnyPhaseId]: now }
         : working.phaseEnteredAt,
   };
 
@@ -191,7 +196,7 @@ function endsWithQuestion(text: string): boolean {
 
 interface SseHandlers {
   onDelta: (text: string) => void;
-  onDone: (payload: { phase: PhaseId | "done" }) => void;
+  onDone: (payload: { phase: AnyPhaseId | "done" }) => void;
   onError: (message: string) => void;
 }
 
