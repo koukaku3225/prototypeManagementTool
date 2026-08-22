@@ -10,7 +10,7 @@ import { useConversation } from "@/hooks/useConversation";
 import { COACHES } from "@/lib/prompts/coaches";
 import { PHASE_META } from "@/lib/prompts/phases";
 import { loadSession } from "@/lib/storage";
-import type { Session } from "@/types/goal";
+import type { PhaseId, Session } from "@/types/goal";
 
 export default function SessionPage() {
   const router = useRouter();
@@ -91,7 +91,7 @@ function Conversation({ initial }: { initial: Session }) {
         <span className="text-[14px] font-medium">{coach.name}</span>
         <div className="ml-auto">
           {session.mode === "small" && (
-            <PhaseProgress current={session.currentPhase as any} />
+            <PhaseProgress current={session.currentPhase as PhaseId} />
           )}
         </div>
       </header>
