@@ -2,16 +2,24 @@
 
 import {
   emptyPhaseCounts,
+  type BigStory,
   type CoachId,
   type ExperimentVariant,
   type GoalCard,
   type Session,
+  type SmallStory,
+  type StoryMode,
   type UserProfile,
+  FLOW,
+  MAX_SMALL_STORIES,
 } from "@/types/goal";
 
 const KEY = {
   session: "gc.session",
-  card: "gc.card",
+  card: "gc.card",           // レガシー。移行元としてのみ読む
+  cards: "gc.cards",
+  bigstory: "gc.bigstory",
+  stories: "gc.stories",
   profile: "gc.profile",
   variant: "gc.variant",
   archive: "gc.sessions",
@@ -65,18 +73,21 @@ export function setVariant(v: ExperimentVariant): void {
 
 // ---------------------------------------------------------------- session
 
-export function newSession(coachId: CoachId): Session {
+export function newSession(coachId: CoachId, mode: StoryMode): Session {
   const now = new Date().toISOString();
+  const firstPhase = FLOW[mode][0];
   return {
     id: crypto.randomUUID(),
+    mode,
     coachId,
-    currentPhase: "diverge",
-    phaseTurnCounts: emptyPhaseCounts(),
+    currentPhase: firstPhase,
+    phaseTurnCounts: {},
+    phaseStatus: { [firstPhase]: "current" },
     messages: [],
     startedAt: now,
     completedAt: null,
     variant: getVariant(),
-    phaseEnteredAt: { diverge: now },
+    phaseEnteredAt: { [firstPhase]: now },
   };
 }
 
@@ -84,9 +95,76 @@ export const loadSession = () => read<Session>(KEY.session);
 export const saveSession = (s: Session) => write(KEY.session, s);
 export const clearSession = () => remove(KEY.session);
 
-export const loadCard = () => read<GoalCard>(KEY.card);
-export const saveCard = (c: GoalCard) => write(KEY.card, c);
-export const clearCard = () => remove(KEY.card);
+// ---------------------------------------------------------------- big story
+
+export const loadBigStory = () => read<BigStory>(KEY.bigstory);
+export const saveBigStory = (b: BigStory) => write(KEY.bigstory, b);
+export const clearBigStory = () => remove(KEY.bigstory);
+
+// ---------------------------------------------------------------- small stories
+
+export const loadStories = (): SmallStory[] => read<SmallStory[]>(KEY.stories) ?? [];
+export const saveStories = (s: SmallStory[]) => write(KEY.stories, s);
+
+export function upsertStory(s: SmallStory): void {
+  const all = loadStories();
+  const i = all.findIndex((x) => x.id === s.id);
+  if (i >= 0) all[i] = s;
+  else all.push(s);
+  saveStories(all);
+}
+
+export function completeStory(id: string): void {
+  const all = loadStories();
+  const i = all.findIndex((x) => x.id === id);
+  if (i < 0) return;
+  all[i] = { ...all[i], status: "done", completedAt: new Date().toISOString() };
+  saveStories(all);
+}
+
+export const activeStoryCount = (): number =>
+  loadStories().filter((s) => s.status !== "done").length;
+
+// ---------------------------------------------------------------- cards (多目標対応)
+
+/** レガシーな単数カードを配列へ一度だけ畳み込む */
+function migrateLegacyCard(): void {
+  const legacy = read<GoalCard>(KEY.card);
+  if (!legacy) return;
+  const all = read<GoalCard[]>(KEY.cards) ?? [];
+  if (!all.some((c) => c.id === legacy.id)) {
+    write(KEY.cards, [...all, legacy]);
+  }
+  remove(KEY.card);
+}
+
+export function loadCards(): GoalCard[] {
+  migrateLegacyCard();
+  return read<GoalCard[]>(KEY.cards) ?? [];
+}
+
+export const loadCardById = (id: string): GoalCard | null =>
+  loadCards().find((c) => c.id === id) ?? null;
+
+export function upsertCard(c: GoalCard): void {
+  const all = loadCards();
+  const i = all.findIndex((x) => x.id === c.id);
+  if (i >= 0) all[i] = c;
+  else all.push(c);
+  write(KEY.cards, all);
+}
+
+/** 後方互換シム: 最終更新のカードを1件返す。新規コードは loadCards/upsertCard を使うこと */
+export function loadCard(): GoalCard | null {
+  const all = loadCards();
+  if (all.length === 0) return null;
+  return [...all].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+}
+
+/** 後方互換シム */
+export const saveCard = (c: GoalCard) => upsertCard(c);
+
+export const clearCard = () => remove(KEY.cards);
 
 export const loadProfile = () => read<UserProfile>(KEY.profile);
 export const saveProfile = (p: UserProfile) => write(KEY.profile, p);
@@ -108,5 +186,8 @@ export function resetAll(): void {
   remove(KEY.archive);
   remove(KEY.session);
   remove(KEY.card);
+  remove(KEY.cards);
+  remove(KEY.bigstory);
+  remove(KEY.stories);
   remove(KEY.profile);
 }
