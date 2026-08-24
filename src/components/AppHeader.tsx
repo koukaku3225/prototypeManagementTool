@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 const NAV = [
   { href: "/", label: "ホーム" },
   { href: "/tree", label: "ツリー" },
+  { href: "/history", label: "記録" },
   { href: "/settings", label: "設定" },
 ] as const;
 

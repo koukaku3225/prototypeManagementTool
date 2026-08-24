@@ -126,6 +126,14 @@ export default function GoalDetailPage({
           <span className="text-[12px] text-muted">
             {card.source === "manual" ? "手入力" : `${coach?.name ?? ""}との対話`}
           </span>
+          {card.sessionId && (
+            <Link
+              href={`/history/${card.sessionId}`}
+              className="text-[12px] text-muted underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              対話を読み返す
+            </Link>
+          )}
           {isDone && (
             <span className="ml-auto rounded-full border border-line px-2.5 py-0.5 text-[11px] text-muted">
               完了

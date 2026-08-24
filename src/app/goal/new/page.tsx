@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { CoachPicker } from "@/components/CoachPicker";
+import { TechniqueBrief } from "@/components/TechniqueBrief";
 import {
   activeCards,
   clearSession,
@@ -95,6 +96,12 @@ export default function NewGoalPage() {
             大きな物語がまだありません。単独の目標として作ります。
           </p>
         )}
+
+        <div className="mt-4">
+          <TechniqueBrief
+            ids={["smart", "mental-contrasting", "implementation-intentions"]}
+          />
+        </div>
 
         <h2 className="mt-6 text-[13px] font-bold">つくり方を選ぶ</h2>
         <div className="mt-2 flex flex-col gap-2">

@@ -51,6 +51,7 @@ export default function BigStoryGenPage() {
           currentPosition: data.bigStory.currentPosition,
           milestones: data.bigStory.milestones ?? [],
           editedFields: [],
+          sessionId: session.id,
         };
 
         saveBigStory(built);

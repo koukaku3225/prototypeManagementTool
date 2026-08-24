@@ -75,6 +75,14 @@ export default function StoryPage() {
         <div className="flex items-center gap-2.5">
           <CoachAvatar id={story.coachId} size={32} />
           <span className="text-[12px] text-muted">{coach?.name}</span>
+          {story.sessionId && (
+            <Link
+              href={`/history/${story.sessionId}`}
+              className="text-[12px] text-muted underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              対話を読み返す
+            </Link>
+          )}
           <label className="ml-auto flex items-center gap-1.5 font-mono text-[11.5px] text-muted">
             <input
               type="number"

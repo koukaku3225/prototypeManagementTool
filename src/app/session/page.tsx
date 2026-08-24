@@ -6,6 +6,7 @@ import { ChatBubble } from "@/components/ChatBubble";
 import { Composer } from "@/components/Composer";
 import { DelayLock } from "@/components/DelayLock";
 import { PhaseProgress } from "@/components/PhaseProgress";
+import { TipsBar } from "@/components/TipsBar";
 import { useConversation } from "@/hooks/useConversation";
 import { COACHES } from "@/lib/prompts/coaches";
 import { PHASE_META } from "@/lib/prompts/phases";
@@ -158,6 +159,8 @@ function Conversation({ initial }: { initial: Session }) {
         {locked && lockUntil && (
           <DelayLock until={lockUntil} onExpire={() => forceTick((n) => n + 1)} />
         )}
+
+        <TipsBar phase={session.currentPhase} />
 
         {conv.pendingPhase && status !== "streaming" && (
           <StepAdvance

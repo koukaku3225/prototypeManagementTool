@@ -116,6 +116,8 @@ export interface BigStory {
   currentPosition: string;
   milestones: { label: string; state: string }[];
   editedFields: string[];
+  /** この物語を生んだ対話。あとから読み返せるようにする */
+  sessionId?: string | null;
 }
 
 export interface SmallStory {
@@ -159,6 +161,8 @@ export interface GoalCard {
   status?: "active" | "done";
   /** 手入力で作ったか。対話由来と区別して表示する */
   source?: "dialogue" | "manual";
+  /** この目標を生んだ対話。あとから読み返せるようにする */
+  sessionId?: string | null;
 
   vision: {
     raw: string; // ユーザーが最初に語った生の言葉

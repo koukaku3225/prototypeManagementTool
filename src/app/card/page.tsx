@@ -64,6 +64,7 @@ export default function CardPage() {
           rationale: data.card.rationale ?? "",
           status: "active",
           source: "dialogue",
+          sessionId: session.id,
           vision: data.card.vision,
           meaning: data.card.meaning,
           smart: { ...data.card.smart, deadline: data.card.smart.deadline ?? "" },

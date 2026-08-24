@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { CoachPicker } from "@/components/CoachPicker";
+import { TechniqueBrief } from "@/components/TechniqueBrief";
 import {
   clearSession,
   loadBigStory,
@@ -80,6 +81,10 @@ export default function NewStoryPage() {
             </Link>
           </div>
         )}
+
+        <div className="mt-4">
+          <TechniqueBrief ids={["self-determination", "grow", "mental-contrasting"]} />
+        </div>
 
         <h2 className="mt-6 text-[13px] font-bold">つくり方を選ぶ</h2>
         <div className="mt-2 flex flex-col gap-2">

@@ -236,6 +236,14 @@ export function archiveSession(s: Session): void {
 
 export const loadArchive = (): Session[] => read<Session[]>(KEY.archive) ?? [];
 
+/** 保存済みの対話を1件引く。進行中のセッションも探す */
+export function loadArchivedSession(id: string): Session | null {
+  const found = loadArchive().find((s) => s.id === id);
+  if (found) return found;
+  const current = loadSession();
+  return current?.id === id ? current : null;
+}
+
 export function resetAll(): void {
   remove(KEY.archive);
   remove(KEY.session);
