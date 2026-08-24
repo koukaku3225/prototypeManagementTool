@@ -6,6 +6,7 @@ import { ChatBubble } from "@/components/ChatBubble";
 import { Composer } from "@/components/Composer";
 import { DelayLock } from "@/components/DelayLock";
 import { PhaseProgress } from "@/components/PhaseProgress";
+import { ThinkingTimer } from "@/components/ThinkingTimer";
 import { TipsBar } from "@/components/TipsBar";
 import { useConversation } from "@/hooks/useConversation";
 import { COACHES } from "@/lib/prompts/coaches";
@@ -85,6 +86,16 @@ function Conversation({ initial }: { initial: Session }) {
 
   const locked = lockUntil !== null && Date.now() < lockUntil;
 
+  // 理想を考える時間。big の最初の問いかけが終わり、まだ何も答えていない間だけ出す
+  const firstCoachMsg = session.messages.find((m) => m.role === "assistant");
+  const showThinking =
+    session.mode === "big" &&
+    session.currentPhase === "big_vision" &&
+    !session.thinkingDoneAt &&
+    firstCoachMsg !== undefined &&
+    !session.messages.some((m) => m.role === "user") &&
+    status !== "streaming";
+
   return (
     <div className="phone flex flex-1 flex-col">
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-paper/95 px-5 py-3 backdrop-blur">
@@ -160,7 +171,14 @@ function Conversation({ initial }: { initial: Session }) {
           <DelayLock until={lockUntil} onExpire={() => forceTick((n) => n + 1)} />
         )}
 
-        <TipsBar phase={session.currentPhase} />
+        {showThinking && firstCoachMsg && (
+          <ThinkingTimer
+            startedAt={new Date(firstCoachMsg.timestamp).getTime()}
+            onDone={conv.markThinkingDone}
+          />
+        )}
+
+        {!showThinking && <TipsBar phase={session.currentPhase} />}
 
         {conv.pendingPhase && status !== "streaming" && (
           <StepAdvance
@@ -172,7 +190,7 @@ function Conversation({ initial }: { initial: Session }) {
         )}
 
         <Composer
-          disabled={status === "streaming" || status === "done"}
+          disabled={status === "streaming" || status === "done" || showThinking}
           locked={locked}
           lockStartedAt={lockUntil !== null ? lockUntil - 60_000 : null}
           onSend={(text, draft) => void conv.send(text, draft)}

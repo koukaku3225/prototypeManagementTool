@@ -253,6 +253,11 @@ export interface Session {
   variant: ExperimentVariant;
   /** フェーズごとの滞在時間計測（M3）。フェーズ開始時刻 */
   phaseEnteredAt: Partial<Record<AnyPhaseId, string>>;
+  /**
+   * 理想を考える時間を切り上げた時刻。
+   * リロードでタイマーが復活しないように残す。null なら未通過。
+   */
+  thinkingDoneAt?: string | null;
 }
 
 export function emptyPhaseCounts(): Record<PhaseId, number> {

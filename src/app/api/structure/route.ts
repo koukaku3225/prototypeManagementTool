@@ -15,6 +15,8 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const GoalCardSchema = z.object({
+  /** 内部用。各項目を書く前に対話の流れを整理させる。UIには出さない */
+  flowSummary: z.string(),
   vision: z.object({
     raw: z.string(),
     refined: z.string(),
@@ -65,6 +67,12 @@ const ProfileSchema = z.object({
 });
 
 const BigStorySchema = z.object({
+  /**
+   * 内部用。各項目を書く前に対話の流れを整理させる。
+   * 先に全体を振り返らせないと、直近の発言を切り貼りしただけの
+   * 成果物になりやすい。UIには出さない。
+   */
+  flowSummary: z.string(),
   horizonYears: z.number(),
   vision: z.object({
     raw: z.string(),

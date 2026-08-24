@@ -155,6 +155,18 @@ export function useConversation(initial: Session) {
     void send(null);
   }, [state.autoSend, send]);
 
+  /** 「考えがまとまった」を押した。リロードでタイマーが戻らないよう保存する */
+  const markThinkingDone = useCallback(() => {
+    setState((s) =>
+      s.session.thinkingDoneAt
+        ? s
+        : {
+            ...s,
+            session: { ...s.session, thinkingDoneAt: new Date().toISOString() },
+          },
+    );
+  }, []);
+
   /** 直前の失敗を再送する（ユーザー発言は重複させない） */
   const retry = useCallback(() => {
     const rolledBack: Session = {
@@ -171,6 +183,7 @@ export function useConversation(initial: Session) {
     send,
     retry,
     advance,
+    markThinkingDone,
     isLocked: state.lockUntil !== null && Date.now() < state.lockUntil,
   };
 }
