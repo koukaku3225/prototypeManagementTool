@@ -1,10 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { z } from "zod";
 import { getClient, isApiKeyConfigured, STRUCTURE_MODEL } from "@/lib/anthropic";
 import {
+  BigStorySchema,
+  EMPTY_PROFILE,
+  GoalCardSchema,
+  usageOf,
+} from "@/lib/structure-schema";
+import {
   BIG_STRUCTURE_EXTRACTION_PROMPT,
-  PROFILE_EXTRACTION_PROMPT,
   STRUCTURE_EXTRACTION_PROMPT,
 } from "@/lib/prompts/extraction";
 import { PHASE_META } from "@/lib/prompts/phases";
@@ -13,79 +17,6 @@ import type { CoachId, ChatMessage, StoryMode } from "@/types/goal";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const GoalCardSchema = z.object({
-  /** 内部用。各項目を書く前に対話の流れを整理させる。UIには出さない */
-  flowSummary: z.string(),
-  visionRaw: z.string(),
-  /** 観点を変えた3案。決めるのは本人 */
-  visionOptions: z.array(z.string()),
-  meaning: z.object({
-    whyChain: z.array(z.string()),
-    values: z.array(z.string()),
-    motivationType: z.enum(["internal", "external", "avoidance"]),
-    reframed: z.string().nullable(),
-    reframedFrom: z.string().nullable(),
-  }),
-  smart: z.object({
-    specificOptions: z.array(z.string()),
-    measurableOptions: z.array(z.string()),
-    metricUnit: z.string().nullable(),
-    metricTarget: z.number().nullable(),
-    deadline: z.string().nullable(),
-    achievableNote: z.string(),
-  }),
-  woop: z.object({
-    wish: z.string(),
-    outcome: z.string(),
-    obstacles: z.array(
-      z.object({
-        text: z.string(),
-        situation: z.string(),
-        plan: z.object({ if: z.string(), then: z.string() }),
-      }),
-    ),
-  }),
-  tasks: z.array(
-    z.object({
-      title: z.string(),
-      estimateMin: z.number(),
-    }),
-  ),
-  commitment: z.object({
-    userWords: z.string().nullable(),
-  }),
-  /** この目標が大きな物語にどう効くか。ツリーの辺のラベルになる。3案 */
-  rationaleOptions: z.array(z.string()),
-});
-
-const ProfileSchema = z.object({
-  lifePatterns: z.array(z.string()),
-  pastFailures: z.array(z.string()),
-  valuesAccumulated: z.array(z.string()),
-});
-
-const BigStorySchema = z.object({
-  /**
-   * 内部用。各項目を書く前に対話の流れを整理させる。
-   * 先に全体を振り返らせないと、直近の発言を切り貼りしただけの
-   * 成果物になりやすい。UIには出さない。
-   */
-  flowSummary: z.string(),
-  horizonYears: z.number(),
-  visionRaw: z.string(),
-  /** 観点を変えた3案。決めるのは本人 */
-  visionOptions: z.array(z.string()),
-  /** 3案。各案は「 / 」区切りの一行にする */
-  valuesOptions: z.array(z.string()),
-  currentPositionOptions: z.array(z.string()),
-  milestones: z.array(
-    z.object({
-      label: z.string(),
-      state: z.string(),
-    }),
-  ),
-});
 
 function renderTranscript(messages: ChatMessage[], coachId: CoachId): string {
   const coachName = COACHES[coachId].name;
@@ -123,24 +54,15 @@ export async function POST(req: Request) {
 
   try {
     if (body.mode === "big") {
-      const [bigRes, profileRes] = await Promise.all([
-        client.messages.parse({
-          model: STRUCTURE_MODEL,
-          // 各項目3案ぶんの日本語を出すので余裕を持たせる。
-          // 足りないと途中で切れて parsed_output が null になる
-          max_tokens: 12000,
-          system: BIG_STRUCTURE_EXTRACTION_PROMPT,
-          messages: [{ role: "user", content: transcript }],
-          output_config: { format: zodOutputFormat(BigStorySchema) },
-        }),
-        client.messages.parse({
-          model: STRUCTURE_MODEL,
-          max_tokens: 2000,
-          system: PROFILE_EXTRACTION_PROMPT,
-          messages: [{ role: "user", content: transcript }],
-          output_config: { format: zodOutputFormat(ProfileSchema) },
-        }),
-      ]);
+      const bigRes = await client.messages.parse({
+        model: STRUCTURE_MODEL,
+        // 各項目3案ぶんの日本語を出すので余裕を持たせる。
+        // 足りないと途中で切れて parsed_output が null になる
+        max_tokens: 12000,
+        system: BIG_STRUCTURE_EXTRACTION_PROMPT,
+        messages: [{ role: "user", content: transcript }],
+        output_config: { format: zodOutputFormat(BigStorySchema) },
+      });
 
       if (!bigRes.parsed_output) {
         return Response.json(
@@ -149,37 +71,26 @@ export async function POST(req: Request) {
         );
       }
 
+      const { profile, ...bigStory } = bigRes.parsed_output;
       return Response.json({
-        bigStory: bigRes.parsed_output,
-        profile: profileRes.parsed_output ?? {
-          lifePatterns: [],
-          pastFailures: [],
-          valuesAccumulated: [],
-        },
+        bigStory,
+        profile: profile ?? EMPTY_PROFILE,
+        usage: usageOf(bigRes, STRUCTURE_MODEL),
       });
     }
 
-    // 目標カードとプロフィールは別スキーマなので2回に分ける。
-    // どちらも1セッションに1回だけなのでコストは小さい。
-    const [cardRes, profileRes] = await Promise.all([
-      client.messages.parse({
-        model: STRUCTURE_MODEL,
-        // 各項目3案ぶんの日本語を出すので余裕を持たせる
-        max_tokens: 16000,
-        system: body.bigStorySummary
-          ? `${STRUCTURE_EXTRACTION_PROMPT}\n\n【大きな物語】\n${body.bigStorySummary}`
-          : STRUCTURE_EXTRACTION_PROMPT,
-        messages: [{ role: "user", content: transcript }],
-        output_config: { format: zodOutputFormat(GoalCardSchema) },
-      }),
-      client.messages.parse({
-        model: STRUCTURE_MODEL,
-        max_tokens: 2000,
-        system: PROFILE_EXTRACTION_PROMPT,
-        messages: [{ role: "user", content: transcript }],
-        output_config: { format: zodOutputFormat(ProfileSchema) },
-      }),
-    ]);
+    // 目標カードとプロフィールは1回の呼び出しで同時に取る。
+    // 分けると同じ対話ログを2回送ることになり、入力トークンが倍かかる。
+    const cardRes = await client.messages.parse({
+      model: STRUCTURE_MODEL,
+      // 各項目3案ぶんの日本語を出すので余裕を持たせる
+      max_tokens: 16000,
+      system: body.bigStorySummary
+        ? `${STRUCTURE_EXTRACTION_PROMPT}\n\n【大きな物語】\n${body.bigStorySummary}`
+        : STRUCTURE_EXTRACTION_PROMPT,
+      messages: [{ role: "user", content: transcript }],
+      output_config: { format: zodOutputFormat(GoalCardSchema) },
+    });
 
     if (!cardRes.parsed_output) {
       return Response.json(
@@ -188,13 +99,11 @@ export async function POST(req: Request) {
       );
     }
 
+    const { profile, ...card } = cardRes.parsed_output;
     return Response.json({
-      card: cardRes.parsed_output,
-      profile: profileRes.parsed_output ?? {
-        lifePatterns: [],
-        pastFailures: [],
-        valuesAccumulated: [],
-      },
+      card,
+      profile: profile ?? EMPTY_PROFILE,
+      usage: usageOf(cardRes, STRUCTURE_MODEL),
     });
   } catch (err) {
     const status = err instanceof Anthropic.APIError ? (err.status ?? 500) : 500;

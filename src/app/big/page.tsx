@@ -6,9 +6,11 @@ import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { OptionPicker } from "@/components/OptionPicker";
 import {
+  appendUsage,
   archiveSession,
   clearSession,
   loadSession,
+  outcomeOfSession,
   saveBigStory,
   saveProfile,
 } from "@/lib/storage";
@@ -61,6 +63,9 @@ export default function BigStoryGenPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message ?? "整理に失敗しました。");
 
+      // M8: 整理は sonnet で出力も長い。1セッションで最も高い1回なので必ず記録する
+      if (data.usage) setTranscript(appendUsage(data.usage) ?? session);
+
       const b = data.bigStory;
       const d: Draft = {
         horizonYears: b.horizonYears,
@@ -99,9 +104,12 @@ export default function BigStoryGenPage() {
     if (!draft || !transcript) return;
     const now = new Date().toISOString();
 
+    // 続きから話した対話なら、前に作った物語を上書きする
+    const prev = outcomeOfSession(transcript.id).big;
+
     saveBigStory({
-      id: crypto.randomUUID(),
-      createdAt: now,
+      id: prev?.id ?? crypto.randomUUID(),
+      createdAt: prev?.createdAt ?? now,
       updatedAt: now,
       coachId: transcript.coachId,
       horizonYears: draft.horizonYears,

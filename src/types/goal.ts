@@ -240,6 +240,26 @@ export interface ExperimentVariant {
   deliberateDelay: boolean; // H4: 意図的待ち時間
 }
 
+/**
+ * M8: 1回のAPI呼び出しのトークン内訳。
+ *
+ * 入力トークンは3種類あり、単価が10倍以上違う。合計だけ見ても
+ * 改善したかどうか分からないので、必ず分けて記録する。
+ * - input     … キャッシュに載らなかった入力。定価
+ * - cacheRead … キャッシュから読めた入力。定価の 1/10
+ * - cacheWrite… キャッシュへ書いた入力。5m なら定価の1.25倍、1h なら2倍
+ */
+export interface TokenUsage {
+  at: string;
+  model: string;
+  /** どの呼び出しか。対話ターンはフェーズID、最後の整理は "structure" */
+  kind: AnyPhaseId | "structure";
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
 export interface Session {
   id: string;
   mode: StoryMode;
@@ -258,6 +278,14 @@ export interface Session {
    * リロードでタイマーが復活しないように残す。null なら未通過。
    */
   thinkingDoneAt?: string | null;
+  /** M8: このセッションで消費したトークン。1呼び出し1件 */
+  usage?: TokenUsage[];
+  /**
+   * 終わった対話を続きから再開した時刻。
+   * これが入っているセッションは、完成時に新しい成果物を作らず
+   * 元の成果物を上書きする。
+   */
+  resumedAt?: string | null;
 }
 
 export function emptyPhaseCounts(): Record<PhaseId, number> {

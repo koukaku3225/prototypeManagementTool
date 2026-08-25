@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { computeSessionMetrics, type SessionMetrics } from "@/lib/metrics";
 import { download } from "@/lib/export";
+import { USD_JPY, yenOf } from "@/lib/pricing";
 import { loadArchive, loadCard, loadSession, setVariant } from "@/lib/storage";
 import type { ExperimentVariant, GoalCard, Session } from "@/types/goal";
 import { PHASE_META } from "@/lib/prompts/phases";
@@ -25,6 +26,19 @@ export default function MetricsPage() {
   }, []);
 
   const completed = rows.filter((r) => r.completed).length;
+
+  // M8: 計測できたセッションだけで平均を出す。旧セッションは usage を持たない
+  const priced = rows.filter((r) => r.cost.calls > 0);
+  const totalYen = priced.reduce((n, r) => n + r.cost.yen, 0);
+  const totalHitRate = ratio(
+    priced.reduce((n, r) => n + r.cost.cacheRead, 0),
+    priced.reduce(
+      (n, r) => n + r.cost.input + r.cost.cacheRead + r.cost.cacheWrite,
+      0,
+    ),
+  );
+  const savedYen =
+    yenOf(priced.reduce((n, r) => n + r.cost.usdWithoutCache, 0)) - totalYen;
 
   function force(v: ExperimentVariant) {
     setVariant(v);
@@ -50,6 +64,33 @@ export default function MetricsPage() {
             {completed} / {rows.length} セッション
           </span>
         </p>
+      </section>
+
+      <section className="mt-3 rounded-xl border border-line bg-surface px-4 py-4">
+        <h2 className="text-[13px] font-bold">M8 トークンとコスト</h2>
+        {priced.length === 0 ? (
+          <p className="mt-1.5 text-[12.5px] text-muted">
+            まだ計測できたセッションがありません。
+          </p>
+        ) : (
+          <>
+            <p className="mt-1 font-mono text-[20px] tabular-nums">
+              {yen(totalYen / priced.length)}
+              <span className="ml-2 text-[12px] text-muted">
+                / セッション（{priced.length} 本の平均）
+              </span>
+            </p>
+            <dl className="mt-3 flex flex-col gap-1.5 text-[12.5px]">
+              <Row k="合計">{yen(totalYen)}</Row>
+              <Row k="キャッシュ命中率">{pct(totalHitRate)}</Row>
+              <Row k="キャッシュで浮いた額">{yen(savedYen)}</Row>
+            </dl>
+            <p className="mt-2 text-[11.5px] leading-relaxed text-muted">
+              命中率は入力トークンのうちキャッシュから読めた割合。
+              単価は lib/pricing.ts に手で書いた値（1ドル {USD_JPY} 円）。
+            </p>
+          </>
+        )}
       </section>
 
       {rows.length === 0 && (
@@ -112,6 +153,21 @@ export default function MetricsPage() {
               <Row k="所要時間">
                 {r.totalMinutes !== null ? `${r.totalMinutes} 分` : "—"}
               </Row>
+              {r.cost.calls > 0 && (
+                <>
+                  <Row k="M8 コスト">
+                    {yen(r.cost.yen)}
+                    <span className="ml-1 text-muted">
+                      / {r.cost.calls} 回
+                    </span>
+                  </Row>
+                  <Row k="　入力（定価 / 読 / 書）">
+                    {r.cost.input} / {r.cost.cacheRead} / {r.cost.cacheWrite}
+                  </Row>
+                  <Row k="　出力">{r.cost.output}</Row>
+                  <Row k="　キャッシュ命中率">{pct(r.cost.cacheHitRate)}</Row>
+                </>
+              )}
             </dl>
           </section>
         ))}
@@ -183,6 +239,18 @@ export default function MetricsPage() {
     </main>
   );
 }
+
+/** 1円未満が普通に出るので、小さいときは小数を残す */
+function yen(v: number): string {
+  if (v === 0) return "0 円";
+  if (Math.abs(v) < 1) return `${v.toFixed(2)} 円`;
+  if (Math.abs(v) < 100) return `${v.toFixed(1)} 円`;
+  return `${Math.round(v)} 円`;
+}
+
+const pct = (v: number): string => `${Math.round(v * 100)}%`;
+
+const ratio = (a: number, b: number): number => (b ? a / b : 0);
 
 function Row({ k, children }: { k: string; children: React.ReactNode }) {
   return (

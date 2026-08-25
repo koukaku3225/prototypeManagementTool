@@ -4,7 +4,48 @@ import {
   type GoalCard,
   type PhaseId,
   type Session,
+  type TokenUsage,
 } from "@/types/goal";
+import { usdOf, usdWithoutCache, yenOf } from "@/lib/pricing";
+
+/** M8: セッション1本ぶんのトークンとコスト */
+export interface CostMetrics {
+  calls: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** 入力のうちキャッシュから読めた割合。施策の効き目はここに出る */
+  cacheHitRate: number;
+  usd: number;
+  yen: number;
+  /** キャッシュがまったく効かなかった場合の USD。比較用 */
+  usdWithoutCache: number;
+}
+
+export function computeCost(usage: TokenUsage[] | undefined): CostMetrics {
+  const rows = usage ?? [];
+  const sum = (f: (u: TokenUsage) => number) =>
+    rows.reduce((n, u) => n + f(u), 0);
+
+  const input = sum((u) => u.input);
+  const cacheRead = sum((u) => u.cacheRead);
+  const cacheWrite = sum((u) => u.cacheWrite);
+  const totalInput = input + cacheRead + cacheWrite;
+  const usd = rows.reduce((n, u) => n + usdOf(u), 0);
+
+  return {
+    calls: rows.length,
+    input,
+    output: sum((u) => u.output),
+    cacheRead,
+    cacheWrite,
+    cacheHitRate: totalInput ? cacheRead / totalInput : 0,
+    usd,
+    yen: yenOf(usd),
+    usdWithoutCache: rows.reduce((n, u) => n + usdWithoutCache(u), 0),
+  };
+}
 
 export interface SessionMetrics {
   sessionId: string;
@@ -26,6 +67,8 @@ export interface SessionMetrics {
   };
   totalTurns: number;
   totalMinutes: number | null;
+  /** M8: トークンとコスト */
+  cost: CostMetrics;
 }
 
 export function computeSessionMetrics(s: Session): SessionMetrics {
@@ -64,6 +107,7 @@ export function computeSessionMetrics(s: Session): SessionMetrics {
     totalMinutes: s.completedAt
       ? minutesBetween(s.startedAt, s.completedAt)
       : null,
+    cost: computeCost(s.usage),
   };
 }
 

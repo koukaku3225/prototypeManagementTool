@@ -9,6 +9,7 @@ import {
   type Session,
   type SmallStory,
   type StoryMode,
+  type TokenUsage,
   type UserProfile,
   FLOW,
   MAX_SMALL_STORIES,
@@ -94,6 +95,18 @@ export function newSession(coachId: CoachId, mode: StoryMode): Session {
 export const loadSession = () => read<Session>(KEY.session);
 export const saveSession = (s: Session) => write(KEY.session, s);
 export const clearSession = () => remove(KEY.session);
+
+/**
+ * M8: 進行中セッションにトークン使用量を1件足して、その場で保存する。
+ * 画面の state 経由で持ち回すと、確定前に離脱したぶんが計測から落ちる。
+ */
+export function appendUsage(u: TokenUsage): Session | null {
+  const s = loadSession();
+  if (!s) return null;
+  const next: Session = { ...s, usage: [...(s.usage ?? []), u] };
+  saveSession(next);
+  return next;
+}
 
 // ---------------------------------------------------------------- big story
 
@@ -230,18 +243,58 @@ export const saveProfile = (p: UserProfile) => write(KEY.profile, p);
  */
 export function archiveSession(s: Session): void {
   const all = read<Session[]>(KEY.archive) ?? [];
-  if (all.some((x) => x.id === s.id)) return;
-  write(KEY.archive, [...all, s]);
+  const i = all.findIndex((x) => x.id === s.id);
+  // 続きから話した対話は同じIDで戻ってくる。増やさず、伸びた分で置き換える
+  if (i >= 0) all[i] = s;
+  else all.push(s);
+  write(KEY.archive, all);
 }
 
 export const loadArchive = (): Session[] => read<Session[]>(KEY.archive) ?? [];
 
 /** 保存済みの対話を1件引く。進行中のセッションも探す */
 export function loadArchivedSession(id: string): Session | null {
-  const found = loadArchive().find((s) => s.id === id);
-  if (found) return found;
+  // 進行中のものを優先する。続きから話している最中は、そちらが最新
   const current = loadSession();
-  return current?.id === id ? current : null;
+  if (current?.id === id) return current;
+  return loadArchive().find((s) => s.id === id) ?? null;
+}
+
+/**
+ * 過去の対話を現役に戻して、続きから話せるようにする。
+ *
+ * 終わった対話でも、あとから「もう少し話したい」ことがある。
+ * 同じセッションIDのまま戻すので、完成したときは元の成果物を
+ * 上書きする（新しく増やさない）。
+ *
+ * 現在のフェーズのターン数は 0 に戻す。上限に達したまま復帰すると
+ * 一言も話せずに「完了」へ押し戻されてしまうため。
+ */
+export function resumeArchivedSession(id: string): Session | null {
+  const src = loadArchivedSession(id);
+  if (!src) return null;
+
+  const resumed: Session = {
+    ...src,
+    completedAt: null,
+    phaseTurnCounts: { ...src.phaseTurnCounts, [src.currentPhase]: 0 },
+    phaseStatus: { ...src.phaseStatus, [src.currentPhase]: "current" },
+    resumedAt: new Date().toISOString(),
+  };
+  saveSession(resumed);
+  return resumed;
+}
+
+/** この対話から生まれた成果物があるか。続きを話すときの上書き先になる */
+export function outcomeOfSession(sessionId: string): {
+  card: GoalCard | null;
+  big: BigStory | null;
+} {
+  const big = loadBigStory();
+  return {
+    card: loadCards().find((c) => c.sessionId === sessionId) ?? null,
+    big: big?.sessionId === sessionId ? big : null,
+  };
 }
 
 export function resetAll(): void {

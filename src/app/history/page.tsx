@@ -16,10 +16,10 @@ export default function HistoryPage() {
   useEffect(() => {
     const archived = loadArchive();
     const current = loadSession();
-    const all =
-      current && !archived.some((s) => s.id === current.id)
-        ? [...archived, current]
-        : archived;
+    // 続きから話している最中は同じIDが両方にある。進行中のほうが新しい
+    const all = current
+      ? [...archived.filter((s) => s.id !== current.id), current]
+      : archived;
     // 新しいものが上
     setSessions(all.sort((a, b) => b.startedAt.localeCompare(a.startedAt)));
     setReady(true);

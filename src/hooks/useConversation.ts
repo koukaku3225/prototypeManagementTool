@@ -7,6 +7,7 @@ import {
   type ChatMessage,
   type DraftEvents,
   type Session,
+  type TokenUsage,
 } from "@/types/goal";
 import { loadBigStory, loadProfile, saveSession } from "@/lib/storage";
 
@@ -112,9 +113,9 @@ export function useConversation(initial: Session) {
           onError: (message) => {
             throw new Error(message);
           },
-          onDone: ({ phase, forced }) => {
+          onDone: ({ phase, forced, usage }) => {
             pendingRef.current = null;
-            setState((s) => finalize(s, working, phase, forced));
+            setState((s) => finalize(s, working, phase, forced, usage));
           },
         });
       } catch (err) {
@@ -200,6 +201,7 @@ function finalize(
   working: Session,
   phase: AnyPhaseId | "done",
   forced: boolean,
+  usage?: TokenUsage,
 ): State {
   const text = s.streamingText;
   const prevPhase = working.currentPhase;
@@ -221,6 +223,8 @@ function finalize(
       ...working.phaseTurnCounts,
       [prevPhase]: (working.phaseTurnCounts[prevPhase] ?? 0) + 1,
     },
+    // M8: 消えたら後から復元できないので、セッションと同じ場所に貯める
+    ...(usage ? { usage: [...(working.usage ?? []), usage] } : {}),
   };
 
   // 待ち時間ロックは「熟考が要るステップで、問いで終わっている」ときだけ
@@ -300,7 +304,11 @@ function endsWithQuestion(text: string): boolean {
 
 interface SseHandlers {
   onDelta: (text: string) => void;
-  onDone: (payload: { phase: AnyPhaseId | "done"; forced: boolean }) => void;
+  onDone: (payload: {
+    phase: AnyPhaseId | "done";
+    forced: boolean;
+    usage?: TokenUsage;
+  }) => void;
   onError: (message: string) => void;
 }
 

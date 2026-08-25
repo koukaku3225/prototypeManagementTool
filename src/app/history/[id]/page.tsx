@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { ChatBubble } from "@/components/ChatBubble";
@@ -8,23 +9,45 @@ import { CoachAvatar } from "@/components/CoachAvatar";
 import { COACHES } from "@/lib/prompts/coaches";
 import { PHASE_META } from "@/lib/prompts/phases";
 import { download } from "@/lib/export";
-import { loadArchivedSession } from "@/lib/storage";
+import {
+  loadArchivedSession,
+  loadSession,
+  outcomeOfSession,
+  resumeArchivedSession,
+} from "@/lib/storage";
 import { FLOW, type Session } from "@/types/goal";
 
-/** 1件の対話をそのまま読み返す。 */
+/** 1件の対話を読み返し、必要なら続きから話す。 */
 export default function HistoryDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
+  /** 別の対話が進行中なら、上書きになるので一度確認する */
+  const [conflict, setConflict] = useState<Session | null>(null);
 
   useEffect(() => {
     setSession(loadArchivedSession(id));
     setReady(true);
   }, [id]);
+
+  function resume() {
+    const current = loadSession();
+    if (current && current.id !== id && !current.completedAt && current.messages.length > 0) {
+      setConflict(current);
+      return;
+    }
+    doResume();
+  }
+
+  function doResume() {
+    if (!resumeArchivedSession(id)) return;
+    router.push("/session");
+  }
 
   if (!ready) {
     return (
@@ -51,6 +74,8 @@ export default function HistoryDetailPage({
 
   const coach = COACHES[session.coachId];
   const order = FLOW[session.mode];
+  const { card, big } = outcomeOfSession(session.id);
+  const outcome = card ?? big;
 
   return (
     <>
@@ -120,9 +145,53 @@ export default function HistoryDetailPage({
           </p>
         )}
 
+        {/* 続きから話す */}
+        <section className="mt-8 rounded-xl border border-accent-line bg-accent-soft px-4 py-4">
+          <h2 className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-accent">
+            続きから話す
+          </h2>
+          <p className="mt-1.5 text-[12.5px] leading-relaxed">
+            この対話を現役に戻して、同じコーチと続きを話せます。
+            {outcome && "話し終えたら、この対話から作った内容が更新されます。"}
+          </p>
+
+          {conflict ? (
+            <div className="mt-3 rounded-lg border border-line bg-paper px-3 py-2.5">
+              <p className="text-[12.5px] leading-relaxed">
+                いま別の対話が進行中です。続きを始めると、そちらは記録に残したうえで
+                置き換わります。
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={doResume}
+                  className="rounded-md bg-indigo px-3 py-1.5 text-[12.5px] text-surface"
+                >
+                  それでも続きから話す
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConflict(null)}
+                  className="rounded-md border border-line px-3 py-1.5 text-[12.5px] text-muted"
+                >
+                  やめる
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={resume}
+              className="mt-3 w-full rounded-lg bg-indigo px-4 py-2.5 text-[14px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              この続きから話す →
+            </button>
+          )}
+        </section>
+
         <Link
           href="/history"
-          className="mt-8 rounded-xl border border-line bg-surface px-4 py-3 text-center text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className="mt-3 rounded-xl border border-line bg-surface px-4 py-3 text-center text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           ← 対話の一覧へ
         </Link>

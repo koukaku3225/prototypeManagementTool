@@ -6,10 +6,12 @@ import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { OptionPicker } from "@/components/OptionPicker";
 import {
+  appendUsage,
   archiveSession,
   clearSession,
   loadBigStory,
   loadSession,
+  outcomeOfSession,
   saveProfile,
   upsertCard,
 } from "@/lib/storage";
@@ -77,6 +79,9 @@ export default function CardPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message ?? "整理に失敗しました。");
 
+      // M8: 整理は sonnet で出力も長い。1セッションで最も高い1回なので必ず記録する
+      if (data.usage) setTranscript(appendUsage(data.usage) ?? session);
+
       const c = data.card;
       const d: Draft = {
         visionRaw: c.visionRaw ?? "",
@@ -127,15 +132,17 @@ export default function CardPage() {
     const now = new Date().toISOString();
     const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
     const big = loadBigStory();
+    // 続きから話した対話なら、前に作った目標を上書きする（増やさない）
+    const prev = outcomeOfSession(transcript.id).card;
 
     const built: GoalCard = {
-      id: crypto.randomUUID(),
-      createdAt: now,
+      id: prev?.id ?? crypto.randomUUID(),
+      createdAt: prev?.createdAt ?? now,
       updatedAt: now,
       coachId: transcript.coachId,
       bigStoryId: big?.id ?? null,
       rationale,
-      status: "active",
+      status: prev?.status ?? "active",
       source: "dialogue",
       sessionId: transcript.id,
       vision: { raw: draft.visionRaw, refined: vision },
