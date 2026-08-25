@@ -99,11 +99,13 @@ function Conversation({ initial }: { initial: Session }) {
   return (
     <div className="phone flex flex-1 flex-col">
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-paper/95 px-5 py-3 backdrop-blur">
+        {/* 応答の途中や整理への移行中に抜けられると、中途半端な状態が残る */}
         <button
           type="button"
           onClick={() => router.push("/")}
-          aria-label="戻る"
-          className="text-[18px] leading-none text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          disabled={status === "streaming" || status === "done"}
+          aria-label="ホームへ戻る"
+          className="text-[18px] leading-none text-muted transition-opacity disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           ←
         </button>

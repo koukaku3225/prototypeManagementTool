@@ -17,10 +17,9 @@ export const maxDuration = 60;
 const GoalCardSchema = z.object({
   /** 内部用。各項目を書く前に対話の流れを整理させる。UIには出さない */
   flowSummary: z.string(),
-  vision: z.object({
-    raw: z.string(),
-    refined: z.string(),
-  }),
+  visionRaw: z.string(),
+  /** 観点を変えた3案。決めるのは本人 */
+  visionOptions: z.array(z.string()),
   meaning: z.object({
     whyChain: z.array(z.string()),
     values: z.array(z.string()),
@@ -29,8 +28,8 @@ const GoalCardSchema = z.object({
     reframedFrom: z.string().nullable(),
   }),
   smart: z.object({
-    specific: z.string(),
-    measurable: z.string(),
+    specificOptions: z.array(z.string()),
+    measurableOptions: z.array(z.string()),
     metricUnit: z.string().nullable(),
     metricTarget: z.number().nullable(),
     deadline: z.string().nullable(),
@@ -56,8 +55,8 @@ const GoalCardSchema = z.object({
   commitment: z.object({
     userWords: z.string().nullable(),
   }),
-  /** この目標が大きな物語にどう効くか。ツリーの辺のラベルになる */
-  rationale: z.string(),
+  /** この目標が大きな物語にどう効くか。ツリーの辺のラベルになる。3案 */
+  rationaleOptions: z.array(z.string()),
 });
 
 const ProfileSchema = z.object({
@@ -74,12 +73,12 @@ const BigStorySchema = z.object({
    */
   flowSummary: z.string(),
   horizonYears: z.number(),
-  vision: z.object({
-    raw: z.string(),
-    refined: z.string(),
-  }),
-  values: z.array(z.string()),
-  currentPosition: z.string(),
+  visionRaw: z.string(),
+  /** 観点を変えた3案。決めるのは本人 */
+  visionOptions: z.array(z.string()),
+  /** 3案。各案は「 / 」区切りの一行にする */
+  valuesOptions: z.array(z.string()),
+  currentPositionOptions: z.array(z.string()),
   milestones: z.array(
     z.object({
       label: z.string(),
@@ -127,7 +126,9 @@ export async function POST(req: Request) {
       const [bigRes, profileRes] = await Promise.all([
         client.messages.parse({
           model: STRUCTURE_MODEL,
-          max_tokens: 2000,
+          // 各項目3案ぶんの日本語を出すので余裕を持たせる。
+          // 足りないと途中で切れて parsed_output が null になる
+          max_tokens: 12000,
           system: BIG_STRUCTURE_EXTRACTION_PROMPT,
           messages: [{ role: "user", content: transcript }],
           output_config: { format: zodOutputFormat(BigStorySchema) },
@@ -163,7 +164,8 @@ export async function POST(req: Request) {
     const [cardRes, profileRes] = await Promise.all([
       client.messages.parse({
         model: STRUCTURE_MODEL,
-        max_tokens: 8000,
+        // 各項目3案ぶんの日本語を出すので余裕を持たせる
+        max_tokens: 16000,
         system: body.bigStorySummary
           ? `${STRUCTURE_EXTRACTION_PROMPT}\n\n【大きな物語】\n${body.bigStorySummary}`
           : STRUCTURE_EXTRACTION_PROMPT,
