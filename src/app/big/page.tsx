@@ -153,8 +153,8 @@ export default function BigStoryGenPage() {
               もう一度試す
             </button>
           )}
-          <Link href="/" className="text-[13px] text-muted underline">
-            ホームへ戻る
+          <Link href="/goals" className="text-[13px] text-muted underline">
+            目標へ戻る
           </Link>
         </main>
       </>

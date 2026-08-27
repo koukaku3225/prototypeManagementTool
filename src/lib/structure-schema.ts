@@ -80,6 +80,10 @@ export const GoalCardSchema = z.object({
     z.object({
       title: z.string(),
       estimateMin: z.number(),
+      /** 実行意図の「いつ」。"21:00" 形式。対話で決まっていなければ null */
+      startTime: z.string().nullable(),
+      /** 実行意図の「どこで」。対話で決まっていなければ null */
+      where: z.string().nullable(),
     }),
   ),
   commitment: z.object({

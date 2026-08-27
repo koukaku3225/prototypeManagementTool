@@ -82,6 +82,9 @@ export function Composer({
         }}
         rows={1}
         placeholder={locked ? "考えながら書いておけます" : "答えを書く"}
+        // サーバー側の上限（4000字）と揃える。UI側だけの制限は検証の代わりに
+        // ならないが、送ってから弾かれるより、打てないほうが親切
+        maxLength={4000}
         className="max-h-40 min-h-[44px] flex-1 resize-none rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14px] leading-relaxed outline-none placeholder:text-muted/70 focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/25"
         style={{ fieldSizing: "content" } as React.CSSProperties}
       />

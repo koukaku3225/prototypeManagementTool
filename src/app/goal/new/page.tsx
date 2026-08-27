@@ -65,10 +65,10 @@ export default function NewGoalPage() {
             どれかを完了にすると枠が空きます。
           </p>
           <Link
-            href="/"
+            href="/goals"
             className="rounded-xl bg-indigo px-4 py-3 text-center text-[14px] text-surface"
           >
-            ホームへ戻る
+            目標一覧へ戻る
           </Link>
         </main>
       </>

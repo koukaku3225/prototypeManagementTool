@@ -42,8 +42,8 @@ export default function HistoryPage() {
           <p className="mt-10 text-center text-[14px] leading-relaxed text-muted">
             まだ対話の記録がありません。
             <br />
-            <Link href="/" className="underline">
-              ホームへ戻る
+            <Link href="/me" className="underline">
+              わたしへ戻る
             </Link>
           </p>
         ) : (

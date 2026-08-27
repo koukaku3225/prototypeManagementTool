@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { computeSessionMetrics, type SessionMetrics } from "@/lib/metrics";
 import { download } from "@/lib/export";
+import { today } from "@/lib/date";
 import { USD_JPY, yenOf } from "@/lib/pricing";
 import { loadArchive, loadCard, loadSession, setVariant } from "@/lib/storage";
 import type { ExperimentVariant, GoalCard, Session } from "@/types/goal";
@@ -51,7 +52,7 @@ export default function MetricsPage() {
         <h1 className="font-mono text-[12px] uppercase tracking-[0.16em] text-muted">
           計測（内部用）
         </h1>
-        <Link href="/" className="text-[12px] text-muted underline">
+        <Link href="/me" className="text-[12px] text-muted underline">
           戻る
         </Link>
       </div>
@@ -227,7 +228,7 @@ export default function MetricsPage() {
         type="button"
         onClick={() =>
           download(
-            `metrics-${new Date().toISOString().slice(0, 10)}.json`,
+            `metrics-${today()}.json`,
             JSON.stringify({ metrics: rows, card, sessions: raw }, null, 2),
             "application/json",
           )

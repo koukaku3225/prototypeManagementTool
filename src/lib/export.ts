@@ -65,7 +65,13 @@ export function toMarkdown(card: GoalCard): string {
   push("## 明日やること");
   push();
   for (const t of card.tasks) {
-    push(`- [${t.completedAt ? "x" : " "}] ${t.title}（${t.estimateMin}分）`);
+    // 「いつ・どこで」は書き出しでも本文に残す。ここが実行意図の本体で、
+    // やること だけ持ち帰っても当日にもう一度考え直すことになる
+    const when = [t.startTime, t.where].filter(Boolean).join(" ");
+    const head = when ? `${when} ・ ` : "";
+    push(
+      `- [${t.completedAt ? "x" : " "}] ${head}${t.title}（${t.estimateMin}分 / ${t.dueDate}）`,
+    );
   }
   push();
 

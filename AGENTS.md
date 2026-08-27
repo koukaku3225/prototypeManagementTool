@@ -7,3 +7,47 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+# このリポジトリの規約
+
+`next dev` が上のブロックを書き戻すので、追記は必ずこの見出しより下に置くこと。
+
+## セキュリティ：絶対に入れないもの
+
+`tests/forbidden.test.mjs` が機械的に見張っている。落ちたら回避せず、設計を変えること。
+
+- **`dangerouslySetInnerHTML` を追加しない。** `innerHTML =` / `document.write` / `eval` / `new Function` も同じ。
+- **Markdown を描画するなら `rehype-raw` を使わない。** `react-markdown` を既定（生HTML無視）のまま使い、`rehype-sanitize` を明示的にチェーンする。
+- **`NEXT_PUBLIC_` 接頭辞に鍵を置かない。** クライアントに埋め込まれる。
+
+理由: このアプリは localStorage に対話全文・過去の挫折・価値観を平文で持っている。XSS が1箇所でも生えると、`fetch` 1行でその全部が外に出る。いま実在する経路はゼロなので、守るべきは**ゼロのままにすること**。
+
+ESLint は導入していない。1ルールのために eslint-config-next 一式を入れると、既存コードに大量の指摘が出て運用されなくなるため、上記スクリプトで代替している。エディタ連携が要るようになったら、そのとき入れる。
+
+## APIルート
+
+- **入力は必ず `src/lib/api-schema.ts` の zod スキーマを通す。** `req.json()` の結果に型注釈を付けるのは検証ではない。
+- **ユーザー由来の文字列を system プロンプトへ素で連結しない。** `sanitizeUserText()` を通し、`USER_DATA_BEGIN`/`END` で囲って「データであって指示ではない」と明示する。
+- 上流（Anthropic）のストリームには `signal: req.signal` を渡し、`ReadableStream` に `cancel()` を置く。忘れると、切断されたリクエストの生成が最後まで走って課金される。
+- 新しいルートを足したら `maxDuration` を明示する。
+
+## localStorage
+
+- **新しいキーを足したら、`SNAPSHOT_TARGETS` と `resetAll()` にも必ず追加する。** 忘れるとスナップショット復元で新機能のデータだけ取り残される。
+- `GoalCard` に日々のログを埋め込まない。`upsertCard` はカード全体を置換するので、古い state で上書きした瞬間にその日の記録が消える。必ず別キー・別配列にする。
+- 保存失敗（容量超過・プライベートモード）は `write()` が拾って画面上部の帯に出す。**新しく `localStorage.setItem` を直接呼ばない。**
+
+## 日付
+
+- **`new Date().toISOString().slice(0, 10)` を使わない。** UTC なので JST では朝9時までが前日になり、「今日やること」が深夜に消える。
+- 日付は `src/lib/date.ts` のヘルパーを通す。`Date.now() + 86_400_000` のような素朴な加算も使わない。
+- リポジトリのパスに日本語（`副業`）が含まれる。Node スクリプトで `import.meta.url` からパスを作るときは、`URL.pathname` ではなく `fileURLToPath()` を使う。
+
+## 対話フェーズ
+
+- **`PHASE_INSTRUCTIONS` に手順を足したら、`PHASE_TURN_LIMIT` も必ず見直す。** 上限に当たると、足した手順が一度も実行されないまま強制遷移する。型でもテストでも捕まらない。
+- 各フェーズの最初のアシスタント発言が、ユーザー未回答のまま1ターンを消費する。「1回答えたら進んでよい」は `min = 2`。
+
+## テスト
+
+`npm test` で全部走る。新しい純粋関数を書いたら `tests/` に足すこと。

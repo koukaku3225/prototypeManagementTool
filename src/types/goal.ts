@@ -23,7 +23,7 @@ export const DELAY_PHASES: readonly PhaseId[] = [] as const;
 /**
  * 堂々巡り防止のための最大ターン数。超えたらシステム側で強制遷移する。
  *
- * small は diverge/smart/woop_wbs の3ステップで最大13ターン。
+ * small は diverge/smart/woop_wbs の3ステップで最大16ターン。
  * 以前は5フェーズ最大39ターンあり「いつまで続くのか分からない」という
  * 実使用フィードバックを受けて短縮した（meaning/reframe は big 側に集約）。
  * meaning/reframe の値はレガシーセッションの再生用に残している。
@@ -33,7 +33,13 @@ export const PHASE_TURN_LIMIT: Record<PhaseId, number> = {
   meaning: 10,
   reframe: 6,
   smart: 5,
-  woop_wbs: 5,
+  /**
+   * woop_wbs は障害 → 状況 → If-Then → タスク選び → いつ・どこで の5手。
+   * 5 のままだと、最後の「いつ・どこで」を聞く手前で強制遷移してしまい、
+   * 実行意図が空のまま完了する（実機で確認した不具合）。
+   * 問い直し1回ぶんの余裕を見て 7。
+   */
+  woop_wbs: 7,
 };
 
 /**
@@ -97,11 +103,25 @@ export type PhaseStatus = "done" | "current" | "upcoming" | "stale";
 
 // ---------------------------------------------------------------- 成果物
 
+/**
+ * 明日の一歩。
+ *
+ * startTime / where は実行意図（implementation intentions）のための項目。
+ * 「いつ・どこで・何を」を事前に決めておくと意図と行動のギャップが縮む、
+ * という知見に基づく。「明日やる」より「明日21時に自室の机で」のほうが強い。
+ *
+ * 追加分は任意にしてある。既存の localStorage のデータには入っていないので、
+ * 必須にすると過去に作った目標が読めなくなる。
+ */
 export interface Task {
   id: string;
   title: string;
   estimateMin: number;
   dueDate: string; // ISO8601 date
+  /** "21:00"。決まっていなければ null */
+  startTime?: string | null;
+  /** 「自室の机」。決まっていなければ null */
+  where?: string | null;
   completedAt: string | null;
 }
 
@@ -118,18 +138,6 @@ export interface BigStory {
   editedFields: string[];
   /** この物語を生んだ対話。あとから読み返せるようにする */
   sessionId?: string | null;
-}
-
-export interface SmallStory {
-  id: string;
-  bigStoryId: string | null;
-  title: string;
-  rationale: string;
-  flowNote: string;
-  status: "proposed" | "active" | "done";
-  cardId: string | null;
-  createdAt: string;
-  completedAt: string | null;
 }
 
 export interface Obstacle {

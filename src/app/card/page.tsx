@@ -15,6 +15,7 @@ import {
   saveProfile,
   upsertCard,
 } from "@/lib/storage";
+import { normalizeTime, tomorrow as tomorrowDate } from "@/lib/date";
 import type { GoalCard, Session } from "@/types/goal";
 
 /** APIが返した素の下書き。ここから本人が選ぶ */
@@ -28,7 +29,12 @@ interface Draft {
     meaning: GoalCard["meaning"];
     smart: Omit<GoalCard["smart"], "specific" | "measurable">;
     woop: { wish: string; outcome: string; obstacles: RawObstacle[] };
-    tasks: { title: string; estimateMin: number }[];
+    tasks: {
+      title: string;
+      estimateMin: number;
+      startTime: string | null;
+      where: string | null;
+    }[];
     commitment: { userWords: string | null };
   };
   profile: {
@@ -130,7 +136,8 @@ export default function CardPage() {
   function confirm() {
     if (!draft || !transcript) return;
     const now = new Date().toISOString();
-    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    // UTC基準だと JST の朝9時までが前日になり、「明日」が今日になる
+    const tomorrow = tomorrowDate();
     const big = loadBigStory();
     // 続きから話した対話なら、前に作った目標を上書きする（増やさない）
     const prev = outcomeOfSession(transcript.id).card;
@@ -160,6 +167,10 @@ export default function CardPage() {
         title: t.title,
         estimateMin: t.estimateMin,
         dueDate: tomorrow,
+        // AIが「夜」のような曖昧な答えを時刻の形に丸めることがあるので、
+        // 形式が合わないものは受け取らず未設定に倒す。嘘の時刻を残さない
+        startTime: normalizeTime(t.startTime),
+        where: t.where?.trim() || null,
         completedAt: null,
       })),
       commitment: {
@@ -203,8 +214,8 @@ export default function CardPage() {
               もう一度試す
             </button>
           )}
-          <Link href="/" className="text-[13px] text-muted underline">
-            ホームへ戻る
+          <Link href="/goals" className="text-[13px] text-muted underline">
+            目標へ戻る
           </Link>
         </main>
       </>

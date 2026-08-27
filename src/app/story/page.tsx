@@ -229,7 +229,7 @@ export default function StoryPage() {
               </ul>
             )}
             <Link
-              href="/tree"
+              href="/goals?view=tree"
               className="mt-3 inline-block text-[12px] text-muted underline"
             >
               ツリーで見る →
@@ -249,7 +249,7 @@ export default function StoryPage() {
                   type="button"
                   onClick={() => {
                     clearBigStory();
-                    router.push("/");
+                    router.push("/goals");
                   }}
                   className="rounded-lg bg-accent px-3 py-1.5 text-[12.5px] text-surface"
                 >

@@ -7,23 +7,26 @@ import {
   type ExperimentVariant,
   type GoalCard,
   type Session,
-  type SmallStory,
   type StoryMode,
   type TokenUsage,
   type UserProfile,
   FLOW,
   MAX_SMALL_STORIES,
 } from "@/types/goal";
+import type { Habit, HabitLog } from "@/types/behavior";
 
 const KEY = {
   session: "gc.session",
   card: "gc.card",           // レガシー。移行元としてのみ読む
   cards: "gc.cards",
   bigstory: "gc.bigstory",
-  stories: "gc.stories",
+  stories: "gc.stories",     // レガシー。SmallStory 廃止で不要。移行で捨てる
   profile: "gc.profile",
   variant: "gc.variant",
   archive: "gc.sessions",
+  habits: "gc.habits",
+  habitLogs: "gc.habitlogs",
+  schemaVersion: "gc.schemaVersion",
 } as const;
 
 /** localStorage は例外を投げうる（プライベートモード、容量超過）。必ず包む。 */
@@ -36,11 +39,68 @@ function read<T>(key: string): T | null {
   }
 }
 
+/**
+ * 保存に失敗したことを、アプリ全体へ知らせるための最小の仕組み。
+ *
+ * write() は以前から false を返していたが、呼び出し側が誰ひとり見ていなかった。
+ * 結果、容量超過やプライベートモードでは「操作はできたように見えるのに、
+ * 何も保存されていない」という、いちばん質の悪い壊れ方をしていた。
+ * 対話の途中でも動き続けられるよう例外は握るが、握ったことは必ず表に出す。
+ */
+export interface StorageFailure {
+  /** 保存できなかったキー */
+  key: string;
+  at: string;
+  /** 容量超過か。プライベートモード等の書き込み禁止と、直し方が違う */
+  quota: boolean;
+}
+
+let lastFailure: StorageFailure | null = null;
+const failureListeners = new Set<(f: StorageFailure | null) => void>();
+
+export function onStorageFailure(
+  fn: (f: StorageFailure | null) => void,
+): () => void {
+  failureListeners.add(fn);
+  return () => failureListeners.delete(fn);
+}
+
+export const getStorageFailure = (): StorageFailure | null => lastFailure;
+
+function setFailure(f: StorageFailure | null): void {
+  lastFailure = f;
+  for (const fn of failureListeners) fn(f);
+}
+
+/** ユーザーが自分で閉じたとき。次に失敗すればまた出る */
+export const dismissStorageFailure = () => setFailure(null);
+
+/**
+ * 容量超過かどうか。ブラウザによって name も code も違うので広く拾う。
+ * 判定を外しても「保存できなかった」ことは伝わるので、致命的ではない。
+ */
+function isQuotaError(err: unknown): boolean {
+  if (!(err instanceof DOMException)) return false;
+  return (
+    err.name === "QuotaExceededError" ||
+    err.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    err.code === 22 ||
+    err.code === 1014
+  );
+}
+
 function write(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    // 書けたなら以前の失敗は解消している。警告を出しっぱなしにしない
+    if (lastFailure) setFailure(null);
     return true;
-  } catch {
+  } catch (err) {
+    setFailure({
+      key,
+      at: new Date().toISOString(),
+      quota: isQuotaError(err),
+    });
     return false;
   }
 }
@@ -50,6 +110,88 @@ function remove(key: string): void {
     localStorage.removeItem(key);
   } catch {
     /* 保存できなくても対話自体は続行できる */
+  }
+}
+
+// ---------------------------------------------------------------- マイグレーション
+
+/**
+ * 保存データの形のバージョン。
+ *
+ * これまで移行は migrateLegacyCard() のような「読むたびに現物を見て直す」
+ * 場当たりで、型を変えるたびに同じものを書き足すことになっていた。
+ * 版番号を1つ持ち、版から版への関数を並べる形にする。
+ *
+ * ■ 版を上げるときの手順
+ *   1. SCHEMA_VERSION を +1 する
+ *   2. MIGRATIONS にその番号の関数を足す（前の版 → その版）
+ *   3. tests/storage.test.mjs に、移行前の形を入れて結果を確かめるテストを足す
+ *
+ * ■ 守ること
+ *   - 移行関数は「何度実行しても同じ結果」にする。途中で失敗して再実行されうる
+ *   - 消す前に移す。読めなくなったデータは戻らない
+ *   - 新しいキーを足したら SNAPSHOT_TARGETS と resetAll() にも足す
+ */
+export const SCHEMA_VERSION = 1;
+
+/** 版 n への移行。キーは移行後の版番号 */
+const MIGRATIONS: Record<number, () => void> = {
+  /**
+   * v0（版番号を持たない、これまでの全データ）→ v1。
+   * これまで散らばっていた場当たりの移行を、ここに集約する。
+   */
+  1: () => {
+    // 単数カード gc.card を配列 gc.cards へ畳む
+    const legacy = read<GoalCard>(KEY.card);
+    if (legacy) {
+      const all = read<GoalCard[]>(KEY.cards) ?? [];
+      if (!all.some((c) => c.id === legacy.id)) write(KEY.cards, [...all, legacy]);
+      remove(KEY.card);
+    }
+    // SmallStory は GoalCard.bigStoryId に吸収済み。参照する画面はもう無い
+    remove(KEY.stories);
+  },
+};
+
+/** 現在の版。読めない・未設定なら 0（＝版番号を持たない古いデータ） */
+function currentVersion(): number {
+  const v = read<number>(KEY.schemaVersion);
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+/**
+ * 1ページ読み込みにつき1回だけ走らせる。
+ *
+ * レイアウトの useEffect で呼ぶ手も考えたが、React は子の effect を先に走らせる。
+ * つまりページ側が先にデータを読んでしまい、移行前の形を掴む。
+ * そのため「最初に読む人が引き金を引く」形にしてある。
+ */
+let migrated = false;
+
+export function ensureMigrated(): void {
+  if (migrated) return;
+  migrated = true;
+  runMigrations();
+}
+
+/**
+ * テスト専用。別のページ読み込みを模して、移行をもう一度走らせる。
+ * 冪等性（何度実行しても同じ結果か）を確かめるのに要る。
+ */
+export function __resetMigrationFlagForTest(): void {
+  migrated = false;
+}
+
+/** 実体。スナップショット復元のあとにも呼ぶ */
+function runMigrations(): void {
+  let v = currentVersion();
+  if (v >= SCHEMA_VERSION) return;
+  while (v < SCHEMA_VERSION) {
+    const step = MIGRATIONS[v + 1];
+    // 版が飛んでいても止めない。無い版は「変換不要」として通す
+    if (step) step();
+    v += 1;
+    write(KEY.schemaVersion, v);
   }
 }
 
@@ -92,7 +234,10 @@ export function newSession(coachId: CoachId, mode: StoryMode): Session {
   };
 }
 
-export const loadSession = () => read<Session>(KEY.session);
+export function loadSession(): Session | null {
+  ensureMigrated();
+  return read<Session>(KEY.session);
+}
 export const saveSession = (s: Session) => write(KEY.session, s);
 export const clearSession = () => remove(KEY.session);
 
@@ -110,49 +255,24 @@ export function appendUsage(u: TokenUsage): Session | null {
 
 // ---------------------------------------------------------------- big story
 
-export const loadBigStory = () => read<BigStory>(KEY.bigstory);
+export function loadBigStory(): BigStory | null {
+  ensureMigrated();
+  return read<BigStory>(KEY.bigstory);
+}
 export const saveBigStory = (b: BigStory) => write(KEY.bigstory, b);
 export const clearBigStory = () => remove(KEY.bigstory);
 
-// ---------------------------------------------------------------- small stories
-
-export const loadStories = (): SmallStory[] => read<SmallStory[]>(KEY.stories) ?? [];
-export const saveStories = (s: SmallStory[]) => write(KEY.stories, s);
-
-export function upsertStory(s: SmallStory): void {
-  const all = loadStories();
-  const i = all.findIndex((x) => x.id === s.id);
-  if (i >= 0) all[i] = s;
-  else all.push(s);
-  saveStories(all);
-}
-
-export function completeStory(id: string): void {
-  const all = loadStories();
-  const i = all.findIndex((x) => x.id === id);
-  if (i < 0) return;
-  all[i] = { ...all[i], status: "done", completedAt: new Date().toISOString() };
-  saveStories(all);
-}
-
-export const activeStoryCount = (): number =>
-  loadStories().filter((s) => s.status !== "done").length;
+/*
+ * SmallStory（gc.stories）はここにあったが、どの画面からも呼ばれていなかった。
+ * 「Big Story から絞り込んだ候補」という役割は GoalCard.bigStoryId に
+ * 吸収済みで、二重に持つ理由がない。型・関数ともに削除した。
+ * 既存データに残っている gc.stories は、マイグレーションで捨てる。
+ */
 
 // ---------------------------------------------------------------- cards (多目標対応)
 
-/** レガシーな単数カードを配列へ一度だけ畳み込む */
-function migrateLegacyCard(): void {
-  const legacy = read<GoalCard>(KEY.card);
-  if (!legacy) return;
-  const all = read<GoalCard[]>(KEY.cards) ?? [];
-  if (!all.some((c) => c.id === legacy.id)) {
-    write(KEY.cards, [...all, legacy]);
-  }
-  remove(KEY.card);
-}
-
 export function loadCards(): GoalCard[] {
-  migrateLegacyCard();
+  ensureMigrated();
   return read<GoalCard[]>(KEY.cards) ?? [];
 }
 
@@ -194,6 +314,9 @@ export function deleteCard(id: string): void {
     KEY.cards,
     loadCards().filter((c) => c.id !== id),
   );
+  // ぶら下がっていた習慣と記録も一緒に消す。残すと孤児になり、
+  // 「どの目標のためだったか」が二度と分からなくなる
+  deleteHabitsOfCard(id);
 }
 
 /** 空のカード。手入力で最初から埋めるときの土台にする */
@@ -233,7 +356,76 @@ export function emptyCard(coachId: CoachId, bigStoryId: string | null): GoalCard
 
 export const clearCard = () => remove(KEY.cards);
 
-export const loadProfile = () => read<UserProfile>(KEY.profile);
+// ---------------------------------------------------------------- 習慣と実施記録
+
+export function loadHabits(): Habit[] {
+  ensureMigrated();
+  return read<Habit[]>(KEY.habits) ?? [];
+}
+
+/** 畳んでいないものだけ。画面で使うのはたいていこちら */
+export const activeHabits = (): Habit[] =>
+  loadHabits().filter((h) => !h.archivedAt);
+
+export const habitsOfCard = (cardId: string): Habit[] =>
+  activeHabits().filter((h) => h.cardId === cardId);
+
+export function upsertHabit(h: Habit): void {
+  const all = loadHabits();
+  const i = all.findIndex((x) => x.id === h.id);
+  if (i >= 0) all[i] = h;
+  else all.push(h);
+  write(KEY.habits, all);
+}
+
+/**
+ * やめる。消さずに畳む。
+ * 「続かなかった」も記録で、消すと同じ失敗を繰り返したことに気づけない。
+ */
+export function archiveHabit(id: string): void {
+  const h = loadHabits().find((x) => x.id === id);
+  if (!h) return;
+  upsertHabit({ ...h, archivedAt: new Date().toISOString() });
+}
+
+export function loadHabitLogs(): HabitLog[] {
+  ensureMigrated();
+  return read<HabitLog[]>(KEY.habitLogs) ?? [];
+}
+
+export const logsOfHabit = (habitId: string): HabitLog[] =>
+  loadHabitLogs().filter((l) => l.habitId === habitId);
+
+/**
+ * その日の記録を書く。
+ *
+ * 同じ日を押し直したら「行を消す」のではなく「state を書き換える」。
+ * チェックを外したら記録ごと消える、という Task 側の壊れ方をここでは繰り返さない。
+ * 分母から外したいときは state を "skipped" にする。
+ */
+export function setHabitLog(log: HabitLog): void {
+  const all = loadHabitLogs();
+  const i = all.findIndex(
+    (l) => l.habitId === log.habitId && l.date === log.date,
+  );
+  if (i >= 0) all[i] = log;
+  else all.push(log);
+  write(KEY.habitLogs, all);
+}
+
+/** 習慣を畳んでも記録は残す。消すのは目標ごと消えるときだけ */
+export function deleteHabitsOfCard(cardId: string): void {
+  const habits = loadHabits();
+  const gone = new Set(habits.filter((h) => h.cardId === cardId).map((h) => h.id));
+  if (gone.size === 0) return;
+  write(KEY.habits, habits.filter((h) => h.cardId !== cardId));
+  write(KEY.habitLogs, loadHabitLogs().filter((l) => !gone.has(l.habitId)));
+}
+
+export function loadProfile(): UserProfile | null {
+  ensureMigrated();
+  return read<UserProfile>(KEY.profile);
+}
 export const saveProfile = (p: UserProfile) => write(KEY.profile, p);
 
 /**
@@ -250,7 +442,10 @@ export function archiveSession(s: Session): void {
   write(KEY.archive, all);
 }
 
-export const loadArchive = (): Session[] => read<Session[]>(KEY.archive) ?? [];
+export function loadArchive(): Session[] {
+  ensureMigrated();
+  return read<Session[]>(KEY.archive) ?? [];
+}
 
 /** 保存済みの対話を1件引く。進行中のセッションも探す */
 export function loadArchivedSession(id: string): Session | null {
@@ -298,13 +493,10 @@ export function outcomeOfSession(sessionId: string): {
 }
 
 export function resetAll(): void {
-  remove(KEY.archive);
-  remove(KEY.session);
-  remove(KEY.card);
-  remove(KEY.cards);
-  remove(KEY.bigstory);
-  remove(KEY.stories);
-  remove(KEY.profile);
+  // レガシーキー（card / stories）も消す。残しておくと、次に版を上げたとき
+  // 「消したはずのデータが移行で復活する」ことが起きうる
+  for (const k of Object.values(KEY)) remove(k);
+  migrated = false;
 }
 
 // ---------------------------------------------------------------- スナップショット
@@ -318,11 +510,18 @@ const SNAPSHOT_TARGETS = [
   KEY.session,
   KEY.cards,
   KEY.bigstory,
-  KEY.stories,
   KEY.profile,
   KEY.variant,
   KEY.archive,
+  KEY.habits,
+  KEY.habitLogs,
+  // 版番号も一緒に取る。古いスナップショットを戻したとき、
+  // その版から現在の版へ移行をやり直せるようにするため
+  KEY.schemaVersion,
 ] as const;
+
+/** 書き戻しで受け付けるキー。レガシーも含む（移行に通すため） */
+const RESTORABLE_KEYS: readonly string[] = Object.values(KEY);
 
 export interface Snapshot {
   id: string;
@@ -347,17 +546,38 @@ export function captureState(): Record<string, string> {
   return data;
 }
 
-/** 取り出した状態を書き戻す。対象キーは一度消してから入れる */
-export function restoreState(data: Record<string, string>): void {
-  for (const k of SNAPSHOT_TARGETS) remove(k);
+/**
+ * 取り出した状態を書き戻す。対象キーは一度消してから入れる。
+ * 書き戻しに失敗したら黙って諦めない。ここで失敗するのは
+ * 「復元したつもりで、実は半分しか戻っていない」という最悪の状態になる。
+ */
+export function restoreState(data: Record<string, string>): boolean {
+  /*
+   * 書き戻しの許可リストは、取り出しの対象（SNAPSHOT_TARGETS）より広く取る。
+   * 古いスナップショットにはレガシーキー（gc.card など）が入りうるし、
+   * それを弾いてしまうと移行の出番が来ないまま黙って消える。
+   * 受け取ってから移行に通すほうが、失うものがない。
+   */
+  for (const k of RESTORABLE_KEYS) remove(k);
+  let ok = true;
   for (const [k, v] of Object.entries(data)) {
-    if (!(SNAPSHOT_TARGETS as readonly string[]).includes(k)) continue;
+    if (!RESTORABLE_KEYS.includes(k)) continue;
     try {
       localStorage.setItem(k, v);
-    } catch {
-      /* 容量超過なら諦める */
+      if (lastFailure) setFailure(null);
+    } catch (err) {
+      ok = false;
+      setFailure({ key: k, at: new Date().toISOString(), quota: isQuotaError(err) });
     }
   }
+  /*
+   * 古いスナップショットには、古い形のデータと古い版番号が入っている。
+   * 書き戻した直後に移行をやり直さないと、現在のコードが読めない形のまま
+   * 画面に流れ込む。版番号ごと復元してあるので、ここから前に進められる。
+   */
+  migrated = false;
+  ensureMigrated();
+  return ok;
 }
 
 export const listSnapshots = (): Snapshot[] =>
@@ -377,8 +597,7 @@ export function saveSnapshot(name: string): Snapshot {
 export function applySnapshot(id: string): boolean {
   const snap = listSnapshots().find((s) => s.id === id);
   if (!snap) return false;
-  restoreState(snap.data);
-  return true;
+  return restoreState(snap.data);
 }
 
 export function deleteSnapshot(id: string): void {
@@ -395,8 +614,7 @@ export function importStateJson(json: string): boolean {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
     const entries = Object.entries(parsed as Record<string, unknown>);
     if (!entries.every(([, v]) => typeof v === "string")) return false;
-    restoreState(Object.fromEntries(entries) as Record<string, string>);
-    return true;
+    return restoreState(Object.fromEntries(entries) as Record<string, string>);
   } catch {
     return false;
   }

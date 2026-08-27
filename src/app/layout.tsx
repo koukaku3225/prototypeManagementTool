@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from "next";
+import { BottomNav } from "@/components/BottomNav";
+import { StorageAlert } from "@/components/StorageAlert";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -33,7 +35,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         />
       </head>
       <body className="min-h-full flex flex-col bg-paper text-ink">
+        {/* 保存できていないことは、どの画面にいても知らせる必要がある */}
+        <StorageAlert />
         {children}
+        <BottomNav />
       </body>
     </html>
   );

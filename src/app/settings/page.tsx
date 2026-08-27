@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { download } from "@/lib/export";
+import { today } from "@/lib/date";
 import {
   applySnapshot,
   captureState,
@@ -102,6 +103,9 @@ export default function SettingsPage() {
                           flash("復元しました");
                           router.refresh();
                           setTimeout(() => router.push("/"), 400);
+                        } else {
+                          // 失敗の中身（容量超過など）は画面上部の帯が出す
+                          flash("復元できませんでした");
                         }
                       }}
                       className="rounded-md border border-accent-line bg-accent-soft px-2.5 py-1 text-[12px] text-accent"
@@ -136,7 +140,7 @@ export default function SettingsPage() {
               type="button"
               onClick={() =>
                 download(
-                  `goal-coach-state-${new Date().toISOString().slice(0, 10)}.json`,
+                  `goal-coach-state-${today()}.json`,
                   JSON.stringify(captureState(), null, 2),
                   "application/json",
                 )
@@ -172,7 +176,7 @@ export default function SettingsPage() {
                 flash("読み込みました");
                 setTimeout(() => router.push("/"), 400);
               } else {
-                flash("読み込めませんでした。JSONの形を確認してください");
+                flash("読み込めませんでした。JSONの形か、保存容量を確認してください");
               }
             }}
             className="mt-2 w-full rounded-lg bg-indigo px-3 py-2 text-[13px] text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"

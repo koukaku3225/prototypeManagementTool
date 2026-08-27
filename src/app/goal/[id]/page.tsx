@@ -6,15 +6,19 @@ import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { CoachAvatar } from "@/components/CoachAvatar";
 import { EditableField } from "@/components/EditableField";
+import { HabitEditor } from "@/components/HabitEditor";
 import { COACHES } from "@/lib/prompts/coaches";
 import { download, toMarkdown } from "@/lib/export";
 import {
   deleteCard,
+  habitsOfCard,
   loadBigStory,
   loadCardById,
   upsertCard,
 } from "@/lib/storage";
+import { normalizeTime, tomorrow } from "@/lib/date";
 import type { BigStory, GoalCard, Obstacle, Task } from "@/types/goal";
+import type { Habit } from "@/types/behavior";
 
 /**
  * 目標の詳細と編集。
@@ -33,10 +37,12 @@ export default function GoalDetailPage({
   const [big, setBig] = useState<BigStory | null>(null);
   const [ready, setReady] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [habits, setHabits] = useState<Habit[]>([]);
 
   useEffect(() => {
     setCard(loadCardById(id));
     setBig(loadBigStory());
+    setHabits(habitsOfCard(id));
     setReady(true);
   }, [id]);
 
@@ -71,8 +77,8 @@ export default function GoalDetailPage({
         <AppHeader title="目標" />
         <main className="phone flex flex-1 flex-col items-center justify-center gap-4 px-5">
           <p className="text-[14px] text-muted">目標が見つかりませんでした。</p>
-          <Link href="/" className="text-[13px] underline">
-            ホームへ戻る
+          <Link href="/goals" className="text-[13px] underline">
+            目標一覧へ戻る
           </Link>
         </main>
       </>
@@ -101,7 +107,6 @@ export default function GoalDetailPage({
   }
 
   function addTask() {
-    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
     update("tasks", (c) => ({
       ...c,
       tasks: [
@@ -110,7 +115,10 @@ export default function GoalDetailPage({
           id: crypto.randomUUID(),
           title: "",
           estimateMin: 30,
-          dueDate: tomorrow,
+          // UTC基準だと JST の朝9時までが前日になり、「明日」が今日になる
+          dueDate: tomorrow(),
+          startTime: null,
+          where: null,
           completedAt: null,
         } satisfies Task,
       ],
@@ -436,6 +444,45 @@ export default function GoalDetailPage({
                     </span>
                   </label>
 
+                  {/*
+                    実行意図の「いつ・どこで」。
+                    所要時間や日付と同じ行に並べると埋もれるので、
+                    タイトルのすぐ下に、本文に近い強さで置く。
+                  */}
+                  <div className="mt-2 flex items-center gap-2 pl-7">
+                    <input
+                      type="time"
+                      value={t.startTime ?? ""}
+                      onChange={(e) =>
+                        update(`tasks[${i}].startTime`, (c) => ({
+                          ...c,
+                          tasks: c.tasks.map((x, j) =>
+                            j === i
+                              ? { ...x, startTime: normalizeTime(e.target.value) }
+                              : x,
+                          ),
+                        }))
+                      }
+                      className="rounded-md border border-line bg-surface px-2 py-1 font-mono text-[12px]"
+                      aria-label="開始時刻"
+                    />
+                    <input
+                      type="text"
+                      value={t.where ?? ""}
+                      placeholder="どこで（例: 自室の机）"
+                      onChange={(e) =>
+                        update(`tasks[${i}].where`, (c) => ({
+                          ...c,
+                          tasks: c.tasks.map((x, j) =>
+                            j === i ? { ...x, where: e.target.value || null } : x,
+                          ),
+                        }))
+                      }
+                      className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2.5 py-1 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
+                      aria-label="やる場所"
+                    />
+                  </div>
+
                   <div className="mt-1.5 flex items-center gap-3 pl-7">
                     <label className="flex items-center gap-1.5 font-mono text-[11px] text-muted">
                       <input
@@ -499,6 +546,18 @@ export default function GoalDetailPage({
               ＋ やることを足す
             </button>
           </Block>
+
+          {/*
+            繰り返すこと。単発の「次の一歩」と並べて置く。
+            別画面に分けると、片方だけ設定して終わってしまう。
+          */}
+          <Block title="繰り返すこと">
+            <HabitEditor
+              cardId={card.id}
+              habits={habits}
+              onChange={() => setHabits(habitsOfCard(card.id))}
+            />
+          </Block>
         </div>
 
         {/* 操作 */}
@@ -555,7 +614,7 @@ export default function GoalDetailPage({
                   type="button"
                   onClick={() => {
                     deleteCard(card.id);
-                    router.push("/");
+                    router.push("/goals");
                   }}
                   className="rounded-lg bg-accent px-3 py-1.5 text-[12.5px] text-surface"
                 >
