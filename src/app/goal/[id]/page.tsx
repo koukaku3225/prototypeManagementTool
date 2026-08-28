@@ -12,13 +12,15 @@ import { download, toMarkdown } from "@/lib/export";
 import {
   deleteCard,
   habitsOfCard,
+  timeBoxesOfCard,
   loadBigStory,
   loadCardById,
   upsertCard,
 } from "@/lib/storage";
-import { normalizeTime, tomorrow } from "@/lib/date";
-import type { BigStory, GoalCard, Obstacle, Task } from "@/types/goal";
+import { normalizeTime } from "@/lib/date";
+import type { BigStory, GoalCard, Obstacle } from "@/types/goal";
 import type { Habit } from "@/types/behavior";
+import type { TimeBox } from "@/types/timebox";
 
 /**
  * 目標の詳細と編集。
@@ -38,11 +40,17 @@ export default function GoalDetailPage({
   const [ready, setReady] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [habits, setHabits] = useState<Habit[]>([]);
+  const [boxes, setBoxes] = useState<TimeBox[]>([]);
 
   useEffect(() => {
     setCard(loadCardById(id));
     setBig(loadBigStory());
     setHabits(habitsOfCard(id));
+    setBoxes(
+      timeBoxesOfCard(id).sort(
+        (a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start),
+      ),
+    );
     setReady(true);
   }, [id]);
 
@@ -106,24 +114,6 @@ export default function GoalDetailPage({
     }));
   }
 
-  function addTask() {
-    update("tasks", (c) => ({
-      ...c,
-      tasks: [
-        ...c.tasks,
-        {
-          id: crypto.randomUUID(),
-          title: "",
-          estimateMin: 30,
-          // UTC基準だと JST の朝9時までが前日になり、「明日」が今日になる
-          dueDate: tomorrow(),
-          startTime: null,
-          where: null,
-          completedAt: null,
-        } satisfies Task,
-      ],
-    }));
-  }
 
   return (
     <>
@@ -397,154 +387,51 @@ export default function GoalDetailPage({
           </Block>
 
           {/* 次の一歩 ─ 空でも自分で足せる */}
-          <Block title="次の一歩" accent>
-            {card.tasks.length === 0 && (
-              <p className="text-[13px] text-muted">
-                まだありません。下から足してください。
+          {/*
+            「次の一歩」（単発タスク）はタイムボックスへ統合した。
+            やることだけ決めて時間を決めないと、他のことに時間を奪われる。
+            ここでは、この目標に紐づいた予定を出して時間割へ送る。
+          */}
+          <Block title="予定した時間" accent>
+            {boxes.length === 0 ? (
+              <p className="text-[12.5px] leading-relaxed text-muted">
+                この目標のための予定はまだありません。
+                時間割で空いているところを押すと作れます。
               </p>
-            )}
-            <div className="flex flex-col gap-3">
-              {card.tasks.map((t, i) => (
-                <div key={t.id}>
-                  <label className="flex items-start gap-2.5">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(t.completedAt)}
-                      onChange={() =>
-                        update(`tasks[${i}].completedAt`, (c) => ({
-                          ...c,
-                          tasks: c.tasks.map((x, j) =>
-                            j === i
-                              ? {
-                                  ...x,
-                                  completedAt: x.completedAt
-                                    ? null
-                                    : new Date().toISOString(),
-                                }
-                              : x,
-                          ),
-                        }))
-                      }
-                      className="mt-1.5 h-4 w-4 shrink-0 accent-[var(--accent)]"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <EditableField
-                        label="やること"
-                        value={t.title}
-                        multiline
-                        onSave={(v) =>
-                          update(`tasks[${i}].title`, (c) => ({
-                            ...c,
-                            tasks: c.tasks.map((x, j) =>
-                              j === i ? { ...x, title: v } : x,
-                            ),
-                          }))
-                        }
-                      />
-                    </span>
-                  </label>
-
-                  {/*
-                    実行意図の「いつ・どこで」。
-                    所要時間や日付と同じ行に並べると埋もれるので、
-                    タイトルのすぐ下に、本文に近い強さで置く。
-                  */}
-                  <div className="mt-2 flex items-center gap-2 pl-7">
-                    <input
-                      type="time"
-                      value={t.startTime ?? ""}
-                      onChange={(e) =>
-                        update(`tasks[${i}].startTime`, (c) => ({
-                          ...c,
-                          tasks: c.tasks.map((x, j) =>
-                            j === i
-                              ? { ...x, startTime: normalizeTime(e.target.value) }
-                              : x,
-                          ),
-                        }))
-                      }
-                      className="rounded-md border border-line bg-surface px-2 py-1 font-mono text-[12px]"
-                      aria-label="開始時刻"
-                    />
-                    <input
-                      type="text"
-                      value={t.where ?? ""}
-                      placeholder="どこで（例: 自室の机）"
-                      onChange={(e) =>
-                        update(`tasks[${i}].where`, (c) => ({
-                          ...c,
-                          tasks: c.tasks.map((x, j) =>
-                            j === i ? { ...x, where: e.target.value || null } : x,
-                          ),
-                        }))
-                      }
-                      className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2.5 py-1 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
-                      aria-label="やる場所"
-                    />
-                  </div>
-
-                  <div className="mt-1.5 flex items-center gap-3 pl-7">
-                    <label className="flex items-center gap-1.5 font-mono text-[11px] text-muted">
-                      <input
-                        type="number"
-                        min={5}
-                        max={480}
-                        step={5}
-                        value={t.estimateMin}
-                        onChange={(e) =>
-                          update(`tasks[${i}].estimateMin`, (c) => ({
-                            ...c,
-                            tasks: c.tasks.map((x, j) =>
-                              j === i
-                                ? { ...x, estimateMin: Number(e.target.value) || 0 }
-                                : x,
-                            ),
-                          }))
-                        }
-                        className="w-16 rounded-md border border-line bg-surface px-2 py-1 text-right"
-                        aria-label="所要時間（分）"
-                      />
-                      分
-                    </label>
-                    <label className="flex items-center gap-1.5 font-mono text-[11px] text-muted">
-                      <input
-                        type="date"
-                        value={t.dueDate}
-                        onChange={(e) =>
-                          update(`tasks[${i}].dueDate`, (c) => ({
-                            ...c,
-                            tasks: c.tasks.map((x, j) =>
-                              j === i ? { ...x, dueDate: e.target.value } : x,
-                            ),
-                          }))
-                        }
-                        className="rounded-md border border-line bg-surface px-2 py-1"
-                        aria-label="日付"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        update("tasks", (c) => ({
-                          ...c,
-                          tasks: c.tasks.filter((_, j) => j !== i),
-                        }))
-                      }
-                      className="ml-auto text-[11.5px] text-muted underline"
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {boxes.map((b) => (
+                  <li
+                    key={b.id}
+                    className="rounded-lg border border-line bg-paper px-3 py-2.5"
+                  >
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-[11.5px] text-muted">
+                        {b.date} {b.start}〜{b.end}
+                      </span>
+                      {b.completedAt && (
+                        <span className="ml-auto font-mono text-[10.5px] text-accent">
+                          完了
+                        </span>
+                      )}
+                    </div>
+                    <p
+                      className={`mt-0.5 text-[13.5px] leading-relaxed ${
+                        b.completedAt ? "text-muted line-through" : ""
+                      }`}
                     >
-                      消す
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={addTask}
-              className="mt-3 text-[12px] text-accent underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      {b.title || "（未記入）"}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Link
+              href="/plan"
+              className="mt-3 block text-[12px] text-accent underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
-              ＋ やることを足す
-            </button>
+              時間割で予定を作る →
+            </Link>
           </Block>
 
           {/*
@@ -581,7 +468,7 @@ export default function GoalDetailPage({
               onClick={() =>
                 download(
                   `goal-${card.createdAt.slice(0, 10)}.md`,
-                  toMarkdown(card),
+                  toMarkdown(card, boxes),
                   "text/markdown",
                 )
               }

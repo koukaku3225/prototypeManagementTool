@@ -66,6 +66,40 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+
+/*
+ * 予定の色。目標ごとに色が付くと、1日の時間の使い方が形で分かる。
+ * 明暗の両テーマで、線・背景・文字の3つを組で持つ。
+ */
+:root {
+  --c-amber-bg: #f6ebd6;  --c-amber-line: #d9a94a;  --c-amber-fg: #7d5008;
+  --c-indigo-bg: #dde6f4; --c-indigo-line: #9db4d8; --c-indigo-fg: #26406b;
+  --c-teal-bg: #d8ece8;   --c-teal-line: #8ec3ba;   --c-teal-fg: #1f5a51;
+  --c-rose-bg: #f5dfe1;   --c-rose-line: #d79aa2;   --c-rose-fg: #7d2733;
+  --c-violet-bg: #e6e0f2; --c-violet-line: #b3a3d4; --c-violet-fg: #45327a;
+  --c-slate-bg: #e4e9f0;  --c-slate-line: #b0bccd;  --c-slate-fg: #3b4756;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-amber-bg: #33280f;  --c-amber-line: #7a5e24;  --c-amber-fg: #e2ac4e;
+    --c-indigo-bg: #1b2740; --c-indigo-line: #3d5580; --c-indigo-fg: #93acdb;
+    --c-teal-bg: #122b28;   --c-teal-line: #2f5d55;   --c-teal-fg: #7fc4b6;
+    --c-rose-bg: #301a1e;   --c-rose-line: #63343c;   --c-rose-fg: #d98d98;
+    --c-violet-bg: #241f38; --c-violet-line: #4a3f73;  --c-violet-fg: #b0a0dd;
+    --c-slate-bg: #1d232d;  --c-slate-line: #38465c;  --c-slate-fg: #9aa8bb;
+  }
+}
+
+/*
+ * 下タブの高さ。画面下に重ねるもの（NowBar など）がこの上に乗るために要る。
+ * sticky bottom-0 を2つ並べると、どちらも画面下に張り付いて重なるため、
+ * 上に置くほうはこのぶんだけ持ち上げる。
+ */
+:root {
+  --bottom-nav-h: 58px;
+}
+
 /* 目には見せず、読み上げには渡す。読み込み中の告知などに使う */
 .sr-only {
   position: absolute;
@@ -84,6 +118,19 @@ body {
   width: 100%;
   max-width: 420px;
   margin-inline: auto;
+}
+
+/*
+ * 時間割のスクロール領域。
+ * スクロールバーが右端に常時出ていると、指を置く場所と重なって邪魔になる。
+ * スクロールできること自体は、目盛りと予定の位置で分かる。
+ */
+.grid-scroller {
+  scrollbar-width: none;
+}
+.grid-scroller::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,4 +1,5 @@
 import type { GoalCard } from "@/types/goal";
+import type { TimeBox } from "@/types/timebox";
 import { COACHES } from "@/lib/prompts/coaches";
 
 const MOTIVATION_LABEL = {
@@ -7,7 +8,12 @@ const MOTIVATION_LABEL = {
   avoidance: "回避的（避けたいから）",
 } as const;
 
-export function toMarkdown(card: GoalCard): string {
+/**
+ * 目標を書き出す。
+ * 予定（タイムボックス）は目標の外に持っているので、呼び出し側から渡す。
+ * 「何をやるか」だけ持ち帰っても、時間を決めていなければ実行されない。
+ */
+export function toMarkdown(card: GoalCard, boxes: TimeBox[] = []): string {
   const lines: string[] = [];
   const push = (s = "") => lines.push(s);
 
@@ -62,18 +68,16 @@ export function toMarkdown(card: GoalCard): string {
     }
   }
 
-  push("## 明日やること");
-  push();
-  for (const t of card.tasks) {
-    // 「いつ・どこで」は書き出しでも本文に残す。ここが実行意図の本体で、
-    // やること だけ持ち帰っても当日にもう一度考え直すことになる
-    const when = [t.startTime, t.where].filter(Boolean).join(" ");
-    const head = when ? `${when} ・ ` : "";
-    push(
-      `- [${t.completedAt ? "x" : " "}] ${head}${t.title}（${t.estimateMin}分 / ${t.dueDate}）`,
-    );
+  if (boxes.length > 0) {
+    push("## 予定した時間");
+    push();
+    for (const b of boxes) {
+      push(`- [${b.completedAt ? "x" : " "}] ${b.date} ${b.start}〜${b.end} ${b.title}`);
+      if (b.meta.obstacle) push(`  - 障害: ${b.meta.obstacle}`);
+      if (b.meta.counter) push(`  - 対策: ${b.meta.counter}`);
+    }
+    push();
   }
-  push();
 
   if (card.commitment.userWords) {
     push("## 約束");

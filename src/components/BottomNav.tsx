@@ -34,23 +34,25 @@ export function BottomNav() {
   if (HIDE_ON.some((p) => pathname.startsWith(p))) return null;
 
   return (
-    <nav
+    <nav data-below-grid
       aria-label="メインナビゲーション"
       className="sticky bottom-0 z-30 border-t border-line bg-paper/95 backdrop-blur"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <div className="phone flex">
+      <div className="phone flex" style={{ height: "var(--bottom-nav-h)" }}>
         {NAV.map((n) => {
-          // 「今日」だけは完全一致。他は配下も光らせる
+          // 「今日」は "/" と時間割（/plan）。他は配下も光らせる
           const on =
-            n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
+            n.href === "/"
+              ? pathname === "/" || pathname.startsWith("/plan")
+              : pathname.startsWith(n.href);
           const Icon = n.icon;
           return (
             <Link
               key={n.href}
               href={n.href}
               aria-current={on ? "page" : undefined}
-              className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
+              className={`flex flex-1 flex-col items-center justify-center gap-1 text-[11px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
                 on ? "text-accent" : "text-muted"
               }`}
             >

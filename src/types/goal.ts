@@ -103,28 +103,6 @@ export type PhaseStatus = "done" | "current" | "upcoming" | "stale";
 
 // ---------------------------------------------------------------- 成果物
 
-/**
- * 明日の一歩。
- *
- * startTime / where は実行意図（implementation intentions）のための項目。
- * 「いつ・どこで・何を」を事前に決めておくと意図と行動のギャップが縮む、
- * という知見に基づく。「明日やる」より「明日21時に自室の机で」のほうが強い。
- *
- * 追加分は任意にしてある。既存の localStorage のデータには入っていないので、
- * 必須にすると過去に作った目標が読めなくなる。
- */
-export interface Task {
-  id: string;
-  title: string;
-  estimateMin: number;
-  dueDate: string; // ISO8601 date
-  /** "21:00"。決まっていなければ null */
-  startTime?: string | null;
-  /** 「自室の机」。決まっていなければ null */
-  where?: string | null;
-  completedAt: string | null;
-}
-
 export interface BigStory {
   id: string;
   createdAt: string;
@@ -199,8 +177,6 @@ export interface GoalCard {
     outcome: string;
     obstacles: Obstacle[];
   };
-
-  tasks: Task[]; // MVPでは常に1件
 
   commitment: {
     accepted: boolean;

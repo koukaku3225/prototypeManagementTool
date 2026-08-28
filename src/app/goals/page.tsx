@@ -6,10 +6,16 @@ import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { CoachAvatar } from "@/components/CoachAvatar";
 import { COACHES } from "@/lib/prompts/coaches";
-import { habitsOfCard, loadBigStory, loadCards } from "@/lib/storage";
+import {
+  habitsOfCard,
+  loadBigStory,
+  loadCards,
+  timeBoxesOfCard,
+} from "@/lib/storage";
 import { scheduleLabel } from "@/lib/habit";
 import { MAX_SMALL_STORIES, type BigStory, type GoalCard } from "@/types/goal";
 import type { Habit } from "@/types/behavior";
+import type { TimeBox } from "@/types/timebox";
 
 /**
  * 目標。
@@ -48,6 +54,7 @@ function GoalsInner() {
   const [big, setBig] = useState<BigStory | null>(null);
   const [cards, setCards] = useState<GoalCard[]>([]);
   const [habits, setHabits] = useState<Record<string, Habit[]>>({});
+  const [boxes, setBoxes] = useState<Record<string, TimeBox[]>>({});
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -55,6 +62,18 @@ function GoalsInner() {
     setBig(loadBigStory());
     setCards(cs);
     setHabits(Object.fromEntries(cs.map((c) => [c.id, habitsOfCard(c.id)])));
+    // これから来る予定を先に。過ぎたものを「次の予定」と呼ばない
+    const now = new Date().toISOString().slice(0, 10);
+    setBoxes(
+      Object.fromEntries(
+        cs.map((c) => [
+          c.id,
+          timeBoxesOfCard(c.id)
+            .filter((b) => b.date >= now && !b.completedAt)
+            .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start)),
+        ]),
+      ),
+    );
     setReady(true);
   }, []);
 
@@ -164,11 +183,11 @@ function GoalsInner() {
 
             <div className="mt-3">
               {view === "tree" ? (
-                <TreeView cards={active} big={big} habits={habits} />
+                <TreeView cards={active} big={big} habits={habits} boxes={boxes} />
               ) : (
                 <div className="flex flex-col gap-2">
                   {active.map((c) => (
-                    <GoalRow key={c.id} card={c} habits={habits[c.id] ?? []} />
+                    <GoalRow key={c.id} card={c} habits={habits[c.id] ?? []} boxes={boxes[c.id] ?? []} />
                   ))}
                 </div>
               )}
@@ -195,7 +214,7 @@ function GoalsInner() {
                 </h2>
                 <div className="mt-2 flex flex-col gap-2">
                   {done.map((c) => (
-                    <GoalRow key={c.id} card={c} habits={[]} muted />
+                    <GoalRow key={c.id} card={c} habits={[]} boxes={[]} muted />
                   ))}
                 </div>
               </section>
@@ -221,7 +240,7 @@ function ViewButton({
       type="button"
       onClick={onClick}
       aria-pressed={on}
-      className={`flex-1 rounded-md px-3 py-1.5 text-[13px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+      className={`min-h-11 flex-1 rounded-md px-3 text-[13.5px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
         on ? "bg-accent-soft font-medium text-accent" : "text-muted"
       }`}
     >
@@ -235,10 +254,12 @@ function TreeView({
   cards,
   big,
   habits,
+  boxes,
 }: {
   cards: GoalCard[];
   big: BigStory | null;
   habits: Record<string, Habit[]>;
+  boxes: Record<string, TimeBox[]>;
 }) {
   const linked = cards.filter((c) => c.bigStoryId && c.bigStoryId === big?.id);
   const orphans = cards.filter((c) => !c.bigStoryId || c.bigStoryId !== big?.id);
@@ -250,7 +271,7 @@ function TreeView({
         {linked.map((c) => (
           <div key={c.id} className="relative py-1.5">
             <span aria-hidden="true" className="absolute -left-5 top-1/2 h-px w-5 bg-line" />
-            <GoalRow card={c} habits={habits[c.id] ?? []} showRationale />
+            <GoalRow card={c} habits={habits[c.id] ?? []} boxes={boxes[c.id] ?? []} showRationale />
           </div>
         ))}
         {linked.length === 0 && big && (
@@ -270,7 +291,7 @@ function TreeView({
           </p>
           <div className="mt-2 flex flex-col gap-2">
             {orphans.map((c) => (
-              <GoalRow key={c.id} card={c} habits={habits[c.id] ?? []} />
+              <GoalRow key={c.id} card={c} habits={habits[c.id] ?? []} boxes={boxes[c.id] ?? []} />
             ))}
           </div>
         </section>
@@ -282,17 +303,19 @@ function TreeView({
 function GoalRow({
   card,
   habits,
+  boxes,
   muted,
   showRationale,
 }: {
   card: GoalCard;
   habits: Habit[];
+  boxes: TimeBox[];
   muted?: boolean;
   showRationale?: boolean;
 }) {
   const coach = COACHES[card.coachId];
   const title = card.vision.refined || card.vision.raw || "（未記入の目標）";
-  const task = card.tasks[0];
+  const nextBox = boxes[0];
 
   return (
     <Link
@@ -323,15 +346,13 @@ function GoalRow({
           </p>
         ))}
 
-      {(habits.length > 0 || task) && (
+      {(habits.length > 0 || nextBox) && (
         <dl className="mt-2.5 flex flex-col gap-1 font-mono text-[11px] text-muted">
-          {task && (
+          {nextBox && (
             <div className="flex gap-1.5">
-              <dt className="shrink-0">次の一歩</dt>
+              <dt className="shrink-0">次の予定</dt>
               <dd className="min-w-0 flex-1 truncate">
-                {[task.startTime, task.where].filter(Boolean).join(" ")}
-                {task.startTime || task.where ? " ・ " : ""}
-                {task.title}（{task.estimateMin}分）
+                {nextBox.date} {nextBox.start}〜{nextBox.end} {nextBox.title}
               </dd>
             </div>
           )}

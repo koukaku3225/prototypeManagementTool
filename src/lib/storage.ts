@@ -14,6 +14,7 @@ import {
   MAX_SMALL_STORIES,
 } from "@/types/goal";
 import type { Habit, HabitLog } from "@/types/behavior";
+import type { TimeBox } from "@/types/timebox";
 
 const KEY = {
   session: "gc.session",
@@ -26,6 +27,7 @@ const KEY = {
   archive: "gc.sessions",
   habits: "gc.habits",
   habitLogs: "gc.habitlogs",
+  timeboxes: "gc.timeboxes",
   schemaVersion: "gc.schemaVersion",
 } as const;
 
@@ -132,7 +134,7 @@ function remove(key: string): void {
  *   - 消す前に移す。読めなくなったデータは戻らない
  *   - 新しいキーを足したら SNAPSHOT_TARGETS と resetAll() にも足す
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** 版 n への移行。キーは移行後の版番号 */
 const MIGRATIONS: Record<number, () => void> = {
@@ -150,6 +152,71 @@ const MIGRATIONS: Record<number, () => void> = {
     }
     // SmallStory は GoalCard.bigStoryId に吸収済み。参照する画面はもう無い
     remove(KEY.stories);
+  },
+
+  /**
+   * v1 → v2。「次の一歩」（GoalCard.tasks）をタイムボックスへ統合する。
+   *
+   * やることだけ決めて時間を決めないと、他のことに時間を奪われる。
+   * 実際の障害が「ご飯終わり、動画を見た流れで別のことを始めてしまう」
+   * という時間帯の奪われ方だったので、予定は必ず時間帯を持つ形に一本化した。
+   *
+   * 捨てずに移す。時刻が入っていないタスクは 21:00 に仮置きし、
+   * 移行したことが分かるようにメモを残す（黙って嘘の時刻にしない）。
+   */
+  2: () => {
+    type LegacyTask = {
+      id: string;
+      title: string;
+      estimateMin: number;
+      dueDate: string;
+      startTime?: string | null;
+      where?: string | null;
+      completedAt: string | null;
+    };
+    type LegacyCard = GoalCard & { tasks?: LegacyTask[] };
+
+    const cards = (read<LegacyCard[]>(KEY.cards) ?? []).slice();
+    const boxes = read<TimeBox[]>(KEY.timeboxes) ?? [];
+    let moved = 0;
+
+    for (const card of cards) {
+      for (const t of card.tasks ?? []) {
+        // 同じ移行を2回走らせても増やさない
+        if (boxes.some((b) => b.id === `from-task-${t.id}`)) continue;
+        const start = t.startTime ?? "21:00";
+        const [h, m] = start.split(":").map(Number);
+        const startMin = (Number.isFinite(h) ? h : 21) * 60 + (Number.isFinite(m) ? m : 0);
+        const endMin = Math.min(1440, startMin + Math.max(15, t.estimateMin || 30));
+        const two = (n: number) => String(n).padStart(2, "0");
+        boxes.push({
+          id: `from-task-${t.id}`,
+          date: t.dueDate,
+          start: `${two(Math.floor(startMin / 60))}:${two(startMin % 60)}`,
+          end: `${two(Math.floor(endMin / 60))}:${two(endMin % 60)}`,
+          title: t.title,
+          cardId: card.id,
+          meta: {
+            why: "",
+            obstacle: "",
+            counter: t.where ? `場所: ${t.where}` : "",
+          },
+          completedAt: t.completedAt,
+          review: null,
+          createdAt: card.createdAt,
+        });
+        if (!t.startTime) {
+          // 仮置きしたことを本人が見て分かるようにする
+          boxes[boxes.length - 1].meta.why =
+            "（旧「次の一歩」から移行。時刻が未設定だったので21時に仮置きしています）";
+        }
+        moved++;
+      }
+      delete card.tasks;
+    }
+
+    if (moved > 0) write(KEY.timeboxes, boxes);
+    write(KEY.cards, cards);
   },
 };
 
@@ -314,9 +381,10 @@ export function deleteCard(id: string): void {
     KEY.cards,
     loadCards().filter((c) => c.id !== id),
   );
-  // ぶら下がっていた習慣と記録も一緒に消す。残すと孤児になり、
+  // ぶら下がっていた習慣・記録・予定も一緒に消す。残すと孤児になり、
   // 「どの目標のためだったか」が二度と分からなくなる
   deleteHabitsOfCard(id);
+  deleteTimeBoxesOfCard(id);
 }
 
 /** 空のカード。手入力で最初から埋めるときの土台にする */
@@ -348,7 +416,6 @@ export function emptyCard(coachId: CoachId, bigStoryId: string | null): GoalCard
       achievableNote: "",
     },
     woop: { wish: "", outcome: "", obstacles: [] },
-    tasks: [],
     commitment: { accepted: false, acceptedAt: null, userWords: null },
     editedFields: [],
   };
@@ -411,6 +478,45 @@ export function setHabitLog(log: HabitLog): void {
   if (i >= 0) all[i] = log;
   else all.push(log);
   write(KEY.habitLogs, all);
+}
+
+// ---------------------------------------------------------------- タイムボックス
+
+export function loadTimeBoxes(): TimeBox[] {
+  ensureMigrated();
+  return read<TimeBox[]>(KEY.timeboxes) ?? [];
+}
+
+/** その日ぶんだけ。開始が早い順 */
+export const timeBoxesOn = (date: string): TimeBox[] =>
+  loadTimeBoxes()
+    .filter((b) => b.date === date)
+    .sort((a, b) => a.start.localeCompare(b.start));
+
+export const timeBoxesOfCard = (cardId: string): TimeBox[] =>
+  loadTimeBoxes().filter((b) => b.cardId === cardId);
+
+export function upsertTimeBox(b: TimeBox): void {
+  const all = loadTimeBoxes();
+  const i = all.findIndex((x) => x.id === b.id);
+  if (i >= 0) all[i] = b;
+  else all.push(b);
+  write(KEY.timeboxes, all);
+}
+
+export function deleteTimeBox(id: string): void {
+  write(
+    KEY.timeboxes,
+    loadTimeBoxes().filter((b) => b.id !== id),
+  );
+}
+
+/** 目標ごと消えるときは、その目標の枠も消す */
+export function deleteTimeBoxesOfCard(cardId: string): void {
+  write(
+    KEY.timeboxes,
+    loadTimeBoxes().filter((b) => b.cardId !== cardId),
+  );
 }
 
 /** 習慣を畳んでも記録は残す。消すのは目標ごと消えるときだけ */
@@ -515,6 +621,7 @@ const SNAPSHOT_TARGETS = [
   KEY.archive,
   KEY.habits,
   KEY.habitLogs,
+  KEY.timeboxes,
   // 版番号も一緒に取る。古いスナップショットを戻したとき、
   // その版から現在の版へ移行をやり直せるようにするため
   KEY.schemaVersion,

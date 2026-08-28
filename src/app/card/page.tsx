@@ -14,8 +14,10 @@ import {
   outcomeOfSession,
   saveProfile,
   upsertCard,
+  upsertTimeBox,
 } from "@/lib/storage";
 import { normalizeTime, tomorrow as tomorrowDate } from "@/lib/date";
+import { toMinutes, toTime } from "@/lib/timebox";
 import type { GoalCard, Session } from "@/types/goal";
 
 /** APIが返した素の下書き。ここから本人が選ぶ */
@@ -162,17 +164,6 @@ export default function CardPage() {
           id: crypto.randomUUID(),
         })),
       },
-      tasks: draft.card.tasks.slice(0, 1).map((t) => ({
-        id: crypto.randomUUID(),
-        title: t.title,
-        estimateMin: t.estimateMin,
-        dueDate: tomorrow,
-        // AIが「夜」のような曖昧な答えを時刻の形に丸めることがあるので、
-        // 形式が合わないものは受け取らず未設定に倒す。嘘の時刻を残さない
-        startTime: normalizeTime(t.startTime),
-        where: t.where?.trim() || null,
-        completedAt: null,
-      })),
       commitment: {
         accepted: Boolean(draft.card.commitment.userWords),
         acceptedAt: draft.card.commitment.userWords ? now : null,
@@ -182,6 +173,42 @@ export default function CardPage() {
     };
 
     upsertCard(built);
+
+    /*
+     * 対話で決まった「明日の一歩」は、タイムボックスとして保存する。
+     * 単発タスクは廃止した。やることだけ決めて時間を決めないと、
+     * 他のことに時間を奪われるため。
+     *
+     * WOOP で出た障害と If-Then を、そのまま枠のメタ認知欄へ流し込む。
+     * その時間になってから思い出すのでは間に合わない。
+     */
+    const firstObstacle = built.woop.obstacles[0];
+    for (const t of draft.card.tasks.slice(0, 1)) {
+      // AIが「夜」のような曖昧な答えを時刻の形に丸めることがあるので、
+      // 形式が合わないものは受け取らない。嘘の時刻を残さない
+      const start = normalizeTime(t.startTime) ?? "21:00";
+      const startMin = toMinutes(start) ?? 1260;
+      const end = toTime(startMin + Math.max(15, t.estimateMin || 30));
+      upsertTimeBox({
+        id: crypto.randomUUID(),
+        date: tomorrow,
+        start,
+        end,
+        title: t.title,
+        cardId: built.id,
+        meta: {
+          why: rationale || vision,
+          obstacle: firstObstacle?.text ?? "",
+          counter: firstObstacle?.plan.if
+            ? `もし${firstObstacle.plan.if} → ${firstObstacle.plan.then}`
+            : (t.where ? `場所: ${t.where}` : ""),
+        },
+        completedAt: null,
+        review: null,
+        createdAt: now,
+      });
+    }
+
     saveProfile({
       updatedAt: now,
       lifePatterns: draft.profile.lifePatterns,

@@ -6,14 +6,22 @@ import { computeSessionMetrics, type SessionMetrics } from "@/lib/metrics";
 import { download } from "@/lib/export";
 import { today } from "@/lib/date";
 import { USD_JPY, yenOf } from "@/lib/pricing";
-import { loadArchive, loadCard, loadSession, setVariant } from "@/lib/storage";
+import {
+  loadArchive,
+  loadCard,
+  loadSession,
+  setVariant,
+  timeBoxesOfCard,
+} from "@/lib/storage";
 import type { ExperimentVariant, GoalCard, Session } from "@/types/goal";
+import type { TimeBox } from "@/types/timebox";
 import { PHASE_META } from "@/lib/prompts/phases";
 
 /** 検証用の内部画面。テスト参加者には案内しない。 */
 export default function MetricsPage() {
   const [rows, setRows] = useState<SessionMetrics[]>([]);
   const [card, setCard] = useState<GoalCard | null>(null);
+  const [boxes, setBoxes] = useState<TimeBox[]>([]);
   const [raw, setRaw] = useState<Session[]>([]);
 
   useEffect(() => {
@@ -23,7 +31,9 @@ export default function MetricsPage() {
     const unique = all.filter((s) => !seen.has(s.id) && seen.add(s.id));
     setRaw(unique);
     setRows(unique.map(computeSessionMetrics));
-    setCard(loadCard());
+    const c = loadCard();
+    setCard(c);
+    setBoxes(c ? timeBoxesOfCard(c.id) : []);
   }, []);
 
   const completed = rows.filter((r) => r.completed).length;
@@ -193,11 +203,11 @@ export default function MetricsPage() {
             {card.meaning.motivationType}
             {card.meaning.reframedFrom ? " → 変換あり" : " → 変換なし"}
           </p>
-          <h2 className="mt-4 text-[13px] font-bold">M7 翌日タスク</h2>
+          <h2 className="mt-4 text-[13px] font-bold">M7 翌日の予定</h2>
           <p className="mt-1.5 text-[12.5px]">
-            {card.tasks[0]?.completedAt
-              ? `完了 (${card.tasks[0].completedAt.slice(0, 16).replace("T", " ")})`
-              : "未完了"}
+            {boxes.length === 0
+              ? "予定なし"
+              : `${boxes.filter((b) => b.completedAt).length}/${boxes.length} 完了`}
           </p>
         </section>
       )}
