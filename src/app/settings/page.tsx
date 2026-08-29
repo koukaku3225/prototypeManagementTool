@@ -6,6 +6,9 @@ import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { download } from "@/lib/export";
 import { today } from "@/lib/date";
+import { useSupabaseUser } from "@/hooks/useSupabaseUser";
+import { supabaseBrowser } from "@/lib/supabase/client";
+import { backfillAll, getLastSyncError, pullAll } from "@/lib/supabase/sync";
 import {
   applySnapshot,
   captureState,
@@ -29,6 +32,9 @@ export default function SettingsPage() {
   const [json, setJson] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const { userId, email, loading: authLoading } = useSupabaseUser();
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [confirmPull, setConfirmPull] = useState(false);
 
   useEffect(() => setSnaps(listSnapshots()), []);
 
@@ -49,6 +55,108 @@ export default function SettingsPage() {
             {msg}
           </p>
         )}
+
+        {/* ── クラウド同期 ─────────────────────── */}
+        <section className="rounded-xl border border-line bg-surface px-4 py-4">
+          <h2 className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
+            クラウド同期
+          </h2>
+          <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
+            ログインすると、以後の保存が裏でSupabaseにも書かれるようになります。
+            ログインしなければ、いままでどおりこの端末のブラウザだけに残ります。
+          </p>
+
+          {authLoading ? (
+            <p className="mt-3 text-[12.5px] text-muted">確認中…</p>
+          ) : userId ? (
+            <>
+              <p className="mt-3 rounded-lg border border-accent-line bg-accent-soft px-3 py-2 text-[12.5px] text-accent">
+                {email} でログイン中
+              </p>
+              <div className="mt-3 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setSyncBusy(true);
+                    const r = await backfillAll();
+                    setSyncBusy(false);
+                    flash(
+                      r.ok
+                        ? `送信しました（${r.pushed.length}件）`
+                        : `一部失敗しました（成功${r.pushed.length}・失敗${r.failed.length}）`,
+                    );
+                  }}
+                  disabled={syncBusy}
+                  className="min-h-11 rounded-lg border border-line bg-paper px-3 text-[13px] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                >
+                  {syncBusy ? "送信中…" : "いまの内容をSupabaseへ送る"}
+                </button>
+                {confirmPull ? (
+                  <div className="rounded-lg border border-line bg-paper px-3 py-2.5">
+                    <p className="text-[12.5px] leading-relaxed">
+                      この端末のデータを、Supabase側の内容で上書きします。
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setConfirmPull(false);
+                          setSyncBusy(true);
+                          const ok = await pullAll();
+                          setSyncBusy(false);
+                          flash(ok ? "取り込みました" : "取り込めませんでした");
+                          if (ok) setTimeout(() => router.push("/"), 400);
+                        }}
+                        disabled={syncBusy}
+                        className="min-h-9 rounded-md border border-accent-line bg-accent-soft px-3 text-[12.5px] text-accent disabled:opacity-50"
+                      >
+                        置き換える
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmPull(false)}
+                        className="min-h-9 rounded-md px-3 text-[12.5px] text-muted"
+                      >
+                        やめる
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmPull(true)}
+                    disabled={syncBusy}
+                    className="min-h-11 rounded-lg border border-line bg-paper px-3 text-[13px] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    Supabaseの内容で置き換える
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await supabaseBrowser().auth.signOut();
+                    flash("ログアウトしました");
+                  }}
+                  className="min-h-11 rounded-lg px-3 text-[12.5px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                >
+                  ログアウト
+                </button>
+              </div>
+              {getLastSyncError() && (
+                <p className="mt-2 text-[11.5px] leading-relaxed text-accent">
+                  直近の同期エラー: {getLastSyncError()?.message}
+                </p>
+              )}
+            </>
+          ) : (
+            <Link
+              href="/login"
+              className="mt-3 flex min-h-11 items-center justify-center rounded-lg bg-indigo px-3 text-[13.5px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              ログインする
+            </Link>
+          )}
+        </section>
 
         {/* ── スナップショット ─────────────────── */}
         <section className="rounded-xl border border-line bg-surface px-4 py-4">

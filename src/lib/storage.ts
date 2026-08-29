@@ -16,7 +16,7 @@ import {
 import type { Habit, HabitLog } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
 
-const KEY = {
+export const KEY = {
   session: "gc.session",
   card: "gc.card",           // レガシー。移行元としてのみ読む
   cards: "gc.cards",
@@ -91,11 +91,22 @@ function isQuotaError(err: unknown): boolean {
   );
 }
 
+/**
+ * ローカル保存のたびに呼ばれる。Supabase 同期を有効にしているときだけ
+ * sync.ts が自分を登録する。storage.ts はここから先が Supabase かどうかを
+ * 知らない（ログインしていない・オフラインなら何も登録されない）。
+ */
+let onWriteHook: ((key: string, value: unknown) => void) | null = null;
+export function setSyncHook(fn: ((key: string, value: unknown) => void) | null): void {
+  onWriteHook = fn;
+}
+
 function write(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
     // 書けたなら以前の失敗は解消している。警告を出しっぱなしにしない
     if (lastFailure) setFailure(null);
+    onWriteHook?.(key, value);
     return true;
   } catch (err) {
     setFailure({
@@ -113,6 +124,8 @@ function remove(key: string): void {
   } catch {
     /* 保存できなくても対話自体は続行できる */
   }
+  // value=null で呼ぶ。「この単一オブジェクトを消した」という意味に使う
+  onWriteHook?.(key, null);
 }
 
 // ---------------------------------------------------------------- マイグレーション

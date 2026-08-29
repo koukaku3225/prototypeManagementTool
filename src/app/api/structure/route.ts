@@ -20,6 +20,7 @@ import {
 } from "@/lib/prompts/extraction";
 import { PHASE_META } from "@/lib/prompts/phases";
 import { COACHES } from "@/lib/prompts/coaches";
+import { requireAuthIfEnabled } from "@/lib/require-auth";
 import type { CoachId, ChatMessage, StoryMode } from "@/types/goal";
 
 export const runtime = "nodejs";
@@ -37,6 +38,9 @@ function renderTranscript(messages: ChatMessage[], coachId: CoachId): string {
 }
 
 export async function POST(req: Request) {
+  const denied = await requireAuthIfEnabled();
+  if (denied) return denied;
+
   if (!isApiKeyConfigured()) {
     return Response.json(
       { error: "config", message: "ANTHROPIC_API_KEY が設定されていません。" },

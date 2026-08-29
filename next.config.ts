@@ -20,6 +20,11 @@ import type { NextConfig } from "next";
  */
 const isDev = process.env.NODE_ENV === "development";
 
+/** Supabase の REST/Realtime 呼び出し先。URLから origin だけ取り出す */
+const supabaseOrigin = process.env.NEXT_PUBLIC_SUPABASE_URL
+  ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin
+  : null;
+
 const csp = [
   "default-src 'self'",
   // Next.js のブートストラップがインラインスクリプトを使うため現状は必要。
@@ -29,8 +34,13 @@ const csp = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: blob:",
-  // ここが要。盗まれても外部へ送れない。dev だけ HMR のWebSocketを許す
-  `connect-src 'self'${isDev ? " ws://localhost:* http://localhost:*" : ""}`,
+  /**
+   * ここが要。盗まれても外部へ送れない。dev だけ HMR のWebSocketを許す。
+   * Supabase の URL だけ例外で足す（自分のDBなので、盗まれた先ではない）。
+   * NEXT_PUBLIC_SUPABASE_URL が無いビルドでは Supabase 呼び出し自体が
+   * 落ちるので、その場合は 'self' のみのままにする。
+   */
+  `connect-src 'self'${supabaseOrigin ? ` ${supabaseOrigin}` : ""}${isDev ? " ws://localhost:* http://localhost:*" : ""}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

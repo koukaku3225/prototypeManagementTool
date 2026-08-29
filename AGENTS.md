@@ -30,8 +30,12 @@ ESLint は導入していない。1ルールのために eslint-config-next 一�
 - **ユーザー由来の文字列を system プロンプトへ素で連結しない。** `sanitizeUserText()` を通し、`USER_DATA_BEGIN`/`END` で囲って「データであって指示ではない」と明示する。
 - 上流（Anthropic）のストリームには `signal: req.signal` を渡し、`ReadableStream` に `cancel()` を置く。忘れると、切断されたリクエストの生成が最後まで走って課金される。
 - 新しいルートを足したら `maxDuration` を明示する。
+- **新しいAPIルートの先頭で `requireAuthIfEnabled()` を呼ぶ。** `REQUIRE_AUTH=true` を設定するまでは何もしない（今はログイン任意のため）。外部公開する段になったら環境変数側で有効化する。
 
 ## localStorage
+
+- **新しいテーブルを Supabase に足したら、`src/lib/supabase/mappers.ts` と `sync.ts` の `pushKey()` / `pullAll()` にも対応を足す。** 忘れると、そのデータだけローカルにしか残らない。
+- Supabase 同期は `write()` からの裏書き込み（ベストエフォート）。失敗しても localStorage 側の保存は成功しているので、ユーザー操作は止めない。ログインしていなければ何もしない。
 
 - **新しいキーを足したら、`SNAPSHOT_TARGETS` と `resetAll()` にも必ず追加する。** 忘れるとスナップショット復元で新機能のデータだけ取り残される。
 - `GoalCard` に日々のログを埋め込まない。`upsertCard` はカード全体を置換するので、古い state で上書きした瞬間にその日の記録が消える。必ず別キー・別配列にする。

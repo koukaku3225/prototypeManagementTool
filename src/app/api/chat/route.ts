@@ -7,6 +7,7 @@ import {
   type ChatRequest,
 } from "@/lib/chat-prompt";
 import { PhaseTokenFilter, resolvePhase } from "@/lib/phase-machine";
+import { requireAuthIfEnabled } from "@/lib/require-auth";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,9 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  const denied = await requireAuthIfEnabled();
+  if (denied) return denied;
+
   if (!isApiKeyConfigured()) {
     return Response.json(
       { error: "config", message: "ANTHROPIC_API_KEY が設定されていません。" },
