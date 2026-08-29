@@ -304,6 +304,9 @@ export function TimeBoxSheet({
                           { hour: "2-digit", minute: "2-digit" },
                         )}
                         ）
+                        {draft.review?.score != null && (
+                          <span className="ml-1">・できばえ {draft.review.score}%</span>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -424,6 +427,8 @@ function Review({
   onDone: () => void;
 }) {
   const r = draft.review ?? emptyReview();
+  // 古いデータには score キー自体が無い（あとから足した項目のため）
+  const score = r.score ?? null;
   const set = (over: Partial<NonNullable<TimeBox["review"]>>) =>
     onChange({ ...r, ...over });
 
@@ -438,6 +443,42 @@ function Review({
       <p className="mt-1 font-mono text-[11.5px] text-muted">
         {draft.start}〜{draft.end}
       </p>
+
+      {/*
+        できばえ。絶対評価ではなく「自分の中の最高の出来を100%としたら」の
+        相対評価にしてある。毎回の絶対点だと基準がぶれて比較にならない
+      */}
+      <div className="mt-4">
+        <div className="flex items-baseline justify-between">
+          <span className="text-[11.5px] text-muted">
+            できばえ（最高の出来を100%として）
+          </span>
+          <span className="font-mono text-[13px] text-muted">
+            {score === null ? "未入力" : `${score}%`}
+          </span>
+        </div>
+        <div className="mt-1.5 flex gap-1.5">
+          {[0, 25, 50, 75, 100].map((v) => {
+            const on = score === v;
+            return (
+              <button
+                key={v}
+                type="button"
+                aria-label={`できばえ ${v}%`}
+                aria-pressed={on}
+                onClick={() => set({ score: on ? null : v })}
+                className={`min-h-11 flex-1 rounded-lg border-2 font-mono text-[12.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+                  on
+                    ? "border-accent bg-accent-soft text-accent"
+                    : "border-line bg-surface text-muted"
+                }`}
+              >
+                {v}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       <Field label="よかったこと" value={r.good} onChange={(v) => set({ good: v })} />
       <Field label="悪かったこと" value={r.bad} onChange={(v) => set({ bad: v })} />

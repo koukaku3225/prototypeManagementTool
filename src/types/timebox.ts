@@ -26,6 +26,12 @@ export interface TimeBoxReview {
   good: string;
   bad: string;
   next: string;
+  /**
+   * できばえ。0〜100。自分の中の最高の出来を100%としたときの相対評価で、
+   * 絶対的な達成度ではない。任意なので未入力は null。
+   * 既存データにはこのキー自体が無いので、読むときは ?? null を通すこと。
+   */
+  score: number | null;
 }
 
 export interface TimeBox {
@@ -58,4 +64,9 @@ export const emptyMeta = (): TimeBoxMeta => ({
   counter: "",
 });
 
-export const emptyReview = (): TimeBoxReview => ({ good: "", bad: "", next: "" });
+export const emptyReview = (): TimeBoxReview => ({
+  good: "",
+  bad: "",
+  next: "",
+  score: null,
+});

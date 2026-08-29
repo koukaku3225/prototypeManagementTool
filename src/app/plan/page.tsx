@@ -23,7 +23,7 @@ import {
   totalMinutes,
 } from "@/lib/timebox";
 import { addDays, dueLabel, today } from "@/lib/date";
-import { emptyMeta, type TimeBox } from "@/types/timebox";
+import { emptyMeta, emptyReview, type TimeBox } from "@/types/timebox";
 import type { GoalCard } from "@/types/goal";
 
 /**
@@ -164,7 +164,7 @@ export default function PlanPage() {
     const done: TimeBox = {
       ...b,
       completedAt: new Date().toISOString(),
-      review: b.review ?? { good: "", bad: "", next: "" },
+      review: b.review ?? emptyReview(),
     };
     save(done);
     // 完了した直後は、振り返りを書ける状態で開く

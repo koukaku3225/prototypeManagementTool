@@ -30,7 +30,7 @@ import {
 import { today } from "@/lib/date";
 import type { GoalCard } from "@/types/goal";
 import type { Habit, HabitLog, HabitLogState } from "@/types/behavior";
-import { emptyMeta, type TimeBox } from "@/types/timebox";
+import { emptyMeta, emptyReview, type TimeBox } from "@/types/timebox";
 
 /**
  * 今日。
@@ -121,7 +121,7 @@ export default function TodayPage() {
     const done: TimeBox = {
       ...b,
       completedAt: new Date().toISOString(),
-      review: b.review ?? { good: "", bad: "", next: "" },
+      review: b.review ?? emptyReview(),
     };
     saveBox(done);
     // 終わった直後に、振り返りを書ける状態で開く
@@ -430,6 +430,12 @@ function BoxRow({
             )}
             {past && !done && !running && (
               <span className="text-[10.5px] text-muted">過ぎています</span>
+            )}
+            {/* 完了ぶんは、できばえがあれば時間の隣に出す。開かなくても見える */}
+            {done && box.review?.score != null && (
+              <span className="rounded-full border border-line px-1.5 py-0.5 font-mono text-[10px] text-muted">
+                {box.review.score}%
+              </span>
             )}
             <span className="ml-auto font-mono text-[10.5px] text-muted">
               {humanDuration(durationMin(box))}
