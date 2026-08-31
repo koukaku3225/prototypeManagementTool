@@ -37,7 +37,13 @@ ESLint は導入していない。1ルールのために eslint-config-next 一�
 - **新しいテーブルを Supabase に足したら、`src/lib/supabase/mappers.ts` と `sync.ts` の `pushKey()` / `pullAll()` にも対応を足す。** 忘れると、そのデータだけローカルにしか残らない。
 - Supabase 同期は `write()` からの裏書き込み（ベストエフォート）。失敗しても localStorage 側の保存は成功しているので、ユーザー操作は止めない。ログインしていなければ何もしない。
 
-- **新しいキーを足したら、`SNAPSHOT_TARGETS` と `resetAll()` にも必ず追加する。** 忘れるとスナップショット復元で新機能のデータだけ取り残される。
+### localStorage が丸ごと消えた実例がある
+
+原因は特定できていないが、本人の実データ（目標カード・大きな物語）が localStorage・スナップショット双方から消えたことが実際にあった。スナップショットもJSON書き出しも「同じブラウザの中」にあるので、サイトデータの一括削除に同じように弱い。
+
+対策として `src/components/LocalBackupBoot.tsx` が、保存のたびに（4秒デバウンスで）`/api/local-backup` 経由でこのPCのディスク（`.local-backups/`、gitignore 済み）へ書く。ログインの有無に関係なく常時動く。起動時に localStorage が空で、ディスク側にバックアップが残っていれば復元を申し出る。**これは `npm run dev` のローカル環境専用**（デプロイ後のサーバーレス環境ではディスクが永続しない）。
+
+- **新しいキーを足したら、`SNAPSHOT_TARGETS` と `resetAll()` に加えて、これは何もしなくてよい**（`captureState()` を丸ごと送っているため、新しいキーも自動的にバックアップ対象になる）。
 - `GoalCard` に日々のログを埋め込まない。`upsertCard` はカード全体を置換するので、古い state で上書きした瞬間にその日の記録が消える。必ず別キー・別配列にする。
 - 保存失敗（容量超過・プライベートモード）は `write()` が拾って画面上部の帯に出す。**新しく `localStorage.setItem` を直接呼ばない。**
 

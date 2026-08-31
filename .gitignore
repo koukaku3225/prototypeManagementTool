@@ -42,3 +42,6 @@ next-env.d.ts
 
 # 環境変数
 .env.local
+
+# ローカルディスクへの自動バックアップ（本人の対話・目標データそのもの）
+.local-backups

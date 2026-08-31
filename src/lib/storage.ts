@@ -101,12 +101,24 @@ export function setSyncHook(fn: ((key: string, value: unknown) => void) | null):
   onWriteHook = fn;
 }
 
+/**
+ * localStorage が丸ごと消えた実例（原因は特定できていないが、実際に起きた）が
+ * あったため、ログイン状態に関係なく常時効くフックを別に持つ。
+ * ブラウザの外（ローカルディスク）へバックアップするためのもので、
+ * こちらは無条件で呼ぶ。Supabase 同期用の onWriteHook とは独立している。
+ */
+let onAnyWriteHook: (() => void) | null = null;
+export function setLocalBackupHook(fn: (() => void) | null): void {
+  onAnyWriteHook = fn;
+}
+
 function write(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
     // 書けたなら以前の失敗は解消している。警告を出しっぱなしにしない
     if (lastFailure) setFailure(null);
     onWriteHook?.(key, value);
+    onAnyWriteHook?.();
     return true;
   } catch (err) {
     setFailure({
@@ -126,6 +138,7 @@ function remove(key: string): void {
   }
   // value=null で呼ぶ。「この単一オブジェクトを消した」という意味に使う
   onWriteHook?.(key, null);
+  onAnyWriteHook?.();
 }
 
 // ---------------------------------------------------------------- マイグレーション

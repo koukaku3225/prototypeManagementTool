@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { BottomNav } from "@/components/BottomNav";
+import { LocalBackupBoot } from "@/components/LocalBackupBoot";
 import { StorageAlert } from "@/components/StorageAlert";
 import { SyncBoot } from "@/components/SyncBoot";
 import "./globals.css";
@@ -37,6 +38,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full flex flex-col bg-paper text-ink">
         <SyncBoot />
+        {/*
+          ログイン状態に関係なく常時効く、ディスクへのバックアップと
+          空っぽ起動時の復元案内。StorageAlert より先に置く必要はないが、
+          両方が同時に出ても崩れないようにしてある
+        */}
+        <LocalBackupBoot />
         {/* 保存できていないことは、どの画面にいても知らせる必要がある */}
         <StorageAlert />
         {children}
