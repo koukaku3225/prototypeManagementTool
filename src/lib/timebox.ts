@@ -363,3 +363,42 @@ export function slotFromNow(
   const s = Math.max(0, Math.floor(nowMinutes / SNAP_MINUTES) * SNAP_MINUTES);
   return slotAt(s, duration);
 }
+
+// ---------------------------------------------------------------- 目標ごとの集計
+
+/** 目標1件ぶんの投下時間。ratio は、渡した枠の合計に対する割合（0〜1） */
+export interface CardShare {
+  /** 紐づいていない枠は null にまとめる */
+  cardId: string | null;
+  minutes: number;
+  ratio: number;
+}
+
+/**
+ * 目標ごとに時間を合計する。
+ *
+ * 予定には最初から cardId が入っていて色分けまでされていたのに、
+ * それを足し合わせて見せる場所がどこにも無かった。
+ * 「どの目標に時間が流れたか」と「どれに一度も流れていないか」は
+ * 数字を並べるより形にしたほうが早く読めるので、割合も一緒に返す。
+ *
+ * 長い順に並べる。0分のものは含めない（呼び出し側が
+ * 「触れていない目標」を別に扱えるよう、ここでは足さない）。
+ */
+export function shareByCard(boxes: TimeBox[]): CardShare[] {
+  const byCard = new Map<string, number>();
+  for (const b of boxes) {
+    // Map のキーに null は使いにくいので、空文字を「紐づけなし」に充てる
+    const key = b.cardId ?? "";
+    byCard.set(key, (byCard.get(key) ?? 0) + durationMin(b));
+  }
+  const total = [...byCard.values()].reduce((sum, v) => sum + v, 0);
+  return [...byCard.entries()]
+    .filter(([, minutes]) => minutes > 0)
+    .map(([key, minutes]) => ({
+      cardId: key === "" ? null : key,
+      minutes,
+      ratio: total > 0 ? minutes / total : 0,
+    }))
+    .sort((a, b) => b.minutes - a.minutes);
+}

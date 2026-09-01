@@ -5,17 +5,27 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { CoachAvatar } from "@/components/CoachAvatar";
+import { WeekShareBar } from "@/components/WeekShareBar";
 import { COACHES } from "@/lib/prompts/coaches";
 import {
   habitsOfCard,
   loadBigStory,
   loadCards,
+  loadTimeBoxes,
   timeBoxesOfCard,
 } from "@/lib/storage";
 import { scheduleLabel } from "@/lib/habit";
+import { isThisWeek, today } from "@/lib/date";
+import { humanDuration, shareByCard, totalMinutes, type CardShare } from "@/lib/timebox";
 import { MAX_SMALL_STORIES, type BigStory, type GoalCard } from "@/types/goal";
 import type { Habit } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
+
+/** 目標1件ぶんの投下時間。今週と、始めてからの合計 */
+interface CardTime {
+  week: number;
+  total: number;
+}
 
 /**
  * 目標。
@@ -55,6 +65,9 @@ function GoalsInner() {
   const [cards, setCards] = useState<GoalCard[]>([]);
   const [habits, setHabits] = useState<Record<string, Habit[]>>({});
   const [boxes, setBoxes] = useState<Record<string, TimeBox[]>>({});
+  const [times, setTimes] = useState<Record<string, CardTime>>({});
+  const [shares, setShares] = useState<CardShare[]>([]);
+  const [weekTotal, setWeekTotal] = useState(0);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -62,8 +75,12 @@ function GoalsInner() {
     setBig(loadBigStory());
     setCards(cs);
     setHabits(Object.fromEntries(cs.map((c) => [c.id, habitsOfCard(c.id)])));
-    // これから来る予定を先に。過ぎたものを「次の予定」と呼ばない
-    const now = new Date().toISOString().slice(0, 10);
+    /*
+     * これから来る予定を先に。過ぎたものを「次の予定」と呼ばない。
+     * toISOString() は UTC なので、JST では朝9時までが前日になり
+     * 「今日の予定」が次の予定から落ちる。date.ts の today() を通す
+     */
+    const now = today();
     setBoxes(
       Object.fromEntries(
         cs.map((c) => [
@@ -74,6 +91,29 @@ function GoalsInner() {
         ]),
       ),
     );
+
+    // 目標ごとの投下時間。紐づけて色分けまでしていたのに、
+    // これまで合計して見せる場所がどこにも無かった
+    setTimes(
+      Object.fromEntries(
+        cs.map((c) => {
+          const all = timeBoxesOfCard(c.id);
+          return [
+            c.id,
+            {
+              week: totalMinutes(all.filter((b) => isThisWeek(b.date))),
+              total: totalMinutes(all),
+            },
+          ];
+        }),
+      ),
+    );
+
+    // 今週ぶんは目標をまたいで一度に集計する（紐づかない予定も含める）
+    const thisWeek = loadTimeBoxes().filter((b) => isThisWeek(b.date));
+    setShares(shareByCard(thisWeek));
+    setWeekTotal(totalMinutes(thisWeek));
+
     setReady(true);
   }, []);
 
@@ -167,6 +207,13 @@ function GoalsInner() {
               </Link>
             )}
 
+            {/* 今週の時間がどこへ流れたか。目標が1つも無いうちは出す意味がない */}
+            {active.length > 0 && (
+              <div className="mt-4">
+                <WeekShareBar shares={shares} cards={active} totalMin={weekTotal} />
+              </div>
+            )}
+
             {/* 表示の切り替え。場所の移動ではないので、タブではなくここに置く */}
             <div
               role="group"
@@ -183,11 +230,17 @@ function GoalsInner() {
 
             <div className="mt-3">
               {view === "tree" ? (
-                <TreeView cards={active} big={big} habits={habits} boxes={boxes} />
+                <TreeView cards={active} big={big} habits={habits} boxes={boxes} times={times} />
               ) : (
                 <div className="flex flex-col gap-2">
                   {active.map((c) => (
-                    <GoalRow key={c.id} card={c} habits={habits[c.id] ?? []} boxes={boxes[c.id] ?? []} />
+                    <GoalRow
+                      key={c.id}
+                      card={c}
+                      habits={habits[c.id] ?? []}
+                      boxes={boxes[c.id] ?? []}
+                      time={times[c.id]}
+                    />
                   ))}
                 </div>
               )}
@@ -255,11 +308,13 @@ function TreeView({
   big,
   habits,
   boxes,
+  times,
 }: {
   cards: GoalCard[];
   big: BigStory | null;
   habits: Record<string, Habit[]>;
   boxes: Record<string, TimeBox[]>;
+  times: Record<string, CardTime>;
 }) {
   const linked = cards.filter((c) => c.bigStoryId && c.bigStoryId === big?.id);
   const orphans = cards.filter((c) => !c.bigStoryId || c.bigStoryId !== big?.id);
@@ -271,7 +326,13 @@ function TreeView({
         {linked.map((c) => (
           <div key={c.id} className="relative py-1.5">
             <span aria-hidden="true" className="absolute -left-5 top-1/2 h-px w-5 bg-line" />
-            <GoalRow card={c} habits={habits[c.id] ?? []} boxes={boxes[c.id] ?? []} showRationale />
+            <GoalRow
+              card={c}
+              habits={habits[c.id] ?? []}
+              boxes={boxes[c.id] ?? []}
+              time={times[c.id]}
+              showRationale
+            />
           </div>
         ))}
         {linked.length === 0 && big && (
@@ -291,7 +352,13 @@ function TreeView({
           </p>
           <div className="mt-2 flex flex-col gap-2">
             {orphans.map((c) => (
-              <GoalRow key={c.id} card={c} habits={habits[c.id] ?? []} boxes={boxes[c.id] ?? []} />
+              <GoalRow
+                key={c.id}
+                card={c}
+                habits={habits[c.id] ?? []}
+                boxes={boxes[c.id] ?? []}
+                time={times[c.id]}
+              />
             ))}
           </div>
         </section>
@@ -304,12 +371,15 @@ function GoalRow({
   card,
   habits,
   boxes,
+  time,
   muted,
   showRationale,
 }: {
   card: GoalCard;
   habits: Habit[];
   boxes: TimeBox[];
+  /** 投下時間。完了済みの一覧では渡さない */
+  time?: CardTime;
   muted?: boolean;
   showRationale?: boolean;
 }) {
@@ -334,6 +404,25 @@ function GoalRow({
           </p>
         </div>
       </div>
+
+      {/*
+        この目標にどれだけ時間を使ったか。
+        今週だけだと「今日から始めた」のか「ずっと続けている」のかが
+        区別できないので、累計と並べる
+      */}
+      {time && time.total > 0 && (
+        <p className="mt-2 flex items-baseline gap-1.5 font-mono text-[11.5px]">
+          <span className="text-muted">今週</span>
+          <span className={time.week > 0 ? "text-accent" : "text-muted"}>
+            {humanDuration(time.week)}
+          </span>
+          <span aria-hidden="true" className="text-line">
+            /
+          </span>
+          <span className="text-muted">累計</span>
+          <span className="text-muted">{humanDuration(time.total)}</span>
+        </p>
+      )}
 
       {showRationale &&
         (card.rationale ? (

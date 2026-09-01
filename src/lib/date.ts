@@ -33,6 +33,28 @@ export function addDays(days: number, from: Date = new Date()): string {
 /** 明日（ローカル） */
 export const tomorrow = (): string => addDays(1);
 
+/**
+ * その週の月曜日（ローカル）。
+ *
+ * 日曜始まりにしない。「今週どれだけこの目標に使ったか」を見る用途なので、
+ * 週末が週の真ん中で分断されると、土日にやったことが2週に割れて読みにくい。
+ */
+export function startOfWeek(from: Date = new Date()): string {
+  const d = new Date(from);
+  const dow = d.getDay(); // 0=日 … 6=土
+  // 日曜は「前の週の月曜」まで6日戻る
+  d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+  return toLocalDate(d);
+}
+
+/** その日付が今週（月曜〜日曜）に入っているか */
+export function isThisWeek(date: string, from: Date = new Date()): boolean {
+  if (!date) return false;
+  const start = startOfWeek(from);
+  const end = addDays(6, new Date(`${start}T00:00:00`));
+  return date >= start && date <= end;
+}
+
 /** その日付が今日より前か。空文字は「期限なし」として false */
 export const isOverdue = (date: string): boolean =>
   Boolean(date) && date < today();

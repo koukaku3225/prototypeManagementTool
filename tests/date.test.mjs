@@ -12,7 +12,9 @@ import {
   dueLabel,
   isDueBy,
   isOverdue,
+  isThisWeek,
   normalizeTime,
+  startOfWeek,
   toLocalDate,
 } from "../src/lib/date.ts";
 
@@ -141,6 +143,40 @@ t("normalizeTime は未設定を null にする", () => {
   assert.equal(normalizeTime(null), null);
   assert.equal(normalizeTime(undefined), null);
   assert.equal(normalizeTime(""), null);
+});
+
+// ---------------------------------------------------------------- 週
+
+t("startOfWeek はその週の月曜を返す", () => {
+  // 2026-09-01 は火曜。週の頭は 08-31（月）
+  assert.equal(startOfWeek(new Date("2026-09-01T10:00:00")), "2026-08-31");
+  // 月曜そのものは動かさない
+  assert.equal(startOfWeek(new Date("2026-08-31T00:00:00")), "2026-08-31");
+  // 土曜も同じ週
+  assert.equal(startOfWeek(new Date("2026-09-05T23:59:00")), "2026-08-31");
+});
+
+t("startOfWeek の日曜は「前の月曜」まで戻る（週の終わりであって始まりではない）", () => {
+  // 2026-09-06 は日曜。日曜始まりにすると土日が2週に割れて読めなくなる
+  assert.equal(startOfWeek(new Date("2026-09-06T12:00:00")), "2026-08-31");
+});
+
+t("startOfWeek は月をまたいでも正しい", () => {
+  // 2026-03-01 は日曜 → 前の月曜は 02-23
+  assert.equal(startOfWeek(new Date("2026-03-01T12:00:00")), "2026-02-23");
+});
+
+t("isThisWeek は月曜から日曜までを含む", () => {
+  const tue = new Date("2026-09-01T10:00:00");
+  assert.equal(isThisWeek("2026-08-31", tue), true, "週初の月曜");
+  assert.equal(isThisWeek("2026-09-01", tue), true, "当日");
+  assert.equal(isThisWeek("2026-09-06", tue), true, "週末の日曜");
+  assert.equal(isThisWeek("2026-08-30", tue), false, "前週の日曜");
+  assert.equal(isThisWeek("2026-09-07", tue), false, "翌週の月曜");
+});
+
+t("isThisWeek は空文字を false にする（期限なしを今週に数えない）", () => {
+  assert.equal(isThisWeek("", new Date("2026-09-01T10:00:00")), false);
 });
 
 console.log(`${passed} passed, ${failed} failed`);

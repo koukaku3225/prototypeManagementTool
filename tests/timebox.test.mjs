@@ -18,6 +18,7 @@ import {
   layout,
   nextBox,
   normalizeRange,
+  shareByCard,
   slotFromNow,
   overlaps,
   slotAt,
@@ -432,6 +433,58 @@ t("いまの時刻から始まる枠は日をまたがない", () => {
 
 t("いまの時刻から始まる枠は長さを指定できる", () => {
   assert.deepEqual(slotFromNow(9 * 60, 90), { start: "09:00", end: "10:30" });
+});
+
+// ---------------------------------------------------------------- 目標ごとの集計
+
+t("目標ごとに時間を合計し、長い順に並べる", () => {
+  const r = shareByCard([
+    box("a", "09:00", "10:00", { cardId: "goal-1" }),
+    box("b", "13:00", "16:00", { cardId: "goal-2" }),
+    box("c", "18:00", "18:30", { cardId: "goal-1" }),
+  ]);
+  assert.deepEqual(
+    r.map((s) => [s.cardId, s.minutes]),
+    [["goal-2", 180], ["goal-1", 90]],
+  );
+});
+
+t("割合は渡した枠の合計に対して出す（合計1になる）", () => {
+  const r = shareByCard([
+    box("a", "09:00", "10:00", { cardId: "goal-1" }),
+    box("b", "10:00", "13:00", { cardId: "goal-2" }),
+  ]);
+  assert.equal(r[0].ratio, 0.75);
+  assert.equal(r[1].ratio, 0.25);
+  assert.equal(
+    r.reduce((sum, s) => sum + s.ratio, 0),
+    1,
+  );
+});
+
+t("紐づいていない枠は cardId=null にまとめる", () => {
+  const r = shareByCard([
+    box("a", "09:00", "10:00"),
+    box("b", "11:00", "11:30"),
+    box("c", "13:00", "14:00", { cardId: "goal-1" }),
+  ]);
+  const none = r.find((s) => s.cardId === null);
+  assert.equal(none.minutes, 90);
+});
+
+t("空の配列は空を返す（0除算しない）", () => {
+  assert.deepEqual(shareByCard([]), []);
+});
+
+t("長さ0の枠は数えない", () => {
+  // 壊れた時刻や、開始＝終了のものが割合を歪めないこと
+  const r = shareByCard([
+    box("a", "09:00", "09:00", { cardId: "goal-1" }),
+    box("b", "13:00", "14:00", { cardId: "goal-2" }),
+  ]);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].cardId, "goal-2");
+  assert.equal(r[0].ratio, 1);
 });
 
 console.log(`${passed} passed, ${failed} failed`);
