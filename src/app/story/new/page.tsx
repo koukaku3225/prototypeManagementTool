@@ -23,7 +23,12 @@ export default function NewStoryPage() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    setExisting(loadBigStory());
+    const s = loadBigStory();
+    setExisting(s);
+    // 既存の大きな物語を作り直すときは、そのコーチを初期選択にする。
+    // 既定の "kaede" のまま気づかず対話を始めると、以前と違うコーチに
+    // 差し替わってしまう
+    if (s) setCoach(s.coachId);
     setReady(true);
   }, []);
 

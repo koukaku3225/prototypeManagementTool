@@ -17,7 +17,7 @@ import {
   upsertTimeBox,
 } from "@/lib/storage";
 import { normalizeTime, tomorrow as tomorrowDate } from "@/lib/date";
-import { toMinutes, toTime } from "@/lib/timebox";
+import { DEFAULT_DURATION, toMinutes, toTime } from "@/lib/timebox";
 import type { GoalCard, Session } from "@/types/goal";
 
 /** APIが返した素の下書き。ここから本人が選ぶ */
@@ -67,6 +67,16 @@ export default function CardPage() {
   const [specific, setSpecific] = useState("");
   const [measurable, setMeasurable] = useState("");
   const [rationale, setRationale] = useState("");
+  /**
+   * confirm() が動いている最中か。
+   *
+   * router.replace() は非同期で、その完了までボタンはそのまま押せる状態が
+   * 続く。二度押し（連打・ダブルタップ）すると confirm() が2回走り、
+   * upsertTimeBox() はタイムボックスを毎回新しいidで作るので
+   * （目標カードと違い、同じセッションからの重複を弾く仕組みが無い）、
+   * 「明日の一歩」が重複して残る。
+   */
+  const [confirming, setConfirming] = useState(false);
 
   const generate = useCallback(async (session: Session, isRetry: boolean) => {
     setError(null);
@@ -136,7 +146,8 @@ export default function CardPage() {
   }, [generate]);
 
   function confirm() {
-    if (!draft || !transcript) return;
+    if (!draft || !transcript || confirming) return;
+    setConfirming(true);
     const now = new Date().toISOString();
     // UTC基準だと JST の朝9時までが前日になり、「明日」が今日になる
     const tomorrow = tomorrowDate();
@@ -188,7 +199,14 @@ export default function CardPage() {
       // 形式が合わないものは受け取らない。嘘の時刻を残さない
       const start = normalizeTime(t.startTime) ?? "21:00";
       const startMin = toMinutes(start) ?? 1260;
-      const end = toTime(startMin + Math.max(15, t.estimateMin || 30));
+      /*
+       * `t.estimateMin || 30` は estimateMin===0 を「未設定」と誤認し、
+       * 15分下限を無視して30分の枠を作る（habit-plan.ts で見つかったのと
+       * 同じ形の不具合）。AIの出力なので undefined/NaN の余地もあるため、
+       * 「値が無い・壊れている」場合だけ既定値に落とす。
+       */
+      const rawEstimate = Number.isFinite(t.estimateMin) ? t.estimateMin : DEFAULT_DURATION;
+      const end = toTime(startMin + Math.max(15, rawEstimate));
       upsertTimeBox({
         id: crypto.randomUUID(),
         date: tomorrow,
@@ -336,10 +354,10 @@ export default function CardPage() {
         <button
           type="button"
           onClick={confirm}
-          disabled={!ready}
+          disabled={!ready || confirming}
           className="mt-4 rounded-xl bg-indigo px-4 py-3.5 text-[15px] font-medium text-surface transition-opacity disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
-          これで確定する
+          {confirming ? "確定しています…" : "これで確定する"}
         </button>
       </main>
     </>

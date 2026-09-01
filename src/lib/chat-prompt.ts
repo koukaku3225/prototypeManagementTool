@@ -7,14 +7,15 @@ import {
   COMMITMENT_INSTRUCTION,
   PHASE_INSTRUCTIONS,
 } from "@/lib/prompts/phases";
-import type {
-  AnyPhaseId,
-  BigPhaseId,
-  BigStory,
-  CoachId,
-  PhaseId,
-  StoryMode,
-  UserProfile,
+import {
+  PHASE_TURN_LIMIT,
+  type AnyPhaseId,
+  type BigPhaseId,
+  type BigStory,
+  type CoachId,
+  type PhaseId,
+  type StoryMode,
+  type UserProfile,
 } from "@/types/goal";
 
 /**
@@ -164,11 +165,29 @@ export function instructionsFor(mode: StoryMode, phase: AnyPhaseId): string {
     : PHASE_INSTRUCTIONS[phase as PhaseId];
 }
 
-/** small の最終フェーズで、締めの指示を足すターンかどうか */
+/**
+ * small の最終フェーズで、締めの指示を足すターンかどうか。
+ *
+ * 以前は turnsInPhase >= 3 の固定値だった。woop_wbs は障害→状況→If-Then→
+ * タスク選び→いつ・どこで、の5手あり（phases.ts参照）、上限
+ * PHASE_TURN_LIMIT.woop_wbs はそれを踏まえて7まで上げてある。
+ * それなのに締めの指示（COMMITMENT_INSTRUCTION/CLOSING_INSTRUCTION）は
+ * どちらも文面が「明日のタスクが決まった」と決めつけたうえで
+ * 出力の最後に <<<PHASE:done>>> を付けさせる。3ターン目からこれが
+ * 毎回混ざると、5手目の「いつ・どこで」（本人の生活と噛み合うまで
+ * 問い直す、と明記されている一番大事な手）に届く前から、フェーズ指示と
+ * 締めの指示が逆方向に引っ張り合うことになる。上限を7へ上げても
+ * 「いつ・どこで」が聞けない、という不具合の一因はここにある可能性が高い。
+ *
+ * 締めは「もう決まった」宣言ではなく「そろそろ上限が来る、着地させる」
+ * ための猶予であるべきなので、上限に連動させる。何ターン前から出すかは
+ * FINAL_TURN_LEAD（着地に1往復あれば足りる想定）。
+ */
+const FINAL_TURN_LEAD = 1;
+
 export function isFinalTurn(body: ChatRequest): boolean {
-  return (
-    body.mode === "small" && body.phase === "woop_wbs" && body.turnsInPhase >= 3
-  );
+  if (body.mode !== "small" || body.phase !== "woop_wbs") return false;
+  return body.turnsInPhase >= PHASE_TURN_LIMIT.woop_wbs - FINAL_TURN_LEAD;
 }
 
 /**

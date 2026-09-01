@@ -1,6 +1,6 @@
 import type { Habit } from "@/types/behavior";
 import { emptyMeta, type TimeBox } from "@/types/timebox";
-import { DAY_MINUTES, toMinutes, toTime } from "@/lib/timebox";
+import { DAY_MINUTES, DEFAULT_DURATION, toMinutes, toTime } from "@/lib/timebox";
 
 /**
  * 習慣から、その日の時間割の枠を起こす。
@@ -73,11 +73,18 @@ export function habitBoxesOn(
       const startMin = toMinutes(h.startTime as string) ?? 0;
       /*
        * 日をまたぐ枠は作らない。24時で止める。
-       * 長さの下限は Math.max(15, ...) だけで足りる
-       * （estimateMin=0 を `|| 30` で拾うと、15分下限を無視して30分になる。
-       *   いまのUIは1未満を保存させないが、それに頼らずここでも正しくしておく）
+       *
+       * 長さは2段構え。まず「値が無い・壊れている」を既定の30分で拾う
+       * （型は number だが、古いスナップショットの読み込み・手編集した
+       * JSON・将来の取り込み機能などを経由すると、実行時には無い場合がある。
+       * Math.max(15, undefined) は NaN になり、時刻が "NaN:NaN" として
+       * 描画されるまで気づけない——実際にレビューのやり直しで見つかった）。
+       * そのうえで Math.max(15, ...) を通し、0分のような「値はあるが短すぎる」
+       * ものだけを15分下限に丸める。0 を「未設定」と混同しない
+       * （`|| 30` に戻すと、それはそれで元の不具合が戻る）。
        */
-      const endMin = Math.min(DAY_MINUTES, startMin + Math.max(15, h.estimateMin));
+      const rawEstimate = Number.isFinite(h.estimateMin) ? h.estimateMin : DEFAULT_DURATION;
+      const endMin = Math.min(DAY_MINUTES, startMin + Math.max(15, rawEstimate));
       return {
         id: habitBoxId(h.id, date),
         date,

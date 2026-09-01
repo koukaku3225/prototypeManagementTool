@@ -138,6 +138,23 @@ t("見積もりが0でも、15分下限にする（30分に化けさせない）
   assert.equal(r[0].end, "18:15");
 });
 
+t("estimateMin が無い・壊れたデータでも \"NaN:NaN\" にしない", () => {
+  /*
+   * 0の修正（Math.max(15, h.estimateMin) にした）の副作用として、
+   * estimateMin が undefined のときは Math.max(15, undefined) が NaN になり、
+   * toTime(NaN) が "NaN:NaN" を返していた。古いスナップショットの読み込みや
+   * 手編集したJSONを経由すると実際に起こりうる形なので、
+   * 「値が無い」場合は既定の30分に、「0という値がある」場合は15分に、
+   * ときちんと分けて拾えているかを確かめる。
+   */
+  const broken = habit({});
+  delete broken.estimateMin;
+  const r = habitBoxesOn("2026-08-31", [broken], []);
+  assert.equal(r[0].start, "18:00");
+  assert.equal(r[0].end, "18:30", "未設定は既定の30分");
+  assert.ok(!/NaN/.test(r[0].end));
+});
+
 t("見積もりが極端に短くても、潰れた枠は作らない", () => {
   // 5分の習慣でも、グリッド上で掴めない高さにはしない
   const r = habitBoxesOn("2026-08-31", [habit({ estimateMin: 5 })], []);

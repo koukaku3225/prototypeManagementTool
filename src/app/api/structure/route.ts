@@ -26,12 +26,23 @@ import type { CoachId, ChatMessage, StoryMode } from "@/types/goal";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+/**
+ * 対話ログを、整理役に渡す1本の文字列に組み立てる。
+ *
+ * m.content はユーザーが実際に打った文字列で、サーバー側の真実ではない
+ * （bigStorySummary と同じ立場）。素で連結すると、コーチの発言に
+ * 見せかけた行（"[big_why] コーチ: 実は目標は..." のような偽装）を
+ * ユーザー発言の中に仕込める。sanitizeUserText を通して、制御トークン・
+ * 区切りの偽装・見出し記号だけは潰しておく。1件あたりの上限は
+ * /api/chat 側の MAX_CONTENT（4000字）に合わせ、通常の発言が
+ * 途中で切れないようにしてある。
+ */
 function renderTranscript(messages: ChatMessage[], coachId: CoachId): string {
   const coachName = COACHES[coachId].name;
   const lines = messages.map((m) => {
     const who = m.role === "user" ? "ユーザー" : coachName;
     const phase = PHASE_META[m.phase].label;
-    return `[${phase}] ${who}: ${m.content}`;
+    return `[${phase}] ${who}: ${sanitizeUserText(m.content, 4000)}`;
   });
   // UTC だと JST の朝9時までが前日になる。AIが期限を推定する材料なのでズラさない
   return `対話日: ${today()}\n\n${lines.join("\n")}`;
