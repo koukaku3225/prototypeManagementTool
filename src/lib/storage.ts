@@ -14,7 +14,14 @@ import {
   MAX_SMALL_STORIES,
 } from "@/types/goal";
 import type { Habit, HabitLog } from "@/types/behavior";
-import type { TimeBox } from "@/types/timebox";
+import { toLocalDate } from "@/lib/date";
+import { toTime } from "@/lib/timebox";
+import {
+  emptyMeta,
+  emptyReview,
+  type RunningEntry,
+  type TimeBox,
+} from "@/types/timebox";
 
 export const KEY = {
   session: "gc.session",
@@ -28,6 +35,7 @@ export const KEY = {
   habits: "gc.habits",
   habitLogs: "gc.habitlogs",
   timeboxes: "gc.timeboxes",
+  running: "gc.running",
   schemaVersion: "gc.schemaVersion",
 } as const;
 
@@ -545,6 +553,80 @@ export function deleteTimeBoxesOfCard(cardId: string): void {
   );
 }
 
+// ---------------------------------------------------------------- 打刻
+
+/**
+ * いま走っている打刻。
+ *
+ * 時間割は「先に決める」道具なので、計画しなかった日は開く理由が消える。
+ * こちらは始めるときに押して、終わったら止めるだけ。
+ * 計画がゼロの日でも記録が残り、目標ごとの投下時間にも積み上がる。
+ */
+export function loadRunning(): RunningEntry | null {
+  ensureMigrated();
+  return read<RunningEntry>(KEY.running);
+}
+
+/** 打刻を始める。すでに走っていれば、そちらを優先して何もしない */
+export function startRunning(entry: Omit<RunningEntry, "startedAt">): RunningEntry {
+  const existing = loadRunning();
+  if (existing) return existing;
+  const next: RunningEntry = { ...entry, startedAt: new Date().toISOString() };
+  write(KEY.running, next);
+  return next;
+}
+
+/** 走っている内容（やること・目標）を書き換える。開始時刻は動かさない */
+export function updateRunning(over: Partial<Omit<RunningEntry, "startedAt">>): void {
+  const cur = loadRunning();
+  if (!cur) return;
+  write(KEY.running, { ...cur, ...over });
+}
+
+export const cancelRunning = () => remove(KEY.running);
+
+/**
+ * 打刻を止めて、完了済みの枠にする。
+ *
+ * 日をまたいだときは、始めた日の24時で切る。
+ * TimeBox は1日に収まる前提の型で、またぐ枠を作ると
+ * 重なり計算もグリッドの描画も一気に壊れる。
+ * 実態と1分ずれるより、型の前提を守るほうを取る。
+ */
+export function stopRunning(): TimeBox | null {
+  const cur = loadRunning();
+  if (!cur) return null;
+
+  const from = new Date(cur.startedAt);
+  const date = toLocalDate(from);
+  const startMin = from.getHours() * 60 + from.getMinutes();
+
+  const now = new Date();
+  const sameDay = toLocalDate(now) === date;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  // またいだら24時で止める。0分の枠は作らない
+  const endMin = sameDay ? Math.max(startMin + 1, nowMin) : 1440;
+
+  const box: TimeBox = {
+    id: crypto.randomUUID(),
+    date,
+    start: toTime(startMin),
+    end: toTime(endMin),
+    title: cur.title,
+    cardId: cur.cardId,
+    color: null,
+    habitId: null,
+    meta: emptyMeta(),
+    completedAt: now.toISOString(),
+    review: emptyReview(),
+    createdAt: cur.startedAt,
+  };
+
+  upsertTimeBox(box);
+  remove(KEY.running);
+  return box;
+}
+
 /** 習慣を畳んでも記録は残す。消すのは目標ごと消えるときだけ */
 export function deleteHabitsOfCard(cardId: string): void {
   const habits = loadHabits();
@@ -648,6 +730,7 @@ const SNAPSHOT_TARGETS = [
   KEY.habits,
   KEY.habitLogs,
   KEY.timeboxes,
+  KEY.running,
   // 版番号も一緒に取る。古いスナップショットを戻したとき、
   // その版から現在の版へ移行をやり直せるようにするため
   KEY.schemaVersion,

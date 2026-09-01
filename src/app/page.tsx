@@ -5,17 +5,25 @@ import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { HabitCheck } from "@/components/HabitCheck";
 import { NowBar } from "@/components/NowBar";
+import { RunningBar } from "@/components/RunningBar";
 import { TimeBoxSheet } from "@/components/TimeBoxSheet";
 import {
   activeHabits,
+  cancelRunning,
   deleteTimeBox,
   loadCards,
   loadHabitLogs,
+  loadRunning,
   loadSession,
+  loadTimeBoxes,
   setHabitLog,
+  startRunning,
+  stopRunning,
   timeBoxesOn,
+  updateRunning,
   upsertTimeBox,
 } from "@/lib/storage";
+import { canPlace, habitBoxesOn, isGhost, materializeHabitBox } from "@/lib/habit-plan";
 import { computeStats } from "@/lib/habit";
 import {
   colorOf,
@@ -30,7 +38,12 @@ import {
 import { today } from "@/lib/date";
 import type { GoalCard } from "@/types/goal";
 import type { Habit, HabitLog, HabitLogState } from "@/types/behavior";
-import { emptyMeta, emptyReview, type TimeBox } from "@/types/timebox";
+import {
+  emptyMeta,
+  emptyReview,
+  type RunningEntry,
+  type TimeBox,
+} from "@/types/timebox";
 
 /**
  * 今日。
@@ -52,13 +65,17 @@ export default function TodayPage() {
   const [isNew, setIsNew] = useState(false);
   const [nowMinutes, setNow] = useState(0);
   const [resumable, setResumable] = useState(false);
+  const [running, setRunning] = useState<RunningEntry | null>(null);
   const [ready, setReady] = useState(false);
 
   const reload = useCallback(() => {
     setCards(loadCards());
-    setBoxes(timeBoxesOn(today()));
-    setHabits(activeHabits());
+    // 習慣から自動で並ぶ枠も、実体のある枠と同じ扱いで混ぜる
+    const hs = activeHabits();
+    setBoxes([...timeBoxesOn(today()), ...habitBoxesOn(today(), hs, loadTimeBoxes())]);
+    setHabits(hs);
     setLogs(loadHabitLogs());
+    setRunning(loadRunning());
   }, []);
 
   useEffect(() => {
@@ -79,10 +96,30 @@ export default function TodayPage() {
   }, []);
 
   function saveBox(b: TimeBox) {
-    upsertTimeBox(b);
+    const before = boxes.find((x) => x.id === b.id);
+    // 習慣から起こしただけの枠は、触られたここで初めて実体にする
+    const real = isGhost(b) ? materializeHabitBox(b, crypto.randomUUID()) : b;
+    upsertTimeBox(real);
+    /*
+     * 未完了から完了に変わった瞬間だけ、習慣の記録にも印を付ける。
+     * 完了はシート・行のチェック・いまの時間バーのどこからでも押せて、
+     * どれも最後はここを通る。片方にだけ書くと、押した場所によって
+     * 達成率が変わってしまう
+     */
+    if (real.habitId && real.completedAt && !before?.completedAt) {
+      setHabitLog({
+        habitId: real.habitId,
+        date: real.date,
+        state: "done",
+        at: real.completedAt,
+        note: null,
+        mood: null,
+      });
+    }
     reload();
     setIsNew(false);
-    setEditing((prev) => (prev && prev.id === b.id ? b : prev));
+    setEditing((prev) => (prev && prev.id === b.id ? real : prev));
+    return real;
   }
 
   function closeSheet() {
@@ -118,15 +155,33 @@ export default function TodayPage() {
   }
 
   function completeBox(b: TimeBox) {
+    const at = new Date().toISOString();
     const done: TimeBox = {
       ...b,
-      completedAt: new Date().toISOString(),
+      completedAt: at,
       review: b.review ?? emptyReview(),
     };
-    saveBox(done);
+    // 習慣の記録は saveBox() が面倒を見る（完了はどこからでも押せるため）
+    const real = saveBox(done);
     // 終わった直後に、振り返りを書ける状態で開く
     setIsNew(false);
-    setEditing(done);
+    setEditing(real);
+  }
+
+  /** 打刻を始める。1タップで走り出す。中身は走らせたまま書ける */
+  function beginRunning() {
+    startRunning({ title: "", cardId: null });
+    reload();
+  }
+
+  function endRunning() {
+    const box = stopRunning();
+    reload();
+    // 記録した直後に、振り返り（できばえ）を書ける状態で開く
+    if (box) {
+      setIsNew(false);
+      setEditing(box);
+    }
   }
 
   function logHabit(habit: Habit, state: HabitLogState, note: string | null) {
@@ -163,7 +218,14 @@ export default function TodayPage() {
   const current = currentBox(boxes, nowMinutes);
   const upcoming = nextBox(boxes, nowMinutes, 60);
 
+  /*
+   * 時刻の決まっている習慣は時間割の枠として並ぶので、
+   * ここのチェックリストからは外す。同じものが画面に2回出ると、
+   * どちらを押せばいいのか分からなくなる。
+   * 時刻を持たない習慣（週◯回など）だけがここに残る。
+   */
   const todayHabits = habits
+    .filter((h) => !canPlace(h))
     .map((h) => ({ habit: h, stats: computeStats(h, logs) }))
     .filter((x) => x.stats.dueToday);
   const habitsLeft = todayHabits.filter((x) => !x.stats.todayLog).length;
@@ -291,6 +353,25 @@ export default function TodayPage() {
               いま（{slotFromNow(nowMinutes).start}）から予定を入れる
             </button>
 
+            {/*
+              計画せずに記録する入口。
+              時間割は「先に決める」道具なので、計画しなかった日は
+              開く理由が消える。こちらは押して始めるだけなので、
+              予定がゼロの日でも記録が残り、目標ごとの時間にも積み上がる
+            */}
+            {!running && (
+              <button
+                type="button"
+                onClick={beginRunning}
+                className="mt-2 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-accent-line bg-accent-soft text-[14px] font-medium text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                <span aria-hidden="true" className="text-[15px] leading-none">
+                  ▶
+                </span>
+                いま始めることを記録する
+              </button>
+            )}
+
             {todayHabits.length > 0 && (
               <section className="mt-6">
                 <h2 className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
@@ -321,13 +402,33 @@ export default function TodayPage() {
         )}
       </main>
 
-      <NowBar
-        current={current}
-        next={upcoming}
-        nowMinutes={nowMinutes}
-        onComplete={completeBox}
-        onEdit={openBox}
-      />
+      {/*
+        記録中は打刻の帯を優先する。NowBar と同時に出すと画面の下が
+        二段に埋まって、肝心の予定が見えなくなる
+      */}
+      {running ? (
+        <RunningBar
+          entry={running}
+          cards={active}
+          onChange={(over) => {
+            updateRunning(over);
+            setRunning(loadRunning());
+          }}
+          onStop={endRunning}
+          onCancel={() => {
+            cancelRunning();
+            reload();
+          }}
+        />
+      ) : (
+        <NowBar
+          current={current}
+          next={upcoming}
+          nowMinutes={nowMinutes}
+          onComplete={completeBox}
+          onEdit={openBox}
+        />
+      )}
 
       {editing && (
         <TimeBoxSheet

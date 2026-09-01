@@ -51,11 +51,36 @@ export interface TimeBox {
    * 手で変えたいときのために上書きも持たせてある。
    */
   color?: string | null;
+  /**
+   * どの習慣から生まれた枠か。手で作った枠は null。
+   *
+   * 習慣は曜日と開始時刻をすでに持っているので、時間割に自動で並べられる。
+   * その「並べたもの」と「手で作ったもの」を見分けるために持つ。
+   * 同じ習慣・同じ日の枠が二重に出ないよう、重複判定にも使う。
+   */
+  habitId?: string | null;
   meta: TimeBoxMeta;
   completedAt: string | null;
   /** 完了時にだけ入る。未完了なら null */
   review: TimeBoxReview | null;
   createdAt: string;
+}
+
+/**
+ * いま進行中の打刻。
+ *
+ * 時間割は「先に決める」道具だが、計画しなかった日はアプリを開く理由が
+ * なくなり、そのまま離れてしまう。こちらは逆向きで、
+ * 始めるときに押して、終わったら止めるだけ。計画がゼロでも記録が残る。
+ *
+ * 同時に走らせられるのは1件。複数を並行して数えても、
+ * あとで見たときにどれが実態か分からなくなる。
+ */
+export interface RunningEntry {
+  title: string;
+  cardId: string | null;
+  /** 押した瞬間の時刻（ISO8601） */
+  startedAt: string;
 }
 
 export const emptyMeta = (): TimeBoxMeta => ({

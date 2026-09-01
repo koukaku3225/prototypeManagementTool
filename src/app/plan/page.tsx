@@ -7,11 +7,15 @@ import { NowBar } from "@/components/NowBar";
 import { Snackbar } from "@/components/Snackbar";
 import { TimeBoxSheet } from "@/components/TimeBoxSheet";
 import {
+  activeHabits,
   deleteTimeBox,
   loadCards,
+  loadTimeBoxes,
+  setHabitLog,
   timeBoxesOn,
   upsertTimeBox,
 } from "@/lib/storage";
+import { habitBoxesOn, isGhost, materializeHabitBox } from "@/lib/habit-plan";
 import {
   currentBox,
   duplicateSlot,
@@ -55,7 +59,16 @@ export default function PlanPage() {
     null,
   );
 
-  const reload = useCallback((d: string) => setBoxes(timeBoxesOn(d)), []);
+  /**
+   * その日の枠。実体のある枠に、習慣から起こした枠を混ぜる。
+   *
+   * 起こした枠は保存しない（habit-plan.ts の方針）。触られて初めて実体になる。
+   * ここで混ぜておけば、時間割の描画もドラッグも実体と同じ扱いで済む。
+   */
+  const reload = useCallback((d: string) => {
+    const real = timeBoxesOn(d);
+    setBoxes([...real, ...habitBoxesOn(d, activeHabits(), loadTimeBoxes())]);
+  }, []);
 
   useEffect(() => {
     setCards(loadCards().filter((c) => (c.status ?? "active") !== "done"));
@@ -84,11 +97,37 @@ export default function PlanPage() {
     setIsNew(false);
   }
 
+  /**
+   * 保存する。習慣から起こしただけの枠なら、ここで初めて実体にする。
+   *
+   * 触られるまで書かないので、画面を開いただけでは行が増えない。
+   * 実体になった時点で、以後その枠は習慣の定義から独立して動かせる
+   * （時刻をずらしたのに翌週それが消える、という挙動を避ける）。
+   */
   function save(b: TimeBox) {
-    upsertTimeBox(b);
+    const before = boxes.find((x) => x.id === b.id);
+    const real = isGhost(b) ? materializeHabitBox(b, crypto.randomUUID()) : b;
+    upsertTimeBox(real);
+    /*
+     * 未完了から完了に変わった瞬間だけ、習慣の記録にも印を付ける。
+     * 完了は「シートの完了ボタン」「行のチェック」「いまの時間バー」の
+     * どこからでも押せて、どれも最後はここを通る。片方にだけ書くと
+     * 押した場所によって達成率が変わってしまう（実際そうなっていた）。
+     */
+    if (real.habitId && real.completedAt && !before?.completedAt) {
+      setHabitLog({
+        habitId: real.habitId,
+        date: real.date,
+        state: "done",
+        at: real.completedAt,
+        note: null,
+        mood: null,
+      });
+    }
     reload(date);
     setIsNew(false);
-    setEditing((prev) => (prev && prev.id === b.id ? b : prev));
+    setEditing((prev) => (prev && prev.id === b.id ? real : prev));
+    return real;
   }
 
   /**
@@ -133,6 +172,9 @@ export default function PlanPage() {
       ...b,
       id: crypto.randomUUID(),
       ...duplicateSlot(b),
+      // 複製したものは習慣から切り離す。出どころを引き継ぐと
+      // 「同じ習慣の枠」が2つある状態になり、重複判定が壊れる
+      habitId: null,
       completedAt: null,
       review: null,
       createdAt: new Date().toISOString(),
@@ -161,14 +203,16 @@ export default function PlanPage() {
   }
 
   function complete(b: TimeBox) {
+    const at = new Date().toISOString();
     const done: TimeBox = {
       ...b,
-      completedAt: new Date().toISOString(),
+      completedAt: at,
       review: b.review ?? emptyReview(),
     };
-    save(done);
+    // 習慣の記録は save() が面倒を見る（完了はどこからでも押せるため）
+    const real = save(done);
     // 完了した直後は、振り返りを書ける状態で開く
-    setEditing(done);
+    setEditing(real);
   }
 
   if (!ready) {

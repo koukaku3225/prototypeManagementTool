@@ -9,6 +9,7 @@ import {
   humanDuration,
   normalizeRange,
 } from "@/lib/timebox";
+import { isGhost } from "@/lib/habit-plan";
 import { emptyReview, type TimeBox } from "@/types/timebox";
 import type { GoalCard } from "@/types/goal";
 
@@ -107,6 +108,12 @@ export function TimeBoxSheet({
 
   const done = Boolean(draft.completedAt);
   const mins = durationMin(draft);
+  /*
+   * 習慣から自動で並んでいる枠か。
+   * まだ実体になっていないので、この1件だけを消すことはできない
+   * （消しても、次に開いたときに習慣からまた起きてくる）。
+   */
+  const fromHabit = !isNew && isGhost(draft);
   const hasMeta = Boolean(
     draft.meta.why || draft.meta.obstacle || draft.meta.counter,
   );
@@ -146,7 +153,7 @@ export function TimeBoxSheet({
             */}
             <div className="phone flex shrink-0 items-center gap-2 px-4 pt-2">
               <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
-                {isNew ? "新しい予定" : "予定"}
+                {isNew ? "新しい予定" : fromHabit ? "習慣の予定" : "予定"}
               </span>
               <button
                 type="button"
@@ -328,7 +335,12 @@ export function TimeBoxSheet({
                     </button>
                   )}
 
-                  {confirmDelete ? (
+                  {fromHabit ? (
+                    <p className="rounded-lg border border-line bg-surface px-3 py-2.5 text-[12.5px] leading-relaxed text-muted">
+                      この予定は習慣から自動で並んでいます。時刻や曜日を変えるなら
+                      習慣そのものを、この日だけ動かすならドラッグしてください。
+                    </p>
+                  ) : confirmDelete ? (
                     <div className="rounded-lg border border-line bg-surface px-3 py-2.5">
                       <p className="text-[12.5px] leading-relaxed">
                         この予定を消します。振り返りも一緒に消えます。
