@@ -108,6 +108,14 @@ export const StructureRequestSchema = z.object({
   bigStorySummary: z.string().max(4000).nullable().optional(),
 });
 
+/**
+ * /api/local-backup の入力。captureState() の出力（キー→JSON文字列）を
+ * そのまま受け取るだけなので形は緩いが、「zodを通す」規約はここでも守る。
+ * バイト数の上限はルート側で持つ（対話全文まで含む丸ごとダンプなので、
+ * 他の2ルートの MAX_BODY_BYTES よりずっと大きい値が要る）。
+ */
+export const LocalBackupSchema = z.record(z.string(), z.string());
+
 export type ChatRequestInput = z.infer<typeof ChatRequestSchema>;
 export type StructureRequestInput = z.infer<typeof StructureRequestSchema>;
 

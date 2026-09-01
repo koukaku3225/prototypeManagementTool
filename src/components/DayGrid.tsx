@@ -40,8 +40,17 @@ const GRID_PX = HOUR_PX * 24;
  */
 const MOUSE_EDGE_PX = 10;
 
-/** 色ごとの見た目。両テーマぶんは globals.css のトークンが面倒みる */
-const TONE: Record<string, { box: string; done: string }> = {
+/**
+ * 色ごとの見た目。両テーマぶんは globals.css のトークンが面倒みる。
+ *
+ * BOX_COLORS（timebox.ts）から自動生成しない。Tailwindはビルド時に
+ * ソースを静的解析してクラスを拾うので、`border-[var(--c-${color}-line)]`
+ * のように文字列を組み立てると、そのクラスは生成されず本番で色が消える。
+ * WeekShareBar.tsx が動的な色をインラインstyleで扱っているのも同じ理由。
+ * ここは手書きが正しい形で、BOX_COLORS が増えたらここにも1行足す
+ * ——足し忘れに気づけるよう、tests/timebox.test.mjs 側でキーの一致を見ている。
+ */
+export const TONE: Record<string, { box: string; done: string }> = {
   amber: { box: "border-[var(--c-amber-line)] bg-[var(--c-amber-bg)] text-[var(--c-amber-fg)]", done: "border-line bg-surface-2 text-muted" },
   indigo: { box: "border-[var(--c-indigo-line)] bg-[var(--c-indigo-bg)] text-[var(--c-indigo-fg)]", done: "border-line bg-surface-2 text-muted" },
   teal: { box: "border-[var(--c-teal-line)] bg-[var(--c-teal-bg)] text-[var(--c-teal-fg)]", done: "border-line bg-surface-2 text-muted" },

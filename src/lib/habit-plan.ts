@@ -71,8 +71,13 @@ export function habitBoxesOn(
     .filter((h) => canPlace(h) && placedOn(h, date) && !taken.has(h.id))
     .map((h) => {
       const startMin = toMinutes(h.startTime as string) ?? 0;
-      // 日をまたぐ枠は作らない。24時で止める
-      const endMin = Math.min(DAY_MINUTES, startMin + Math.max(15, h.estimateMin || 30));
+      /*
+       * 日をまたぐ枠は作らない。24時で止める。
+       * 長さの下限は Math.max(15, ...) だけで足りる
+       * （estimateMin=0 を `|| 30` で拾うと、15分下限を無視して30分になる。
+       *   いまのUIは1未満を保存させないが、それに頼らずここでも正しくしておく）
+       */
+      const endMin = Math.min(DAY_MINUTES, startMin + Math.max(15, h.estimateMin));
       return {
         id: habitBoxId(h.id, date),
         date,

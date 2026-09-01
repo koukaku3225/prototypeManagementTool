@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
-import { z } from "zod";
+import { LocalBackupSchema } from "@/lib/api-schema";
 
 /**
  * ローカルディスクへのバックアップ。
@@ -26,8 +26,6 @@ const KEEP = 30;
  * 自分のPC上だけで完結する経路であり、上限は暴走・破損データ避けの意味しかない。
  */
 const MAX_BODY_BYTES = 5_000_000;
-
-const BodySchema = z.record(z.string(), z.string());
 
 async function ensureDir() {
   await mkdir(DIR, { recursive: true });
@@ -56,7 +54,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "bad_request" }, { status: 400 });
   }
 
-  const parsed = BodySchema.safeParse(json);
+  const parsed = LocalBackupSchema.safeParse(json);
   if (!parsed.success) {
     return Response.json({ error: "bad_request" }, { status: 400 });
   }

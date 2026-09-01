@@ -273,6 +273,12 @@ export async function backfillAll(): Promise<{
  * その remove() が同期フックを再度呼んで Supabase 側を消しにいく
  * （読み込んでいるだけなのに書き戻ってしまう）事故を避けるため、
  * 書き込んでいる間だけフックを止める。
+ *
+ * gc.running / gc.variant / gc.schemaVersion は Supabase に対応するテーブルを
+ * 持たない、この端末だけの関心事（走っている打刻・A/Bの割り当て・移行の版）。
+ * 何もしないと restoreState() の remove() だけが効いて、これらが
+ * 無警告で消える（実際に「走行中の打刻が消える」形で見つかった不具合）。
+ * クラウド由来のデータを詰める前に、いまの値をそのまま持ち越しておく。
  */
 export async function pullAll(): Promise<boolean> {
   const userId = currentUserId;
@@ -302,7 +308,12 @@ export async function pullAll(): Promise<boolean> {
     const currentRow = sessionRows.find((r) => r.completed_at === null);
     const archiveRows = sessionRows.filter((r) => r !== currentRow);
 
+    // この端末だけの値を、クラウド由来のデータで上書きされる前に確保しておく
+    const local = captureState();
     const data: Record<string, string> = {};
+    for (const k of [KEY.running, KEY.variant, KEY.schemaVersion]) {
+      if (local[k] !== undefined) data[k] = local[k];
+    }
     if (big.data) data[KEY.bigstory] = JSON.stringify(bigStoryFromRow(big.data));
     if (profile.data) data[KEY.profile] = JSON.stringify(profileFromRow(profile.data));
     data[KEY.cards] = JSON.stringify((cards.data ?? []).map(goalCardFromRow));

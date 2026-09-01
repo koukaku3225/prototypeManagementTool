@@ -163,6 +163,39 @@ export function useGridDrag({
     [applyDrag, onSelect],
   );
 
+  /**
+   * 「すぐ始めず、様子を見る」を1箇所にまとめたもの。
+   *
+   * マウスと触る操作で「始めていいと判断する条件」が違う
+   * （マウス＝動いた量、触る＝長押し）のは実装の都合ではなく本質的な違いで、
+   * 消すべきではない。ただし以前はこの判断が onBoxPointerDown /
+   * onEmptyPointerDown の2箇所に別々に書かれていて、どちらかだけ直すと
+   * ズレる形になっていた（このファイルの冒頭コメントにある2つの不具合は、
+   * まさにこの手のズレから実機で見つかっている）。判断はここ1箇所に閉じる。
+   */
+  const schedulePending = useCallback(
+    (o: Origin, pointerType: string, showPressing: boolean) => {
+      pending.current = o;
+      if (pointerType === "mouse") {
+        // マウスは動いた量で始める。判定は onMove 側（CREATE_SLOP_PX）に任せる
+        return;
+      }
+      // 触る操作は長押しで始める。動いたら（グリッドをスクロールしたいので）
+      // onMove 側でキャンセルされる
+      if (showPressing) setPressingId(o.box.id);
+      longPress.current = window.setTimeout(() => {
+        longPress.current = null;
+        if (pending.current) {
+          const p = pending.current;
+          pending.current = null;
+          if (showPressing) setPressingId(null);
+          begin(p);
+        }
+      }, LONG_PRESS_MS);
+    },
+    [begin],
+  );
+
   /** 枠の上で押した */
   const onBoxPointerDown = useCallback(
     (e: React.PointerEvent, box: TimeBox, kind: DragKind) => {
@@ -182,39 +215,18 @@ export function useGridDrag({
         /* 捕まえられなくても、window 側で追えるので続行する */
       }
 
-      if (e.pointerType === "mouse") {
-        // マウスはつかんだ瞬間から。ただし移動は少し動いてから始める
-        if (kind === "move") {
-          pending.current = o;
-        } else {
-          e.preventDefault();
-          begin(o);
-        }
-        return;
-      }
-
-      // 丸いつまみは「長さを変える」ためだけに出している。
-      // 見えている以上、待たせる理由がないので、触った瞬間から始める
+      // 丸いつまみ（長さ変更）は、マウスでも触る操作でも待たせる理由がない。
+      // 見えている以上、触った瞬間から始める
       if (kind === "resize-start" || kind === "resize-end") {
         e.preventDefault();
         begin(o);
         return;
       }
 
-      // 枠の移動は長押ししてから。そうしないとグリッドをスクロールできない
-      pending.current = o;
-      setPressingId(box.id);
-      longPress.current = window.setTimeout(() => {
-        longPress.current = null;
-        if (pending.current) {
-          const p = pending.current;
-          pending.current = null;
-          setPressingId(null);
-          begin(p);
-        }
-      }, LONG_PRESS_MS);
+      // 枠の移動だけ、様子を見る（マウス＝動いた量、触る＝長押し）
+      schedulePending(o, e.pointerType, true);
     },
-    [begin, minutesAt],
+    [begin, minutesAt, schedulePending],
   );
 
   /**
@@ -234,21 +246,9 @@ export function useGridDrag({
         originMinutes: minutesAt(e.clientY),
         clientY: e.clientY,
       };
-      if (e.pointerType === "mouse") {
-        pending.current = o;
-        return;
-      }
-      pending.current = o;
-      longPress.current = window.setTimeout(() => {
-        longPress.current = null;
-        if (pending.current) {
-          const p = pending.current;
-          pending.current = null;
-          begin(p);
-        }
-      }, LONG_PRESS_MS);
+      schedulePending(o, e.pointerType, false);
     },
-    [begin, minutesAt],
+    [minutesAt, schedulePending],
   );
 
   /** 端に寄ったらスクロールを送る */

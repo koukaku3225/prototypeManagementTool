@@ -168,15 +168,28 @@ export function useConversation(initial: Session) {
     );
   }, []);
 
-  /** 直前の失敗を再送する（ユーザー発言は重複させない） */
+  /**
+   * 直前の失敗を再送する（ユーザー発言は重複させない）。
+   *
+   * pendingRef はユーザー発言を送ったときだけ積む（send() の userText!==null の分岐）。
+   * ステップ確定直後のコーチへの自動送信（send(null)）が失敗したときは
+   * pendingRef が空のままなので、削っていい「送信済みユーザー発言」が無い。
+   * それを見ずに末尾を削ると、直前のコーチの本物の返答を巻き添えで消してしまう
+   * （実機では起きていないが、機構としてそうなっていた）。
+   */
   const retry = useCallback(() => {
-    const rolledBack: Session = {
-      ...state.session,
-      messages: state.session.messages.slice(0, -1),
-    };
     const p = pendingRef.current;
-    setState((s) => ({ ...s, session: rolledBack }));
-    if (p) void send(p.text, p.draft);
+    if (p) {
+      const rolledBack: Session = {
+        ...state.session,
+        messages: state.session.messages.slice(0, -1),
+      };
+      setState((s) => ({ ...s, session: rolledBack }));
+      void send(p.text, p.draft);
+    } else {
+      // 自動送信の失敗。削るべきユーザー発言は無いので、そのまま同じ形で送り直す
+      void send(null);
+    }
   }, [send, state.session]);
 
   return {
