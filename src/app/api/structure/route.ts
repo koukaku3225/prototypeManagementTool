@@ -21,6 +21,7 @@ import {
 import { PHASE_META } from "@/lib/prompts/phases";
 import { COACHES } from "@/lib/prompts/coaches";
 import { requireAuthIfEnabled } from "@/lib/require-auth";
+import { checkRateLimit, getCallerId } from "@/lib/rate-limit";
 import type { CoachId, ChatMessage, StoryMode } from "@/types/goal";
 
 export const runtime = "nodejs";
@@ -51,6 +52,11 @@ function renderTranscript(messages: ChatMessage[], coachId: CoachId): string {
 export async function POST(req: Request) {
   const denied = await requireAuthIfEnabled();
   if (denied) return denied;
+
+  // structure は STRUCTURE_MODEL（上位モデル）を使うぶん chat より高いので、
+  // 1日あたりの上限も別枠で厳しめにしてある（rate-limit.ts 参照）
+  const limited = await checkRateLimit(await getCallerId(req), "structure");
+  if (limited) return limited;
 
   if (!isApiKeyConfigured()) {
     return Response.json(

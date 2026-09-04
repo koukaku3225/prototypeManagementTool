@@ -8,6 +8,7 @@ import {
 } from "@/lib/chat-prompt";
 import { PhaseTokenFilter, resolvePhase } from "@/lib/phase-machine";
 import { requireAuthIfEnabled } from "@/lib/require-auth";
+import { checkRateLimit, getCallerId } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -22,6 +23,11 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   const denied = await requireAuthIfEnabled();
   if (denied) return denied;
+
+  // Anthropic呼び出し（課金発生）の直前で、回数だけ先に弾く。
+  // Upstash未設定のローカル開発では常に通る（checkRateLimit参照）
+  const limited = await checkRateLimit(await getCallerId(req), "chat");
+  if (limited) return limited;
 
   if (!isApiKeyConfigured()) {
     return Response.json(
