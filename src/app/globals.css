@@ -1,0 +1,143 @@
+@import "tailwindcss";
+
+/*
+ * 藍の濃淡で「深さ」を、山吹で「行動」を表す。
+ * フェーズ2・3（意味の掘り下げ・動機の変換）と、明日のタスク・約束にだけ山吹を使う。
+ */
+:root {
+  --paper: #f2f5f9;
+  --surface: #ffffff;
+  --surface-2: #e7edf5;
+  --text: #151e36;
+  --muted: #57657f;
+  --line: #cfd9e7;
+  --line-soft: #e2e9f2;
+  --indigo: #2e4a7d;
+  --indigo-soft: #dde6f4;
+  --accent: #a66a0b;
+  --accent-soft: #f6ebd6;
+  --accent-line: #d9a94a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0e1524;
+    --surface: #161f33;
+    --surface-2: #1d2841;
+    --text: #e2e8f4;
+    --muted: #94a3be;
+    --line: #2c3852;
+    --line-soft: #232e45;
+    --indigo: #93acdb;
+    --indigo-soft: #1c2942;
+    --accent: #e2ac4e;
+    --accent-soft: #2e2411;
+    --accent-line: #7a5e24;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-indigo: var(--indigo);
+  --color-indigo-soft: var(--indigo-soft);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-line: var(--accent-line);
+  --font-sans: "Zen Kaku Gothic New", -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
+  --font-serif: "Zen Old Mincho", "Hiragino Mincho ProN", serif;
+}
+
+html,
+body {
+  background: var(--paper);
+  color: var(--text);
+}
+
+body {
+  font-family: "Zen Kaku Gothic New", -apple-system,
+    "Hiragino Kaku Gothic ProN", sans-serif;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+
+
+/*
+ * 予定の色。目標ごとに色が付くと、1日の時間の使い方が形で分かる。
+ * 明暗の両テーマで、線・背景・文字の3つを組で持つ。
+ */
+:root {
+  --c-amber-bg: #f6ebd6;  --c-amber-line: #d9a94a;  --c-amber-fg: #7d5008;
+  --c-indigo-bg: #dde6f4; --c-indigo-line: #9db4d8; --c-indigo-fg: #26406b;
+  --c-teal-bg: #d8ece8;   --c-teal-line: #8ec3ba;   --c-teal-fg: #1f5a51;
+  --c-rose-bg: #f5dfe1;   --c-rose-line: #d79aa2;   --c-rose-fg: #7d2733;
+  --c-violet-bg: #e6e0f2; --c-violet-line: #b3a3d4; --c-violet-fg: #45327a;
+  --c-slate-bg: #e4e9f0;  --c-slate-line: #b0bccd;  --c-slate-fg: #3b4756;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-amber-bg: #33280f;  --c-amber-line: #7a5e24;  --c-amber-fg: #e2ac4e;
+    --c-indigo-bg: #1b2740; --c-indigo-line: #3d5580; --c-indigo-fg: #93acdb;
+    --c-teal-bg: #122b28;   --c-teal-line: #2f5d55;   --c-teal-fg: #7fc4b6;
+    --c-rose-bg: #301a1e;   --c-rose-line: #63343c;   --c-rose-fg: #d98d98;
+    --c-violet-bg: #241f38; --c-violet-line: #4a3f73;  --c-violet-fg: #b0a0dd;
+    --c-slate-bg: #1d232d;  --c-slate-line: #38465c;  --c-slate-fg: #9aa8bb;
+  }
+}
+
+/*
+ * 下タブの高さ。画面下に重ねるもの（NowBar など）がこの上に乗るために要る。
+ * sticky bottom-0 を2つ並べると、どちらも画面下に張り付いて重なるため、
+ * 上に置くほうはこのぶんだけ持ち上げる。
+ */
+:root {
+  --bottom-nav-h: 58px;
+}
+
+/* 目には見せず、読み上げには渡す。読み込み中の告知などに使う */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* スマホ幅に固定する。PCで開いても実機幅で表示される。 */
+.phone {
+  width: 100%;
+  max-width: 420px;
+  margin-inline: auto;
+}
+
+/*
+ * 時間割のスクロール領域。
+ * スクロールバーが右端に常時出ていると、指を置く場所と重なって邪魔になる。
+ * スクロールできること自体は、目盛りと予定の位置で分かる。
+ */
+.grid-scroller {
+  scrollbar-width: none;
+}
+.grid-scroller::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

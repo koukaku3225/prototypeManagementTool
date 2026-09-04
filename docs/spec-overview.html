@@ -1,0 +1,1082 @@
+<title>目標設定コーチ MVP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;700;900&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root{
+  --paper:#F2F5F9;
+  --surface:#FFFFFF;
+  --surface-2:#E7EDF5;
+  --text:#151E36;
+  --muted:#57657F;
+  --line:#CFD9E7;
+  --line-soft:#E2E9F2;
+  --indigo:#2E4A7D;
+  --indigo-soft:#DDE6F4;
+  --accent:#A66A0B;
+  --accent-soft:#F6EBD6;
+  --accent-line:#D9A94A;
+  --shadow:0 1px 2px rgba(21,30,54,.06),0 8px 24px rgba(21,30,54,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1524;
+    --surface:#161F33;
+    --surface-2:#1D2841;
+    --text:#E2E8F4;
+    --muted:#94A3BE;
+    --line:#2C3852;
+    --line-soft:#232E45;
+    --indigo:#93ACDB;
+    --indigo-soft:#1C2942;
+    --accent:#E2AC4E;
+    --accent-soft:#2E2411;
+    --accent-line:#7A5E24;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1524;
+  --surface:#161F33;
+  --surface-2:#1D2841;
+  --text:#E2E8F4;
+  --muted:#94A3BE;
+  --line:#2C3852;
+  --line-soft:#232E45;
+  --indigo:#93ACDB;
+  --indigo-soft:#1C2942;
+  --accent:#E2AC4E;
+  --accent-soft:#2E2411;
+  --accent-line:#7A5E24;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--text);
+  font-family:"Zen Kaku Gothic New",-apple-system,"Hiragino Kaku Gothic ProN",sans-serif;
+  font-size:16px;
+  line-height:1.85;
+  -webkit-font-smoothing:antialiased;
+}
+.mincho{font-family:"Zen Old Mincho","Hiragino Mincho ProN",serif}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,monospace}
+
+/* ---------- shell ---------- */
+.shell{max-width:1180px;margin:0 auto;padding:0 24px;display:grid;grid-template-columns:1fr;gap:0}
+@media (min-width:1040px){
+  .shell{grid-template-columns:220px minmax(0,1fr);gap:56px;padding:0 40px}
+}
+
+/* ---------- masthead ---------- */
+.masthead{border-bottom:1px solid var(--line);background:var(--surface)}
+.masthead-inner{max-width:1180px;margin:0 auto;padding:56px 24px 44px}
+@media (min-width:1040px){.masthead-inner{padding:72px 40px 56px}}
+.eyebrow{
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 18px
+}
+h1{
+  font-family:"Zen Old Mincho",serif;font-weight:900;
+  font-size:clamp(30px,5.4vw,50px);line-height:1.25;letter-spacing:.01em;
+  margin:0 0 22px;text-wrap:balance;max-width:20ch
+}
+.thesis{
+  font-size:clamp(15px,2.2vw,18px);line-height:1.9;color:var(--text);
+  max-width:60ch;margin:0;padding-left:18px;border-left:3px solid var(--accent-line)
+}
+.meta{
+  display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:32px;
+  font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted)
+}
+
+/* ---------- toc ---------- */
+nav.toc{display:none}
+@media (min-width:1040px){
+  nav.toc{
+    display:block;position:sticky;top:0;align-self:start;
+    padding-top:64px;padding-bottom:64px;max-height:100vh;overflow-y:auto
+  }
+}
+.toc-title{
+  font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 14px
+}
+.toc ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.toc a{
+  display:flex;gap:10px;text-decoration:none;color:var(--muted);
+  font-size:13px;line-height:1.5;padding:5px 8px;border-radius:5px;border-left:2px solid transparent
+}
+.toc a:hover{color:var(--text);background:var(--surface-2)}
+.toc a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.toc .n{font-family:"IBM Plex Mono",monospace;font-size:11px;opacity:.65;padding-top:1px}
+
+.toc-mobile{margin:28px 0 0}
+@media (min-width:1040px){.toc-mobile{display:none}}
+.toc-mobile summary{
+  cursor:pointer;font-family:"IBM Plex Mono",monospace;font-size:12px;
+  letter-spacing:.1em;color:var(--muted);padding:10px 0
+}
+.toc-mobile ol{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:1px}
+.toc-mobile a{display:flex;gap:10px;text-decoration:none;color:var(--muted);font-size:14px;padding:6px 0}
+
+/* ---------- content ---------- */
+main{padding:56px 0 96px;min-width:0}
+@media (min-width:1040px){main{padding:64px 0 120px}}
+section{margin-bottom:76px;scroll-margin-top:24px}
+section:last-child{margin-bottom:0}
+
+h2{
+  font-family:"Zen Old Mincho",serif;font-weight:700;
+  font-size:clamp(21px,3.2vw,28px);line-height:1.4;margin:0 0 8px;
+  text-wrap:balance;display:flex;gap:14px;align-items:baseline
+}
+h2 .n{
+  font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:500;
+  color:var(--accent);flex:none;padding-top:2px
+}
+.lede{color:var(--muted);font-size:15px;margin:0 0 28px;max-width:62ch;padding-left:0}
+@media (min-width:1040px){.lede{padding-left:27px}}
+
+h3{
+  font-family:"Zen Kaku Gothic New",sans-serif;font-weight:700;font-size:16px;
+  margin:38px 0 12px;letter-spacing:.02em
+}
+h3:first-of-type{margin-top:0}
+p{margin:0 0 16px;max-width:66ch}
+strong{font-weight:700}
+a{color:var(--accent)}
+hr{border:0;border-top:1px solid var(--line-soft);margin:40px 0}
+
+ul,ol.plain{margin:0 0 18px;padding-left:1.25em;max-width:64ch}
+li{margin-bottom:6px}
+
+/* ---------- tables ---------- */
+.tw{overflow-x:auto;margin:0 0 22px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:520px}
+th,td{padding:11px 15px;text-align:left;border-bottom:1px solid var(--line-soft);vertical-align:top;line-height:1.7}
+th{
+  font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:500;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  background:var(--surface-2);border-bottom:1px solid var(--line);white-space:nowrap
+}
+tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums;font-family:"IBM Plex Mono",monospace;white-space:nowrap}
+td code{font-size:12.5px}
+
+code{
+  background:var(--surface-2);padding:1px 5px;border-radius:4px;
+  font-size:13px;border:1px solid var(--line-soft)
+}
+pre{
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:18px 20px;overflow-x:auto;margin:0 0 22px;font-size:13px;line-height:1.75
+}
+pre code{background:none;border:0;padding:0;font-size:13px}
+
+/* ---------- figures ---------- */
+figure{margin:30px 0 34px;padding:0}
+figure svg{display:block;width:100%;max-width:100%;height:auto}
+.figbox{
+  background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  padding:26px 22px;overflow-x:auto;box-shadow:var(--shadow)
+}
+figcaption{
+  margin-top:12px;font-size:13px;color:var(--muted);line-height:1.7;max-width:64ch
+}
+figcaption b{color:var(--text);font-weight:700}
+
+/* ---------- callouts ---------- */
+.note{
+  border-left:3px solid var(--accent-line);background:var(--accent-soft);
+  padding:16px 20px;border-radius:0 8px 8px 0;margin:0 0 24px;font-size:14.5px
+}
+.note p{margin:0;max-width:none}
+.note p+p{margin-top:10px}
+.note .tag{
+  display:block;font-family:"IBM Plex Mono",monospace;font-size:10px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin-bottom:6px
+}
+
+/* ---------- fork cards (design decisions) ---------- */
+.forks{display:flex;flex-direction:column;gap:16px;margin:0 0 26px}
+.fork{
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:12px;overflow:hidden;box-shadow:var(--shadow)
+}
+.fork-head{
+  padding:13px 20px;border-bottom:1px solid var(--line);background:var(--surface-2);
+  display:flex;gap:12px;align-items:baseline;flex-wrap:wrap
+}
+.fork-head .k{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted)}
+.fork-head .t{font-weight:700;font-size:15px}
+.fork-body{display:grid;grid-template-columns:1fr;gap:0}
+@media (min-width:640px){.fork-body{grid-template-columns:1fr 1fr}}
+.opt{padding:17px 20px;font-size:14px;line-height:1.75}
+@media (min-width:640px){.opt+.opt{border-left:1px solid var(--line-soft)}}
+.opt+.opt{border-top:1px solid var(--line-soft)}
+@media (min-width:640px){.opt+.opt{border-top:0}}
+.opt .label{
+  font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;margin-bottom:7px;display:flex;align-items:center;gap:6px
+}
+.opt.pick{background:var(--accent-soft)}
+.opt.pick .label{color:var(--accent);font-weight:500}
+.opt.drop .label{color:var(--muted)}
+.opt.drop{color:var(--muted)}
+.opt .why{
+  display:block;margin-top:9px;padding-top:9px;border-top:1px dashed var(--line);
+  font-size:13px;color:var(--muted)
+}
+.opt.pick .why{color:var(--text);opacity:.85}
+
+/* ---------- phase list ---------- */
+.phase{
+  border:1px solid var(--line);border-radius:12px;background:var(--surface);
+  margin-bottom:14px;overflow:hidden;box-shadow:var(--shadow)
+}
+.phase-head{
+  display:flex;gap:14px;align-items:center;padding:14px 20px;
+  border-bottom:1px solid var(--line-soft);flex-wrap:wrap
+}
+.phase-num{
+  width:26px;height:26px;border-radius:50%;flex:none;
+  display:grid;place-items:center;font-family:"IBM Plex Mono",monospace;
+  font-size:12px;background:var(--indigo);color:var(--surface)
+}
+.phase-name{font-weight:700;font-size:15px}
+.phase-id{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted)}
+.phase-badges{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
+.badge{
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;padding:3px 9px;
+  border-radius:20px;border:1px solid var(--line);color:var(--muted);white-space:nowrap
+}
+.badge.hot{border-color:var(--accent-line);color:var(--accent);background:var(--accent-soft)}
+.phase-body{padding:16px 20px;font-size:14px}
+.phase-body .row{display:flex;gap:12px;margin-bottom:9px;align-items:baseline}
+.phase-body .row:last-child{margin-bottom:0}
+.phase-body .rk{
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted);flex:none;width:76px;padding-top:3px
+}
+.phase-body .rv{flex:1;line-height:1.75;min-width:0}
+.dont{color:var(--muted)}
+
+/* ---------- open questions ---------- */
+.oq{counter-reset:oq;list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:12px;max-width:none}
+.oq li{
+  counter-increment:oq;position:relative;padding:15px 20px 15px 52px;
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  font-size:14.5px;margin:0
+}
+.oq li::before{
+  content:counter(oq);position:absolute;left:19px;top:15px;
+  font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--accent)
+}
+.oq b{display:block;margin-bottom:3px}
+.oq span{color:var(--muted);font-size:13.5px;line-height:1.7}
+
+footer{
+  border-top:1px solid var(--line);margin-top:24px;padding:32px 0 60px;
+  font-size:13px;color:var(--muted)
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <p class="eyebrow">MVP 仕様案 / v0.1 / 2026-08-21</p>
+    <h1 class="mincho">なりたい姿を、<br>明日の一歩に変える</h1>
+    <p class="thesis">
+      30〜40分のAIとの対話を1回行うと、抽象的な「なりたい姿」が、意味づけされた1つの目標と、
+      明日実行する1つの具体的タスクに変換されて手元に残る。
+    </p>
+    <div class="meta">
+      <span>対象範囲 — 目標設定と自己分析</span>
+      <span>画面 4</span>
+      <span>対話フェーズ 5</span>
+      <span>設計分岐 8</span>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="toc">
+    <p class="toc-title">Contents</p>
+    <ol>
+      <li><a href="#s1"><span class="n">01</span><span>何を検証するのか</span></a></li>
+      <li><a href="#s2"><span class="n">02</span><span>設計の分岐点</span></a></li>
+      <li><a href="#s3"><span class="n">03</span><span>画面と流れ</span></a></li>
+      <li><a href="#s4"><span class="n">04</span><span>5フェーズ対話</span></a></li>
+      <li><a href="#s5"><span class="n">05</span><span>対話が残すもの</span></a></li>
+      <li><a href="#s6"><span class="n">06</span><span>AI構成とコスト</span></a></li>
+      <li><a href="#s7"><span class="n">07</span><span>実装の順序</span></a></li>
+      <li><a href="#s8"><span class="n">08</span><span>検証指標</span></a></li>
+      <li><a href="#s9"><span class="n">09</span><span>未決事項</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+  <details class="toc-mobile">
+    <summary>目次を開く</summary>
+    <ol>
+      <li><a href="#s1"><span class="n">01</span>何を検証するのか</a></li>
+      <li><a href="#s2"><span class="n">02</span>設計の分岐点</a></li>
+      <li><a href="#s3"><span class="n">03</span>画面と流れ</a></li>
+      <li><a href="#s4"><span class="n">04</span>5フェーズ対話</a></li>
+      <li><a href="#s5"><span class="n">05</span>対話が残すもの</a></li>
+      <li><a href="#s6"><span class="n">06</span>AI構成とコスト</a></li>
+      <li><a href="#s7"><span class="n">07</span>実装の順序</a></li>
+      <li><a href="#s8"><span class="n">08</span>検証指標</a></li>
+      <li><a href="#s9"><span class="n">09</span>未決事項</a></li>
+    </ol>
+  </details>
+
+  <!-- ============ 01 ============ -->
+  <section id="s1">
+    <h2><span class="n">01</span><span>何を検証するのか</span></h2>
+    <p class="lede">MVPは製品の縮小版ではなく、仮説の検証装置。作る範囲は検証したいことから逆算して決める。</p>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>#</th><th>仮説</th><th>判定方法</th></tr></thead>
+        <tbody>
+          <tr><td class="num">H1</td><td><strong>AIとの構造化対話は、自力でワークシートを埋めるより深い目標設定ができる</strong></td><td>目標カードの「意味づけ」欄の記述量と具体性</td></tr>
+          <tr><td class="num">H2</td><td>「なぜ」を掘る対話は、外発的・回避的な動機を内発的動機に変換できる</td><td>フェーズ2→3で <code>motivationType</code> が変化した割合</td></tr>
+          <tr><td class="num">H3</td><td>疑似人格への「約束」は、翌日の実行率を上げる</td><td>約束ステップあり／なしのA/B比較</td></tr>
+          <tr><td class="num">H4</td><td>意図的な待ち時間はユーザーの回答の質を上げる</td><td>待ち時間あり／なしで回答文字数と具体性を比較</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <span class="tag">最優先</span>
+      <p>H1が偽なら、この先の記録・振り返り・リマインダー機能を作る意味がない。<strong>MVPはH1の検証装置である</strong>という一点が、以降のすべての取捨選択の基準になる。</p>
+    </div>
+  </section>
+
+  <!-- ============ 02 ============ -->
+  <section id="s2">
+    <h2><span class="n">02</span><span>設計の分岐点</span></h2>
+    <p class="lede">仕様を固める過程で8つの分かれ道があった。採用しなかった案も、判断の根拠とともに残しておく。前提が変われば選び直せるようにするため。</p>
+
+    <div class="forks">
+
+      <div class="fork">
+        <div class="fork-head"><span class="k">01</span><span class="t">自己分析をどう扱うか</span></div>
+        <div class="fork-body">
+          <div class="opt drop">
+            <div class="label">見送り — 独立モード</div>
+            性格診断と時間軸の整理を独立した画面として先に置き、その結果を目標設定に渡す。
+            <span class="why">診断を先にやらせると、目標に辿り着く前に離脱する。「何のためにこれを答えているのか」が見えない時間が長すぎる。</span>
+          </div>
+          <div class="opt pick">
+            <div class="label">採用 — 対話に溶かす</div>
+            独立モードを作らず、目標設定対話の中でAIが価値観・生活パターン・過去の挫折を聞き出し、裏で <code>UserProfile</code> に蓄積する。
+            <span class="why">ユーザー体験は「目標を決めに来た」のまま。自己分析は副産物として溜まり、2回目以降の対話品質を上げる。</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="fork">
+        <div class="fork-head"><span class="k">02</span><span class="t">対話をどこまで作るか</span></div>
+        <div class="fork-body">
+          <div class="opt drop">
+            <div class="label">見送り — フェーズ1〜3のみ</div>
+            動機の変換までで打ち切る。SMART化とWBSはフォームでも書けるので作らない。
+            <span class="why">実装は最短。ただし成果物が抽象的なままで、「明日の一歩」が出ない。H1の判定材料が弱くなる。</span>
+          </div>
+          <div class="opt pick">
+            <div class="label">採用 — フェーズ1〜5フル</div>
+            発散から明日の1タスクまで通しで対話する。
+            <span class="why">対話の価値は「抽象が具体に変わった」体験にある。終点まで届かないと検証にならない。</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="fork">
+        <div class="fork-head"><span class="k">03</span><span class="t">待ち時間の粒度</span></div>
+        <div class="fork-body">
+          <div class="opt pick">
+            <div class="label">採用 — セッション内60秒ロック</div>
+            フェーズ2・3の「なぜ」の問いに限り、送信ボタンを60秒ロックする。入力欄は開いたまま。
+            <span class="why">1回のセッション内で完結するので、A/B比較がすぐ回る。スキップボタンは置かない（置けば必ず押される）。</span>
+          </div>
+          <div class="opt drop">
+            <div class="label">見送り — 24時間ロック</div>
+            目標カードの確定を翌日まで待たせ、「まだこれで良いか」と再確認する。
+            <span class="why">効果は大きそうだが検証サイクルが1日単位になる。将来の拡張案として保留。</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="fork">
+        <div class="fork-head"><span class="k">04</span><span class="t">AIモデルの構成</span></div>
+        <div class="fork-body">
+          <div class="opt drop">
+            <div class="label">見送り — 全ターン同一モデル</div>
+            対話も構造化もすべて <code>claude-haiku-4-5</code> で通す。
+            <span class="why">最も安いが、構造化抽出を誤ると目標カード全体が壊れる。壊れたカードはH1の検証を汚染する。</span>
+          </div>
+          <div class="opt pick">
+            <div class="label">採用 — 2段構え</div>
+            対話ターンは <code>claude-haiku-4-5</code>、構造化抽出と動機判定だけ <code>claude-sonnet-5</code>。
+            <span class="why">呼び出し回数の多い対話を最安に抑え、失敗コストの高い箇所だけ上位モデルに払う。1セッション約20〜25円。</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="fork">
+        <div class="fork-head"><span class="k">05</span><span class="t">「約束」のUI</span></div>
+        <div class="fork-body">
+          <div class="opt drop">
+            <div class="label">見送り — ボタンで同意</div>
+            「約束する」ボタンを1つ置いて押させる。
+            <span class="why">実装は簡単だが、押す行為に体重が乗らない。同意の言葉が残らないので翌日に再提示できない。</span>
+          </div>
+          <div class="opt pick">
+            <div class="label">採用 — 自分の言葉で打つ</div>
+            テキスト入力欄を出し、ユーザー自身の言葉で答えさせる。打たれた言葉を保存し、翌日ホーム画面で再提示する。
+            <span class="why">自分の言葉を書く行為がコミットメントを強くする。H3の検証装置そのもの。</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="fork">
+        <div class="fork-head"><span class="k">06</span><span class="t">扱う目標の数</span></div>
+        <div class="fork-body">
+          <div class="opt drop">
+            <div class="label">見送り — 複数目標＋優先順位づけ</div>
+            目標リストを作り、重要度を定数化して選ばせる。
+            <span class="why">検証対象がぼやける。そもそも構想上も「基本は一つの目標に固定する」としている。</span>
+          </div>
+          <div class="opt pick">
+            <div class="label">採用 — 1目標固定</div>
+            1セッション＝1目標。優先順位づけの機能は作らない。
+            <span class="why">対話の深さに集中できる。目標同士の依存関係グラフも自動的に不要になる。</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="fork">
+        <div class="fork-head"><span class="k">07</span><span class="t">If-Thenプランの置き場所</span></div>
+        <div class="fork-body">
+          <div class="opt drop">
+            <div class="label">見送り — 独立した機能</div>
+            予防プランを作る専用の画面とデータ構造を用意する。
+            <span class="why">実装が増える割に、目標と切り離されたプランは使われない。</span>
+          </div>
+          <div class="opt pick">
+            <div class="label">採用 — WOOPのPlanに統合</div>
+            フェーズ5でWOOPの障害と対策を作る流れに含める。
+            <span class="why">WOOPのPlanがIf-Thenそのもの。新規実装ゼロで差別化機能が入る。</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="fork">
+        <div class="fork-head"><span class="k">08</span><span class="t">データの永続化と外部連携</span></div>
+        <div class="fork-body">
+          <div class="opt drop">
+            <div class="label">見送り — 認証＋サーバーDB＋Notion連携</div>
+            ログインを作り、サーバーに保存し、Notionをデータベースとして繋ぐ。
+            <span class="why">検証に必要ない実装が大量に増える。Notion連携は仕様が固まる前に繋ぐと作り直しになる。</span>
+          </div>
+          <div class="opt pick">
+            <div class="label">採用 — localStorage＋エクスポート</div>
+            ブラウザに保存し、JSON／Markdownでダウンロードできるようにする。
+            <span class="why">手で貼れば検証には足りる。エクスポート機能が将来のNotion連携の足場にもなる。</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <h3>分岐点01を図で見る</h3>
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 860 300" role="img" aria-label="独立した自己分析モードを置く案と、目標設定対話に統合する案の比較。独立案はユーザーが2つの関門を通る必要があり、最初の関門で離脱が起きる。統合案は関門が1つで、プロフィールは対話の副産物として蓄積される。">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+            </marker>
+            <marker id="ar-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+            </marker>
+          </defs>
+
+          <!-- 案A -->
+          <text x="0" y="16" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--muted)" letter-spacing="1.5">見送り案 — 独立モード</text>
+          <g color="var(--muted)">
+            <rect x="0" y="34" width="110" height="52" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="55" y="65" font-size="13" text-anchor="middle" fill="currentColor">ユーザー</text>
+
+            <line x1="112" y1="60" x2="160" y2="60" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+
+            <rect x="163" y="34" width="150" height="52" rx="8" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+            <text x="238" y="57" font-size="13" text-anchor="middle" fill="currentColor">性格診断</text>
+            <text x="238" y="74" font-size="11" text-anchor="middle" fill="currentColor" opacity=".7">時間軸の整理</text>
+
+            <line x1="315" y1="60" x2="363" y2="60" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+
+            <rect x="366" y="34" width="150" height="52" rx="8" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+            <text x="441" y="65" font-size="13" text-anchor="middle" fill="currentColor">目標設定</text>
+
+            <line x1="518" y1="60" x2="566" y2="60" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+
+            <rect x="569" y="34" width="130" height="52" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="634" y="65" font-size="13" text-anchor="middle" fill="currentColor">目標カード</text>
+          </g>
+          <!-- 離脱マーカー -->
+          <g>
+            <line x1="330" y1="26" x2="348" y2="44" stroke="var(--accent)" stroke-width="2"/>
+            <line x1="348" y1="26" x2="330" y2="44" stroke="var(--accent)" stroke-width="2"/>
+            <text x="356" y="41" font-size="12" fill="var(--accent)">ここで離脱</text>
+          </g>
+          <text x="163" y="103" font-size="11" fill="var(--muted)">関門①「何のために答えているのか」が見えない</text>
+          <text x="366" y="103" font-size="11" fill="var(--muted)">関門②</text>
+
+          <line x1="0" y1="132" x2="860" y2="132" stroke="var(--line)" stroke-width="1"/>
+
+          <!-- 案B -->
+          <text x="0" y="163" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--accent)" letter-spacing="1.5">採用案 — 対話に統合</text>
+          <g color="var(--text)">
+            <rect x="0" y="181" width="110" height="52" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="55" y="212" font-size="13" text-anchor="middle" fill="currentColor">ユーザー</text>
+
+            <line x1="112" y1="207" x2="160" y2="207" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+
+            <rect x="163" y="181" width="353" height="52" rx="8" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
+            <text x="339" y="204" font-size="13" text-anchor="middle" fill="currentColor">目標設定の対話（5フェーズ）</text>
+            <text x="339" y="221" font-size="11" text-anchor="middle" fill="currentColor" opacity=".7">価値観・生活パターン・過去の挫折を対話の中で聞き出す</text>
+
+            <line x1="518" y1="207" x2="566" y2="207" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+
+            <rect x="569" y="181" width="130" height="52" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="634" y="212" font-size="13" text-anchor="middle" fill="currentColor">目標カード</text>
+
+            <!-- 副産物 -->
+            <line x1="339" y1="235" x2="339" y2="266" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar-a)"/>
+            <rect x="230" y="268" width="218" height="30" rx="6" fill="none" stroke="var(--accent-line)" stroke-width="1.5"/>
+            <text x="339" y="288" font-size="12" text-anchor="middle" fill="var(--accent)">UserProfile（副産物として蓄積）</text>
+            <text x="458" y="262" font-size="11" fill="var(--muted)">次回の対話品質を上げる</text>
+          </g>
+          <text x="163" y="252" font-size="11" fill="var(--muted)">関門は1つだけ</text>
+        </svg>
+      </div>
+      <figcaption>
+        <b>違いは関門の数。</b>独立モード案はユーザーが2つの関門を通らないと成果物に辿り着かず、1つ目の関門は見返りが見えないまま長い。統合案では関門が1つになり、自己分析データは対話の副産物として同じ量だけ手に入る。
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ 03 ============ -->
+  <section id="s3">
+    <h2><span class="n">03</span><span>画面と流れ</span></h2>
+    <p class="lede">画面は4つ。すべてスマホ幅固定（<code>max-w-[420px]</code>）で、PCブラウザで開いても実機幅で表示される。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 860 250" role="img" aria-label="4画面の遷移図。ランディングでコーチを選び、対話画面で5フェーズを進み、目標カードを生成して編集し、ホーム画面に至る。対話画面は中断してもlocalStorageから再開できる。">
+          <defs>
+            <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <g color="var(--text)">
+            <!-- S1 -->
+            <rect x="2" y="52" width="176" height="86" rx="10" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+            <text x="18" y="76" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--indigo)">S1</text>
+            <text x="18" y="99" font-size="14" fill="currentColor">ランディング</text>
+            <text x="18" y="119" font-size="11" fill="var(--muted)">コーチを3人から選ぶ</text>
+            <text x="18" y="133" font-size="11" fill="var(--muted)">所要時間を明示する</text>
+
+            <line x1="180" y1="95" x2="222" y2="95" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+
+            <!-- S2 -->
+            <rect x="225" y="52" width="176" height="86" rx="10" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
+            <text x="241" y="76" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--accent)">S2</text>
+            <text x="241" y="99" font-size="14" fill="currentColor">対話</text>
+            <text x="241" y="119" font-size="11" fill="var(--muted)">5フェーズ / 18〜31ターン</text>
+            <text x="241" y="133" font-size="11" fill="var(--muted)">ストリーミング表示</text>
+
+            <line x1="403" y1="95" x2="445" y2="95" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+            <text x="404" y="87" font-size="10" fill="var(--muted)">完走</text>
+
+            <!-- S3 -->
+            <rect x="448" y="52" width="176" height="86" rx="10" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+            <text x="464" y="76" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--indigo)">S3</text>
+            <text x="464" y="99" font-size="14" fill="currentColor">目標カード</text>
+            <text x="464" y="119" font-size="11" fill="var(--muted)">構造化して生成</text>
+            <text x="464" y="133" font-size="11" fill="var(--muted)">全項目インライン編集</text>
+
+            <line x1="626" y1="95" x2="668" y2="95" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+            <text x="627" y="87" font-size="10" fill="var(--muted)">確定</text>
+
+            <!-- S4 -->
+            <rect x="671" y="52" width="176" height="86" rx="10" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+            <text x="687" y="76" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--indigo)">S4</text>
+            <text x="687" y="99" font-size="14" fill="currentColor">ホーム</text>
+            <text x="687" y="119" font-size="11" fill="var(--muted)">目標＋明日やること</text>
+            <text x="687" y="133" font-size="11" fill="var(--muted)">エクスポート</text>
+
+            <!-- 中断・再開 -->
+            <path d="M 313 140 L 313 178 L 190 178 L 190 158" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar2)" color="var(--muted)"/>
+            <text x="322" y="182" font-size="11" fill="var(--muted)">中断すると localStorage に保存され、次回起動時に「続きから」で再開する</text>
+
+            <!-- 翌日 -->
+            <path d="M 759 140 L 759 214 L 313 214 L 313 200" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#ar2)" color="var(--accent)"/>
+            <text x="330" y="232" font-size="11" fill="var(--accent)">翌日 — タスクの完了チェックが最重要指標 M7 になる</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>
+        <b>S2が全体の重心。</b>他の3画面はS2の前後の器で、実装コストも検証価値もS2に集中する。中断・再開を最初から入れるのは、30〜40分を一度に確保できるユーザーが少ないため。
+      </figcaption>
+    </figure>
+
+    <h3>コーチ人格</h3>
+    <p>選んだ1人格を全ターンで固定し、途中で変えない。口調の差が体感できることが最低条件になる。</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>ID</th><th>名前</th><th>性格</th><th>口調の例</th></tr></thead>
+        <tbody>
+          <tr><td><code>kaede</code></td><td>カエデ</td><td>伴走型・共感重視</td><td>それ、すごく大事なことだと思います。もう少し聞かせてください</td></tr>
+          <tr><td><code>rin</code></td><td>リン</td><td>厳しめ・直球</td><td>今の答え、抽象的すぎませんか。具体的にどういうことですか</td></tr>
+          <tr><td><code>sou</code></td><td>ソウ</td><td>淡々・分析型</td><td>整理すると、3つの要素がありますね。順に見ていきましょう</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 04 ============ -->
+  <section id="s4">
+    <h2><span class="n">04</span><span>5フェーズ対話</span></h2>
+    <p class="lede">抽象的な願望から、明日45分でできる作業まで降りていく。フェーズ番号は画面に出すが、フェーズ名は出さない（構えさせないため）。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 860 560" role="img" aria-label="5フェーズが抽象から具体へ降りていく構造図。フェーズ1発散、2意味の掘り下げ、3動機の変換、4具体化、5障害と行動。フェーズ2と3には60秒の待ち時間ロックがあり、各フェーズで抽出されるデータが右側に示される。">
+          <defs>
+            <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
+            </marker>
+          </defs>
+
+          <!-- 縦軸 -->
+          <line x1="26" y1="42" x2="26" y2="512" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#ar3)"/>
+          <text x="14" y="34" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--muted)">抽象</text>
+          <text x="14" y="532" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--muted)">具体</text>
+
+          <!-- ヘッダ -->
+          <text x="60" y="26" font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--muted)" letter-spacing="1.4">PHASE</text>
+          <text x="600" y="26" font-size="10" font-family="IBM Plex Mono, monospace" fill="var(--muted)" letter-spacing="1.4">抽出されるデータ</text>
+
+          <g font-family="Zen Kaku Gothic New, sans-serif">
+            <!-- P1 -->
+            <rect x="52" y="42" width="500" height="82" rx="9" fill="var(--surface-2)" stroke="var(--line)" stroke-width="1.5"/>
+            <circle cx="80" cy="70" r="12" fill="var(--indigo)"/>
+            <text x="80" y="75" font-size="12" text-anchor="middle" fill="var(--surface)" font-family="IBM Plex Mono, monospace">1</text>
+            <text x="102" y="75" font-size="14" fill="var(--text)">発散</text>
+            <text x="146" y="75" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono, monospace">diverge</text>
+            <text x="497" y="75" font-size="11" text-anchor="end" fill="var(--muted)" font-family="IBM Plex Mono, monospace">3〜5ターン</text>
+            <text x="102" y="102" font-size="12" fill="var(--muted)">「なりたい姿」を自由に語らせる。要約も評価もしない</text>
+            <text x="600" y="78" font-size="12" fill="var(--text)">領域・時間軸・語彙の熱量</text>
+
+            <!-- P2 -->
+            <rect x="52" y="134" width="500" height="98" rx="9" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="2"/>
+            <circle cx="80" cy="162" r="12" fill="var(--accent)"/>
+            <text x="80" y="167" font-size="12" text-anchor="middle" fill="var(--surface)" font-family="IBM Plex Mono, monospace">2</text>
+            <text x="102" y="167" font-size="14" fill="var(--text)">意味の掘り下げ</text>
+            <text x="216" y="167" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono, monospace">meaning</text>
+            <text x="497" y="167" font-size="11" text-anchor="end" fill="var(--muted)" font-family="IBM Plex Mono, monospace">5〜8ターン</text>
+            <text x="102" y="194" font-size="12" fill="var(--muted)">「なぜそれが大事か」を表現を変えて3回問う</text>
+            <rect x="102" y="204" width="118" height="20" rx="10" fill="none" stroke="var(--accent)" stroke-width="1.2"/>
+            <text x="161" y="218" font-size="10.5" text-anchor="middle" fill="var(--accent)" font-family="IBM Plex Mono, monospace">60秒ロック</text>
+            <text x="232" y="219" font-size="11" fill="var(--muted)">送信のみ無効。入力欄は開いたまま</text>
+            <text x="600" y="170" font-size="12" fill="var(--text)">whyChain × 3</text>
+            <text x="600" y="190" font-size="12" fill="var(--text)">values（価値観）</text>
+
+            <!-- P3 -->
+            <rect x="52" y="242" width="500" height="98" rx="9" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="2"/>
+            <circle cx="80" cy="270" r="12" fill="var(--accent)"/>
+            <text x="80" y="275" font-size="12" text-anchor="middle" fill="var(--surface)" font-family="IBM Plex Mono, monospace">3</text>
+            <text x="102" y="275" font-size="14" fill="var(--text)">動機の変換</text>
+            <text x="196" y="275" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono, monospace">reframe</text>
+            <text x="497" y="275" font-size="11" text-anchor="end" fill="var(--muted)" font-family="IBM Plex Mono, monospace">2〜5ターン</text>
+            <text x="102" y="302" font-size="12" fill="var(--muted)">外発的・回避的な動機を検出し、言い換えを一緒に作る</text>
+            <rect x="102" y="312" width="118" height="20" rx="10" fill="none" stroke="var(--accent)" stroke-width="1.2"/>
+            <text x="161" y="326" font-size="10.5" text-anchor="middle" fill="var(--accent)" font-family="IBM Plex Mono, monospace">60秒ロック</text>
+            <text x="232" y="327" font-size="11" fill="var(--muted)">押しつけない。本人が拒めば尊重して次へ</text>
+            <text x="600" y="278" font-size="12" fill="var(--text)">motivationType</text>
+            <text x="600" y="298" font-size="12" fill="var(--text)">reframed / reframedFrom</text>
+
+            <!-- P4 -->
+            <rect x="52" y="350" width="500" height="82" rx="9" fill="var(--surface-2)" stroke="var(--line)" stroke-width="1.5"/>
+            <circle cx="80" cy="378" r="12" fill="var(--indigo)"/>
+            <text x="80" y="383" font-size="12" text-anchor="middle" fill="var(--surface)" font-family="IBM Plex Mono, monospace">4</text>
+            <text x="102" y="383" font-size="14" fill="var(--text)">具体化</text>
+            <text x="160" y="383" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono, monospace">smart</text>
+            <text x="497" y="383" font-size="11" text-anchor="end" fill="var(--muted)" font-family="IBM Plex Mono, monospace">4〜7ターン</text>
+            <text x="102" y="410" font-size="12" fill="var(--muted)">何を → どれくらい → いつまでに → どうやって の順で1つずつ</text>
+            <text x="600" y="386" font-size="12" fill="var(--text)">期限・指標・数値</text>
+
+            <!-- P5 -->
+            <rect x="52" y="442" width="500" height="82" rx="9" fill="var(--surface-2)" stroke="var(--line)" stroke-width="1.5"/>
+            <circle cx="80" cy="470" r="12" fill="var(--indigo)"/>
+            <text x="80" y="475" font-size="12" text-anchor="middle" fill="var(--surface)" font-family="IBM Plex Mono, monospace">5</text>
+            <text x="102" y="475" font-size="14" fill="var(--text)">障害と行動</text>
+            <text x="190" y="475" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono, monospace">woop_wbs</text>
+            <text x="497" y="475" font-size="11" text-anchor="end" fill="var(--muted)" font-family="IBM Plex Mono, monospace">4〜6ターン</text>
+            <text x="102" y="502" font-size="12" fill="var(--muted)">つまずく状況 → If-Thenプラン → 明日の1タスク → 約束</text>
+            <text x="600" y="470" font-size="12" fill="var(--text)">obstacles + If-Thenプラン</text>
+            <text x="600" y="490" font-size="12" fill="var(--text)">明日のタスク（1件のみ）</text>
+            <text x="600" y="510" font-size="12" fill="var(--text)">commitment（本人の言葉）</text>
+          </g>
+
+          <!-- フェーズ間の矢印 -->
+          <g stroke="var(--muted)" stroke-width="1.5" fill="none">
+            <line x1="302" y1="126" x2="302" y2="130" marker-end="url(#ar3)"/>
+            <line x1="302" y1="234" x2="302" y2="238" marker-end="url(#ar3)"/>
+            <line x1="302" y1="342" x2="302" y2="346" marker-end="url(#ar3)"/>
+            <line x1="302" y1="434" x2="302" y2="438" marker-end="url(#ar3)"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption>
+        <b>金色の2フェーズがこのアプリの価値の中心。</b>フェーズ4・5は本来フォームでも書ける内容で、AIでなければできないのは「なぜを掘って動機を言い換える」フェーズ2・3だけ。待ち時間をこの2つに限定するのも同じ理由で、事務的なフェーズで待たせると苛立ちしか生まない。
+      </figcaption>
+    </figure>
+
+    <h3>フェーズごとのAIへの指示</h3>
+    <p>各フェーズのプロンプトは「やること」と「やってはいけないこと」の対で書く。禁止事項の方が効く。</p>
+
+    <div class="phase">
+      <div class="phase-head">
+        <span class="phase-num">1</span><span class="phase-name">発散</span><span class="phase-id">diverge</span>
+        <span class="phase-badges"><span class="badge">3〜5ターン</span><span class="badge">上限6</span></span>
+      </div>
+      <div class="phase-body">
+        <div class="row"><span class="rk">やる</span><span class="rv">オープンな問いを1つだけ投げる。ユーザーの言葉をそのまま受け止める。「それは具体的にはどういう状態ですか」と情景を聞く</span></div>
+        <div class="row"><span class="rk">やらない</span><span class="rv dont">要約しない。評価しない。「それはいい目標ですね」と賞賛しない。期限や数値をこの段階で聞かない</span></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-head">
+        <span class="phase-num" style="background:var(--accent)">2</span><span class="phase-name">意味の掘り下げ</span><span class="phase-id">meaning</span>
+        <span class="phase-badges"><span class="badge hot">中核</span><span class="badge hot">60秒ロック</span><span class="badge">5〜8ターン</span><span class="badge">上限10</span></span>
+      </div>
+      <div class="phase-body">
+        <div class="row"><span class="rk">やる</span><span class="rv">「なぜそれが大事なんですか」を表現を変えて3回。2回目以降は直前のユーザーの言葉を引用して問う。詰まったら待つ</span></div>
+        <div class="row"><span class="rk">やらない</span><span class="rv dont">答えを誘導しない。「つまり◯◯ということですね」で締めない。3回未満で次に進まない。心理学用語を出さない</span></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-head">
+        <span class="phase-num" style="background:var(--accent)">3</span><span class="phase-name">動機の変換</span><span class="phase-id">reframe</span>
+        <span class="phase-badges"><span class="badge hot">60秒ロック</span><span class="badge">2〜5ターン</span><span class="badge">上限6</span></span>
+      </div>
+      <div class="phase-body">
+        <div class="row"><span class="rk">判定</span><span class="rv"><code>internal</code>「やりたい・面白い」／<code>external</code>「評価されたい・昇進のため」／<code>avoidance</code>「怒られたくない・取り残されたくない」</span></div>
+        <div class="row"><span class="rk">やる</span><span class="rv">断定せず確認する →「では、評価されたその先で、何ができるようになっていたいですか」と一段先を問う</span></div>
+        <div class="row"><span class="rk">やらない</span><span class="rv dont">言い換えを押しつけない。「評価されたいこと自体が目的です」と本人が言えば、それを尊重して次へ進む</span></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-head">
+        <span class="phase-num">4</span><span class="phase-name">具体化</span><span class="phase-id">smart</span>
+        <span class="phase-badges"><span class="badge">4〜7ターン</span><span class="badge">上限9</span></span>
+      </div>
+      <div class="phase-body">
+        <div class="row"><span class="rk">やる</span><span class="rv">数値が曖昧なら「週1回? 毎日?」と選択肢を出す。期限が1年以上先なら手前に確認地点を作るよう提案する</span></div>
+        <div class="row"><span class="rk">やらない</span><span class="rv dont">目標をユーザーの代わりに決めない。4要素を一度に聞かない</span></div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-head">
+        <span class="phase-num">5</span><span class="phase-name">障害と行動</span><span class="phase-id">woop_wbs</span>
+        <span class="phase-badges"><span class="badge">4〜6ターン</span><span class="badge">上限8</span></span>
+      </div>
+      <div class="phase-body">
+        <div class="row"><span class="rk">やる</span><span class="rv">つまずく状況を特定 → 「もし〇〇になったら××する」の形に変換 → 作業を3〜5個挙げさせ「明日45分以内でできるもの」を1つ選ばせる</span></div>
+        <div class="row"><span class="rk">やらない</span><span class="rv dont">障害を代わりに考えない。ユーザーの生活を知っているのはユーザー。タスクを2つ以上出さない</span></div>
+      </div>
+    </div>
+
+    <div class="note">
+      <span class="tag">堂々巡りの防止</span>
+      <p>フェーズ遷移の判定は対話生成と同じAPI呼び出しで行い、応答末尾の <code>&lt;&lt;&lt;PHASE:meaning&gt;&gt;&gt;</code> をクライアント側で剥がす（追加コストなし）。加えて各フェーズに最大ターン数を設け、超えたらシステム側で強制遷移する。</p>
+    </div>
+
+    <h3>共通コーチング原則（全フェーズ）</h3>
+    <pre><code>あなたはコーチであり、コンサルタントでもセラピストでもない。
+
+- 答えはユーザーの中にある。あなたは問うだけ
+- 1つの発言につき、質問は1つだけ
+- ユーザーの言葉をあなたの言葉に置き換えない。そのまま使う
+- 沈黙を埋めない。短い返答でも催促しない
+- 助言をしたくなったら、代わりに問いにする
+- 1発言は3文以内。長い説明をしない
+- 診断名や心理学用語を使わない</code></pre>
+  </section>
+
+  <!-- ============ 05 ============ -->
+  <section id="s5">
+    <h2><span class="n">05</span><span>対話が残すもの</span></h2>
+    <p class="lede">1回の対話から2つの成果物が出る。片方はユーザーに見せ、片方は見せずに次回へ持ち越す。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 860 330" role="img" aria-label="対話ログから構造化抽出を経て、ユーザーに見せる目標カードと、見せずに蓄積するユーザープロフィールの2つが生成される。プロフィールは次回の対話のシステムプロンプトに戻る。">
+          <defs>
+            <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <g color="var(--text)">
+            <!-- 対話ログ -->
+            <rect x="2" y="112" width="132" height="70" rx="9" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+            <text x="68" y="142" font-size="13" text-anchor="middle" fill="currentColor">対話ログ</text>
+            <text x="68" y="161" font-size="11" text-anchor="middle" fill="var(--muted)">18〜31ターン</text>
+
+            <line x1="136" y1="147" x2="180" y2="147" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar4)"/>
+
+            <!-- 抽出 -->
+            <rect x="183" y="104" width="158" height="86" rx="9" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="1.5"/>
+            <text x="262" y="132" font-size="13" text-anchor="middle" fill="currentColor">構造化抽出</text>
+            <text x="262" y="151" font-size="11" text-anchor="middle" fill="var(--muted)" font-family="IBM Plex Mono, monospace">claude-sonnet-5</text>
+            <text x="262" y="169" font-size="11" text-anchor="middle" fill="var(--muted)">Zod スキーマで検証</text>
+
+            <!-- 分岐 -->
+            <path d="M 343 130 L 380 130 L 380 62 L 424 62" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar4)"/>
+            <path d="M 343 164 L 380 164 L 380 244 L 424 244" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar4)"/>
+
+            <!-- GoalCard -->
+            <rect x="427" y="20" width="288" height="84" rx="9" fill="var(--surface-2)" stroke="var(--indigo)" stroke-width="2"/>
+            <text x="443" y="44" font-size="13" fill="currentColor" font-family="IBM Plex Mono, monospace">GoalCard</text>
+            <text x="443" y="65" font-size="11.5" fill="var(--muted)">vision / meaning / smart / woop</text>
+            <text x="443" y="83" font-size="11.5" fill="var(--muted)">tasks / commitment</text>
+            <text x="727" y="52" font-size="12" fill="var(--indigo)">ユーザーに見せる</text>
+            <text x="727" y="70" font-size="11" fill="var(--muted)">全項目編集可</text>
+
+            <!-- UserProfile -->
+            <rect x="427" y="202" width="288" height="84" rx="9" fill="var(--surface-2)" stroke="var(--accent-line)" stroke-width="2" stroke-dasharray="5 3"/>
+            <text x="443" y="226" font-size="13" fill="currentColor" font-family="IBM Plex Mono, monospace">UserProfile</text>
+            <text x="443" y="247" font-size="11.5" fill="var(--muted)">lifePatterns / pastFailures</text>
+            <text x="443" y="265" font-size="11.5" fill="var(--muted)">valuesAccumulated</text>
+            <text x="727" y="234" font-size="12" fill="var(--accent)">見せない</text>
+            <text x="727" y="252" font-size="11" fill="var(--muted)">裏で蓄積する</text>
+
+            <!-- feedback loop -->
+            <path d="M 427 272 L 262 272 L 262 300 L 40 300 L 40 186" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#ar4)" color="var(--accent)"/>
+            <text x="286" y="317" font-size="11.5" fill="var(--accent)">次回のシステムプロンプトに載り、対話の質を上げる（＝自己分析モードの代替）</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>
+        <b>この2分岐が「自己分析モードを作らない」判断の実装。</b>対話するほど <code>UserProfile</code> が厚くなり、2回目以降のコーチが「前に"時間がない"とおっしゃっていましたね」と言えるようになる。これが継続利用の理由になる。
+      </figcaption>
+    </figure>
+
+    <h3>GoalCard の型（抜粋）</h3>
+    <pre><code>export interface GoalCard {
+  vision:  { raw: string; refined: string };
+
+  meaning: {
+    whyChain: string[];              // 「なぜ」3階層の答え
+    values: string[];                // 抽出された価値観キーワード
+    motivationType: "internal" | "external" | "avoidance";
+    reframed: string | null;         // 変換後の表現
+    reframedFrom: string | null;     // 変換前の表現
+  };
+
+  smart:   { specific; measurable; metricTarget; deadline; achievableNote };
+
+  woop: {
+    outcome: string;
+    obstacles: {
+      text: string;                  // 「帰宅後に疲れて手が止まる」
+      situation: string;             // 「平日21時以降、帰宅直後」
+      plan: { if: string; then: string };
+    }[];
+  };
+
+  tasks: Task[];                     // MVPでは常に1件
+
+  commitment: {
+    accepted: boolean;
+    userWords: string | null;        // ユーザーが実際に打った同意の言葉
+  };
+}</code></pre>
+
+    <div class="note">
+      <span class="tag">抽出プロンプトの最重要制約</span>
+      <p><strong>ユーザーが言っていないことを補完しない。情報が不足している項目は推測せず <code>null</code> にする。</strong></p>
+      <p>AIが勝手に立派な目標を作ると、ユーザーは「自分の目標」だと感じられなくなる。そうなるとH1の検証そのものが汚染される。<code>refined</code> は <code>raw</code> の言い換えであって、内容を足してはいけない。</p>
+    </div>
+  </section>
+
+  <!-- ============ 06 ============ -->
+  <section id="s6">
+    <h2><span class="n">06</span><span>AI構成とコスト</span></h2>
+    <p class="lede">呼び出し回数が多いところを最安に、失敗コストが高いところに上位モデルを払う。</p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 860 300" role="img" aria-label="AI呼び出しの2段構え。対話は1セッションあたり18から31回、安価なHaiku 4.5をストリーミングで呼ぶ。構造化抽出は1回だけ、Sonnet 5を呼ぶ。APIキーはサーバー側のAPI Routesにのみ置かれる。">
+          <defs>
+            <marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <!-- ブラウザ境界 -->
+          <rect x="2" y="40" width="196" height="200" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <text x="14" y="32" font-size="10.5" font-family="IBM Plex Mono, monospace" fill="var(--muted)" letter-spacing="1.2">ブラウザ</text>
+
+          <!-- サーバー境界 -->
+          <rect x="238" y="40" width="330" height="200" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <text x="250" y="32" font-size="10.5" font-family="IBM Plex Mono, monospace" fill="var(--muted)" letter-spacing="1.2">Next.js API Routes — APIキーはここだけ</text>
+
+          <g color="var(--text)">
+            <rect x="26" y="72" width="148" height="60" rx="8" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+            <text x="100" y="97" font-size="13" text-anchor="middle" fill="currentColor">対話画面</text>
+            <text x="100" y="115" font-size="11" text-anchor="middle" fill="var(--muted)">S2</text>
+
+            <rect x="26" y="156" width="148" height="60" rx="8" fill="var(--surface-2)" stroke="currentColor" stroke-width="1.5"/>
+            <text x="100" y="181" font-size="13" text-anchor="middle" fill="currentColor">目標カード</text>
+            <text x="100" y="199" font-size="11" text-anchor="middle" fill="var(--muted)">S3</text>
+
+            <!-- chat -->
+            <line x1="176" y1="102" x2="260" y2="102" stroke="var(--accent)" stroke-width="2" marker-end="url(#ar5)" color="var(--accent)"/>
+            <text x="182" y="94" font-size="10.5" fill="var(--accent)" font-family="IBM Plex Mono, monospace">SSE</text>
+
+            <rect x="263" y="66" width="286" height="72" rx="8" fill="var(--accent-soft)" stroke="var(--accent-line)" stroke-width="2"/>
+            <text x="279" y="90" font-size="12.5" fill="currentColor" font-family="IBM Plex Mono, monospace">/api/chat</text>
+            <text x="279" y="110" font-size="12" fill="var(--muted)">claude-haiku-4-5 — $1 / $5 per MTok</text>
+            <text x="279" y="128" font-size="12" fill="var(--muted)">max_tokens 1024・プロンプトキャッシュ有効</text>
+            <rect x="452" y="76" width="86" height="20" rx="10" fill="var(--accent)"/>
+            <text x="495" y="90" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-family="IBM Plex Mono, monospace">×18〜31</text>
+
+            <!-- structure -->
+            <line x1="176" y1="186" x2="260" y2="186" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar5)"/>
+            <rect x="263" y="150" width="286" height="72" rx="8" fill="var(--surface-2)" stroke="var(--indigo)" stroke-width="2"/>
+            <text x="279" y="174" font-size="12.5" fill="currentColor" font-family="IBM Plex Mono, monospace">/api/structure</text>
+            <text x="279" y="194" font-size="12" fill="var(--muted)">claude-sonnet-5 — $3 / $15 per MTok</text>
+            <text x="279" y="212" font-size="12" fill="var(--muted)">messages.parse() + Zod スキーマ</text>
+            <rect x="480" y="160" width="58" height="20" rx="10" fill="var(--indigo)"/>
+            <text x="509" y="174" font-size="10.5" text-anchor="middle" fill="var(--surface)" font-family="IBM Plex Mono, monospace">×1</text>
+
+            <!-- API -->
+            <line x1="551" y1="102" x2="612" y2="102" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar5)"/>
+            <line x1="551" y1="186" x2="612" y2="186" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar5)"/>
+            <rect x="615" y="72" width="150" height="144" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="690" y="136" font-size="13" text-anchor="middle" fill="currentColor">Anthropic API</text>
+            <text x="690" y="156" font-size="11" text-anchor="middle" fill="var(--muted)">@anthropic-ai/sdk</text>
+          </g>
+
+          <text x="2" y="268" font-size="12" fill="var(--muted)">1セッション合計 — 対話 約$0.06 ＋ 構造化 約$0.08 ＝</text>
+          <text x="352" y="268" font-size="13" fill="var(--accent)" font-family="IBM Plex Mono, monospace">約 $0.14（20〜25円）</text>
+          <text x="2" y="290" font-size="11.5" fill="var(--muted)">100人にテストしても2,500円程度。プロトタイプとして十分に許容範囲。</text>
+        </svg>
+      </div>
+      <figcaption>
+        <b>まずHaikuで始め、質が足りない箇所だけ上げるのが正しい順序。</b>対話品質が不足したらフェーズ2・3だけ <code>claude-sonnet-5</code> に、それでも足りなければ <code>claude-opus-5</code> に上げる。最初から上位モデルを敷くと、どこに効いているのか分からなくなる。
+      </figcaption>
+    </figure>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>モデル</th><th>Input / 1M</th><th>Output / 1M</th><th>コンテキスト</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>claude-haiku-4-5</code></td><td class="num">$1.00</td><td class="num">$5.00</td><td class="num">200K</td><td>対話の各ターン</td></tr>
+          <tr><td><code>claude-sonnet-5</code></td><td class="num">$3.00</td><td class="num">$15.00</td><td class="num">1M</td><td>構造化抽出・動機判定</td></tr>
+          <tr><td><code>claude-opus-5</code></td><td class="num">$5.00</td><td class="num">$25.00</td><td class="num">1M</td><td>予備（品質が足りない場合）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <span class="tag">キャッシュの落とし穴</span>
+      <p>プロンプトキャッシュはプレフィックス一致。システムプロンプトに時刻や乱数が混ざると毎回失効する。<code>usage.cache_read_input_tokens</code> が0のままなら、どこかに揮発値が紛れている。</p>
+    </div>
+  </section>
+
+  <!-- ============ 07 ============ -->
+  <section id="s7">
+    <h2><span class="n">07</span><span>実装の順序</span></h2>
+    <p class="lede">Next.js 15（App Router）＋ TypeScript ＋ Tailwind。永続化はlocalStorage、デプロイはVercel。</p>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Step</th><th>内容</th><th>完了条件</th></tr></thead>
+        <tbody>
+          <tr><td class="num">1</td><td>プロジェクト初期化、型定義、Anthropicクライアント</td><td><code>npm run dev</code> が起動し型が通る</td></tr>
+          <tr><td class="num">2</td><td><code>/api/chat</code> ストリーミング＋最小チャットUI</td><td>1フェーズ分の対話が画面で成立する</td></tr>
+          <tr><td class="num">3</td><td>5フェーズのプロンプトとフェーズ遷移</td><td><strong>5フェーズを通しで完走できる</strong></td></tr>
+          <tr><td class="num">4</td><td>3コーチ人格＋ランディング画面</td><td>口調の差が体感できる</td></tr>
+          <tr><td class="num">5</td><td>待ち時間UIと <code>draftEvents</code> 計測</td><td>フェーズ2・3でロックが動く</td></tr>
+          <tr><td class="num">6</td><td><code>/api/structure</code> と目標カード生成・編集</td><td>対話からGoalCardが生成され編集できる</td></tr>
+          <tr><td class="num">7</td><td>ホーム画面、約束ステップ、エクスポート</td><td>通しで S1→S4 が動く</td></tr>
+          <tr><td class="num">8</td><td>セッション中断・復帰、エラー処理</td><td>リロードしても続きから再開できる</td></tr>
+          <tr><td class="num">9</td><td>A/Bバリアント割り当て、計測ログ</td><td>4仮説の判定に必要なデータが取れる</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <span class="tag">最初の関門</span>
+      <p><strong>Step 3 の完了時点で、一度自分で通しで対話してみること。</strong>ここで対話が破綻していれば、以降の実装はすべて無駄になる。UIを綺麗にするのはその後でいい。</p>
+    </div>
+  </section>
+
+  <!-- ============ 08 ============ -->
+  <section id="s8">
+    <h2><span class="n">08</span><span>検証指標</span></h2>
+    <p class="lede">4つの仮説を判定するために、対話中とその翌日に取るデータ。</p>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>#</th><th>指標</th><th>取得方法</th><th>目安</th></tr></thead>
+        <tbody>
+          <tr><td class="num">M1</td><td>対話完走率</td><td><code>completedAt != null</code> の割合</td><td class="num">60%以上</td></tr>
+          <tr><td class="num">M2</td><td>離脱フェーズ分布</td><td>中断時の <code>currentPhase</code></td><td>特定フェーズに集中していないか</td></tr>
+          <tr><td class="num">M3</td><td>フェーズ2の滞在時間</td><td>タイムスタンプ差分</td><td class="num">8分以上</td></tr>
+          <tr><td class="num">M4</td><td>フェーズ2の回答文字数</td><td><code>content.length</code></td><td>待ち時間あり &gt; なし</td></tr>
+          <tr><td class="num">M5</td><td>目標カードの編集箇所</td><td>編集された項目のログ</td><td>編集率50%超は要改善</td></tr>
+          <tr><td class="num">M6</td><td>動機タイプの変換率</td><td><code>reframedFrom != null</code> の割合</td><td class="num">50%以上</td></tr>
+          <tr><td class="num">M7</td><td><strong>翌日タスク実行率</strong></td><td><code>task.completedAt != null</code></td><td>約束あり &gt; なし</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p><strong>M7が最重要指標。</strong>ただし翌日の追跡にはユーザーの再訪が必要なので、テスト参加者には事前に「明日もう一度開いてください」と伝える運用にする。</p>
+  </section>
+
+  <!-- ============ 09 ============ -->
+  <section id="s9">
+    <h2><span class="n">09</span><span>未決事項</span></h2>
+    <p class="lede">実装に入る前に決める必要がある4点。</p>
+
+    <ol class="oq">
+      <li><b>テスト参加者の集め方</b><span>自分1人で回すのか、5〜10人に依頼するのか。M7（翌日実行率）の比較には最低5人ほしい。人数が確保できないなら、A/Bをやめて全員に約束ステップを出す設計に変える。</span></li>
+      <li><b>コーチ選択を必須にするか</b><span>選択を必須にすると最初の一歩が重くなる。<code>kaede</code> を既定にして「変更できます」と添えるだけでもいい。</span></li>
+      <li><b>フェーズ2の逃げ道</b><span>現仕様では「なぜ3回」をスキップできない。テストで離脱がここに集中したら緩和が必要になるが、緩和すると価値の中心が薄まる。どこまで粘るかの線引き。</span></li>
+      <li><b>目標カードのビジュアル投資</b><span>現仕様はテキスト中心。「愛着が湧くカード」にするデザイン投資をするかは、H1の検証後の判断でよい。</span></li>
+    </ol>
+  </section>
+
+  <footer>
+    目標トラッキングツール MVP 仕様案 v0.1 — 対象は目標設定と自己分析のみ。日々の記録・週次振り返り・通知・Notion連携はH1の検証後に着手する。
+  </footer>
+
+  </main>
+</div>

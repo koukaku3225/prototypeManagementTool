@@ -1,0 +1,41 @@
+name: CI
+
+# ローカルと Claude Code on web が同じリポジトリを並行して編集している。
+# 相手はこちらの作業を知らないので、壊れたものが気づかれずに乗る経路がある。
+# それをここで止める。
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # package-lock.json どおりに入れる。install だと lock が書き換わりうる
+      - run: npm ci
+
+      # LayoutProps などのルート型は next build/dev 実行時に .next/types へ
+      # 生成される。実行しないまま tsc を走らせると解決できずに失敗する
+      - name: ルート型を生成
+        run: npx next typegen
+
+      - name: 型チェック
+        run: npx tsc --noEmit
+
+      - name: テスト（フェーズ遷移・日付・禁止パターン）
+        run: npm test
+
+      # ANTHROPIC_API_KEY は要らない。ビルド時にAPIは叩かない
+      - name: 本番ビルド
+        run: npm run build
+
+      - name: 依存の脆弱性
+        run: npm audit --audit-level=high
