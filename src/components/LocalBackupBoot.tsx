@@ -19,6 +19,20 @@ import {
  */
 const DEBOUNCE_MS = 4000;
 
+/**
+ * この安全網が意味を持つのは、サーバーが自分のPCで動いているときだけ。
+ *
+ * デプロイ後のサーバーレス環境ではディスクが永続しないので、
+ * 書き込みは必ず 500 で失敗する。それでも毎回叩いていたため、
+ * 保存のたびに「対話全文を含む状態まるごと」を本番へ送っては捨てていた
+ * （無駄な転送・無駄な関数実行・ログの汚染）。動く場所でだけ動かす。
+ */
+function isLocalHost(): boolean {
+  if (typeof location === "undefined") return false;
+  const h = location.hostname;
+  return h === "localhost" || h === "127.0.0.1" || h === "[::1]";
+}
+
 export function LocalBackupBoot() {
   const timer = useRef<number | null>(null);
   const [offer, setOffer] = useState<Record<string, string> | null>(null);
@@ -26,6 +40,7 @@ export function LocalBackupBoot() {
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
+    if (!isLocalHost()) return;
     // まとめて送る。1文字打つたびに書き込むと無駄が多い
     const push = () => {
       if (timer.current !== null) window.clearTimeout(timer.current);
@@ -50,6 +65,7 @@ export function LocalBackupBoot() {
 
   // 起動時、いま何もないのにディスク側にバックアップがあれば申し出る
   useEffect(() => {
+    if (!isLocalHost()) return;
     if (hasUserContent(captureState())) return;
     fetch("/api/local-backup")
       .then((r) => r.json())

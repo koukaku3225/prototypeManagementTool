@@ -456,6 +456,13 @@ async function resolveInitialSync(userId: string): Promise<void> {
       writeDeviceFlag(SYNCED_USER_FLAG, userId);
       enablePush();
       setState({ kind: "ready" });
+      /*
+       * 画面はもう localStorage を読み終えている（各ページは useEffect で
+       * 一度読むだけ）。取り込んだ内容を出すには読み直しが要る。
+       * 端末ごとに最初の1回しか起きないので、素直に読み込み直す。
+       * 印（gc.syncedUser）は先に書いてあるので、繰り返しにはならない。
+       */
+      if (typeof location !== "undefined") location.reload();
       return;
     }
 
