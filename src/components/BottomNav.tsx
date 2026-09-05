@@ -16,7 +16,8 @@ import { usePathname } from "next/navigation";
  * 「決める」（AI対話）は月1回なので、タブを持たず目標タブから入る。
  */
 const NAV = [
-  { href: "/", label: "今日", icon: TodayIcon },
+  // 「今日」の既定は時間割。タスクリスト（/list）は時間割から切り替える
+  { href: "/plan", label: "今日", icon: TodayIcon },
   { href: "/goals", label: "目標", icon: GoalIcon },
   { href: "/me", label: "わたし", icon: MeIcon },
 ] as const;
@@ -41,10 +42,13 @@ export function BottomNav() {
     >
       <div className="phone flex" style={{ height: "var(--bottom-nav-h)" }}>
         {NAV.map((n) => {
-          // 「今日」は "/" と時間割（/plan）。他は配下も光らせる
+          // 「今日」は時間割（/plan）とタスクリスト（/list）の両方で光らせる。
+          // 表示を切り替えただけでタブが消灯すると、別の場所へ来たように見える
           const on =
-            n.href === "/"
-              ? pathname === "/" || pathname.startsWith("/plan")
+            n.href === "/plan"
+              ? pathname === "/" ||
+                pathname.startsWith("/plan") ||
+                pathname.startsWith("/list")
               : pathname.startsWith(n.href);
           const Icon = n.icon;
           return (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { DayGrid } from "@/components/DayGrid";
 import { NowBar } from "@/components/NowBar";
@@ -261,15 +262,40 @@ export default function PlanPage() {
             {doneMin > 0 && ` / 完了 ${humanDuration(doneMin)}`}
             {boxes.length > 0 && ` ・ ${boxes.length}件`}
           </p>
-          {!isToday && (
-            <button
-              type="button"
-              onClick={() => setDate(today())}
-              className="ml-auto min-h-9 rounded-full border border-accent-line bg-accent-soft px-3 text-[12.5px] text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {!isToday && (
+              <button
+                type="button"
+                onClick={() => setDate(today())}
+                className="min-h-9 rounded-full border border-accent-line bg-accent-soft px-3 text-[12.5px] text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                今日へ戻る
+              </button>
+            )}
+            {/*
+              表示の切り替え。既定はこの時間割で、一覧で見たいときだけ移る。
+              日付は持ち回さない。リスト側は「今日」だけを出す画面で、
+              渡しても無視されるので、URLに書くと嘘になる
+            */}
+            <Link
+              href="/list"
+              className="flex min-h-9 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-[12.5px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
-              今日へ戻る
-            </button>
-          )}
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <path d="M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.01M2.5 8h.01M2.5 12h.01" />
+              </svg>
+              リスト
+            </Link>
+          </div>
         </div>
 
         {/* 時間割は画面の残りぜんぶを使う。下に説明文を置いて狭めない */}
