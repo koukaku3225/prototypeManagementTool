@@ -10,6 +10,7 @@ import {
   normalizeRange,
 } from "@/lib/timebox";
 import { isGhost } from "@/lib/habit-plan";
+import { goalCardLabel } from "@/lib/goal-card";
 import { emptyReview, type TimeBox } from "@/types/timebox";
 import type { GoalCard } from "@/types/goal";
 
@@ -217,7 +218,7 @@ export function TimeBoxSheet({
                   <option value="">（紐づけない）</option>
                   {cards.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.vision.refined || c.vision.raw || "（未記入の目標）"}
+                      {goalCardLabel(c)}
                     </option>
                   ))}
                 </select>
@@ -366,7 +367,7 @@ export function TimeBoxSheet({
                     <button
                       type="button"
                       onClick={() => setConfirmDelete(true)}
-                      className="min-h-11 rounded-xl px-4 text-[13px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      className="min-h-11 rounded-xl border border-line bg-surface px-4 text-[13.5px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     >
                       この予定を消す
                     </button>

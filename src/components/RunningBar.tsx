@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { goalCardLabel } from "@/lib/goal-card";
 import { humanDuration } from "@/lib/timebox";
 import type { GoalCard } from "@/types/goal";
 import type { RunningEntry } from "@/types/timebox";
@@ -87,7 +88,7 @@ export function RunningBar({
             <option value="">（目標に紐づけない）</option>
             {cards.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.vision.refined || c.vision.raw || "（未記入の目標）"}
+                {goalCardLabel(c)}
               </option>
             ))}
           </select>

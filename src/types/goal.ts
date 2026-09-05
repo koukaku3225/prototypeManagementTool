@@ -149,6 +149,13 @@ export interface GoalCard {
   source?: "dialogue" | "manual";
   /** この目標を生んだ対話。あとから読み返せるようにする */
   sessionId?: string | null;
+  /**
+   * 一覧・選択肢に出す短い呼び名（例:「副業」「異性関係」）。
+   * vision.refined はカードの中身を正確に言い切ろうとして長くなりやすく、
+   * 目標が複数あるとタイムボックスの選択肢欄でどれがどれか見分けがつかない。
+   * 未設定でも動く（vision から自動で短くした表示に落ちる）ので既存データは壊れない。
+   */
+  label?: string | null;
 
   vision: {
     raw: string; // ユーザーが最初に語った生の言葉
