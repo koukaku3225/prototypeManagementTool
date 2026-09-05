@@ -39,6 +39,14 @@ const GRID_PX = HOUR_PX * 24;
  * 上下に帯を置くと移動できる場所が残らなくなる。
  */
 const MOUSE_EDGE_PX = 10;
+/**
+ * 時刻と内容を2行で出すのに要る高さ。
+ *
+ * 内訳は 9.5px + 11px の2行（leading-tight ≒ 1.25）と上下の余白4px。
+ * これを下回る枠では1行に畳む。30分（28px）は2行、
+ * 15〜20分（14〜19px）は1行になる。
+ */
+const TWO_LINE_MIN_PX = 32;
 
 /**
  * 色ごとの見た目。両テーマぶんは globals.css のトークンが面倒みる。
@@ -324,18 +332,45 @@ export function DayGrid({
                     className="absolute inset-x-0 top-0 z-10 hidden md:block"
                   />
 
-                  <div className="pointer-events-none overflow-hidden px-1.5 py-0.5">
-                    <span className="block truncate font-mono text-[9.5px] leading-tight opacity-80">
-                      {box.start}
-                      {active && <> 〜{box.end}</>}
-                    </span>
-                    <span
-                      className={`block truncate text-[11px] leading-tight ${
-                        done ? "line-through" : "font-medium"
-                      }`}
-                    >
-                      {box.title || "（未記入）"}
-                    </span>
+                  {/*
+                    中身は枠の中だけに収める。
+                    枠自体は overflow-visible にしてある（つまみを枠の外へ
+                    出すため）ので、ここで inset-0 に貼って切らないと、
+                    短い予定では文字が枠の下へ流れ出す
+                    ——17分の予定は枠が約16px、2行の中身は約28pxあった。
+
+                    2行入らない高さのときは、Googleカレンダーと同じく
+                    時刻と内容を1行に詰める。切り捨てるのではなく畳む。
+                  */}
+                  <div className="pointer-events-none absolute inset-0 overflow-hidden px-1.5 py-0.5">
+                    {height * GRID_PX < TWO_LINE_MIN_PX ? (
+                      <span className="flex items-baseline gap-1 leading-none">
+                        <span className="shrink-0 font-mono text-[9px] opacity-80">
+                          {box.start}
+                        </span>
+                        <span
+                          className={`truncate text-[9.5px] ${
+                            done ? "line-through" : "font-medium"
+                          }`}
+                        >
+                          {box.title || "（未記入）"}
+                        </span>
+                      </span>
+                    ) : (
+                      <>
+                        <span className="block truncate font-mono text-[9.5px] leading-tight opacity-80">
+                          {box.start}
+                          {active && <> 〜{box.end}</>}
+                        </span>
+                        <span
+                          className={`block truncate text-[11px] leading-tight ${
+                            done ? "line-through" : "font-medium"
+                          }`}
+                        >
+                          {box.title || "（未記入）"}
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   <span

@@ -37,12 +37,31 @@ export function EditableField({
         <p className="flex-1 text-[14px] leading-relaxed whitespace-pre-wrap">
           {value || <span className="text-muted">（未記入）</span>}
         </p>
+        {/*
+          押せることが見て分かる形にする。
+          枠も背景も無い文字だけだと、本文の一部にしか見えず
+          「編集ボタンが分かりにくい」と実際に迷わせた。
+          主操作ではないので色は使わず、輪郭と面で「押せる」だけを伝える。
+        */}
         <button
           type="button"
           onClick={() => setEditing(true)}
           aria-label={`${label}を編集`}
-          className="shrink-0 rounded-md px-2 py-0.5 text-[11px] text-muted hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className="flex min-h-8 shrink-0 items-center gap-1 rounded-lg border border-line bg-surface-2 px-2.5 text-[11.5px] text-muted hover:bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M11.5 2.5a1.7 1.7 0 0 1 2.4 2.4L5.4 13.4l-3.2.8.8-3.2 8.5-8.5Z" />
+          </svg>
           編集
         </button>
       </div>
