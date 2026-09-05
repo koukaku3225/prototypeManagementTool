@@ -63,6 +63,7 @@ export function goalCardToRow(c: GoalCard, userId: string) {
     status: c.status ?? "active",
     source: c.source ?? null,
     session_id: c.sessionId ?? null,
+    label: c.label ?? null,
     vision_raw: c.vision.raw,
     vision_refined: c.vision.refined,
     meaning_why_chain: c.meaning.whyChain,
@@ -97,6 +98,7 @@ export function goalCardFromRow(r: Record<string, unknown>): GoalCard {
     status: (r.status as GoalCard["status"]) ?? "active",
     source: (r.source as GoalCard["source"]) ?? undefined,
     sessionId: (r.session_id as string | null) ?? null,
+    label: (r.label as string | null) ?? null,
     vision: {
       raw: r.vision_raw as string,
       refined: r.vision_refined as string,

@@ -140,6 +140,22 @@ export default function GoalDetailPage({
         </div>
 
         <div className="mt-4 flex flex-col gap-3">
+          {/*
+            短い呼び名。目標が2つ以上あると、時間割の選択肢に「なりたい姿」の
+            長文がそのまま並んで見分けがつかない。ここで短くつけておけば、
+            そちらの選択肢にも自動で反映される（goalCardLabel 経由）。
+          */}
+          <Block title="短い呼び名">
+            <EditableField
+              label="短い呼び名"
+              value={card.label ?? ""}
+              onSave={(v) => update("label", (c) => ({ ...c, label: v || null }))}
+            />
+            <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted">
+              例: 副業 / 異性関係。時間割で「どの目標のためか」を選ぶときに、ここで付けた名前が短く表示されます。空にすると自動で短縮した表示に戻ります。
+            </p>
+          </Block>
+
           <Block title="なりたい姿">
             <EditableField
               label="なりたい姿"

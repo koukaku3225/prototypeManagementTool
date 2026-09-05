@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx tests/phase-machine.test.mjs && tsx tests/date.test.mjs && tsx tests/storage.test.mjs && tsx tests/habit.test.mjs && tsx tests/habit-plan.test.mjs && tsx tests/timebox.test.mjs && tsx tests/day-grid-tone.test.mjs && tsx tests/chat-prompt.test.mjs && node tests/forbidden.test.mjs"
+    "test": "tsx tests/phase-machine.test.mjs && tsx tests/date.test.mjs && tsx tests/storage.test.mjs && tsx tests/habit.test.mjs && tsx tests/habit-plan.test.mjs && tsx tests/timebox.test.mjs && tsx tests/day-grid-tone.test.mjs && tsx tests/chat-prompt.test.mjs && tsx tests/goal-card.test.mjs && node tests/forbidden.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
