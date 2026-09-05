@@ -23,8 +23,8 @@ import {
   type TimeBox,
 } from "@/types/timebox";
 
-export { KEY, DEVICE_LOCAL_KEYS, hasUserContent } from "@/lib/storage-keys";
-import { KEY } from "@/lib/storage-keys";
+export { KEY, DEVICE_KEY, DEVICE_LOCAL_KEYS, hasUserContent } from "@/lib/storage-keys";
+import { DEVICE_KEY, KEY } from "@/lib/storage-keys";
 
 /** localStorage は例外を投げうる（プライベートモード、容量超過）。必ず包む。 */
 function read<T>(key: string): T | null {
@@ -728,6 +728,15 @@ export function resetAll(): void {
   // レガシーキー（card / stories）も消す。残しておくと、次に版を上げたとき
   // 「消したはずのデータが移行で復活する」ことが起きうる
   for (const k of Object.values(KEY)) remove(k);
+  /*
+   * 端末固有の覚え書きも消す。
+   *
+   * ここを消し忘れると「この端末は突き合わせ済み」という印だけが生き残り、
+   * 空になったローカルを根拠にクラウドを消しにいく経路ができる
+   * （すべて消してやり直す → 再読み込み → 最初の保存でクラウドが空になる）。
+   * 印が消えていれば、次のログインで向きを判断し直す。
+   */
+  for (const k of Object.values(DEVICE_KEY)) remove(k);
   migrated = false;
 }
 

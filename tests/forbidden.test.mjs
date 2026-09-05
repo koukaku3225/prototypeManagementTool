@@ -96,6 +96,39 @@ for (const file of walk(SRC)) {
   });
 }
 
+/*
+ * 構造の不変条件。行単位の禁止パターンでは表せないので、別に見る。
+ *
+ * 同期フック（setSyncHook）は「ローカルに無いものをクラウドから消す」処理の
+ * 引き金になる。だから繋ぐ場所は enablePush() / disablePush() の2つに限る。
+ * 別の場所から直接繋がれると、向きが決まる前に繋がってしまい、
+ * 空の端末がクラウドを消す経路が再びできる（実際にそうなっていた）。
+ */
+{
+  const syncFile = join(SRC, "lib", "supabase", "sync.ts");
+  const text = readFileSync(syncFile, "utf8");
+  const lines = text.split("\n");
+  /** setSyncHook を呼んでよい関数 */
+  const ALLOWED = ["enablePush", "disablePush", "pullAll"];
+  let current = null;
+  lines.forEach((line, i) => {
+    const trimmed = line.trim();
+    const fn = line.match(/^(?:export\s+)?(?:async\s+)?function\s+(\w+)/);
+    if (fn) current = fn[1];
+    if (trimmed.startsWith("//") || trimmed.startsWith("*")) return;
+    if (!/\bsetSyncHook\s*\(/.test(line)) return;
+    if (trimmed.startsWith("import") || trimmed.startsWith("}")) return;
+    if (current && ALLOWED.includes(current)) return;
+    failed++;
+    console.error(
+      `✗ ${relative(ROOT, syncFile)}:${i + 1}（${current ?? "トップレベル"} の中）\n` +
+        `  ${trimmed}\n` +
+        `  → setSyncHook を繋いでよいのは ${ALLOWED.join(" / ")} だけ。\n` +
+        `    向きが決まる前に繋ぐと、空の端末がクラウドのデータを消す\n`,
+    );
+  });
+}
+
 const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const deps = { ...pkg.dependencies, ...pkg.devDependencies };
 for (const rule of FORBIDDEN_DEPS) {

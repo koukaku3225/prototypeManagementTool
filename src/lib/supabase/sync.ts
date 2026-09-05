@@ -11,6 +11,7 @@
  */
 import {
   captureState,
+  DEVICE_KEY,
   hasUserContent,
   KEY,
   readDeviceFlag,
@@ -18,6 +19,7 @@ import {
   setSyncHook,
   writeDeviceFlag,
 } from "@/lib/storage";
+import { decideSyncDirection } from "./sync-decision";
 import { supabaseBrowser } from "./client";
 import {
   bigStoryFromRow,
@@ -47,15 +49,6 @@ let lastSyncError: { at: string; message: string } | null = null;
 export function getLastSyncError() {
   return lastSyncError;
 }
-
-/**
- * この端末が、どのユーザーとして一度クラウドと突き合わせ済みかを覚えておく。
- *
- * 「初めてこの端末でこのアカウントにログインした」かどうかが分からないと、
- * 取り込むべきか送るべきかを判断できない。端末固有の情報なので、
- * 同期にもスナップショットにも乗せない。
- */
-const SYNCED_USER_FLAG = "gc.syncedUser";
 
 /**
  * 同期の状態。UI（設定画面）が、いま何が起きているかを出すために使う。
@@ -431,55 +424,58 @@ async function cloudHasContent(userId: string): Promise<boolean> {
 async function resolveInitialSync(userId: string): Promise<void> {
   setState({ kind: "checking" });
   try {
-    const alreadySynced = readDeviceFlag(SYNCED_USER_FLAG) === userId;
-    if (alreadySynced) {
-      // この端末では突き合わせ済み。いつもどおり送るだけでよい
-      enablePush();
-      setState({ kind: "ready" });
-      return;
-    }
-
-    const localHas = hasUserContent(captureState());
-    const cloudHas = await cloudHasContent(userId);
+    const inputs = {
+      alreadySynced: readDeviceFlag(DEVICE_KEY.syncedUser) === userId,
+      localHasContent: hasUserContent(captureState()),
+      cloudHasContent: await cloudHasContent(userId),
+    };
     // 確認している間にログアウト・アカウント切り替えが起きていたら手を引く
     if (currentUserId !== userId) return;
 
-    if (!localHas && cloudHas) {
-      // この端末は空。クラウドを正として取り込む
-      setState({ kind: "pulling" });
-      const ok = await pullAll();
-      if (currentUserId !== userId) return;
-      if (!ok) {
-        setState({ kind: "failed", message: "クラウドからの取り込みに失敗しました" });
+    switch (decideSyncDirection(inputs)) {
+      case "pull": {
+        setState({ kind: "pulling" });
+        const ok = await pullAll();
+        if (currentUserId !== userId) return;
+        if (!ok) {
+          setState({ kind: "failed", message: "クラウドからの取り込みに失敗しました" });
+          return;
+        }
+        writeDeviceFlag(DEVICE_KEY.syncedUser, userId);
+        enablePush();
+        setState({ kind: "ready" });
+        /*
+         * 画面はもう localStorage を読み終えている（各ページは useEffect で
+         * 一度読むだけ）。取り込んだ内容を出すには読み直しが要る。
+         * 端末ごとに最初の1回しか起きないので、素直に読み込み直す。
+         * 印（gc.syncedUser）は先に書いてあるので、繰り返しにはならない。
+         */
+        if (typeof location !== "undefined") location.reload();
         return;
       }
-      writeDeviceFlag(SYNCED_USER_FLAG, userId);
-      enablePush();
-      setState({ kind: "ready" });
-      /*
-       * 画面はもう localStorage を読み終えている（各ページは useEffect で
-       * 一度読むだけ）。取り込んだ内容を出すには読み直しが要る。
-       * 端末ごとに最初の1回しか起きないので、素直に読み込み直す。
-       * 印（gc.syncedUser）は先に書いてあるので、繰り返しにはならない。
-       */
-      if (typeof location !== "undefined") location.reload();
-      return;
-    }
 
-    if (!cloudHas) {
-      // クラウドが空。この端末の内容を初期値として送る（空同士でも害はない）
-      enablePush();
-      writeDeviceFlag(SYNCED_USER_FLAG, userId);
-      setState({ kind: "pushing" });
-      await backfillAll();
-      if (currentUserId !== userId) return;
-      setState({ kind: "ready" });
-      return;
-    }
+      case "push": {
+        enablePush();
+        writeDeviceFlag(DEVICE_KEY.syncedUser, userId);
+        setState({ kind: "pushing" });
+        await backfillAll();
+        if (currentUserId !== userId) return;
+        setState({ kind: "ready" });
+        return;
+      }
 
-    // 両方に中身がある。どちらが新しいかは機械的に決められないので、
-    // 本人が選ぶまで push は繋がない（勝手に片方を消さない）
-    setState({ kind: "conflict" });
+      case "ready": {
+        enablePush();
+        writeDeviceFlag(DEVICE_KEY.syncedUser, userId);
+        setState({ kind: "ready" });
+        return;
+      }
+
+      case "conflict":
+        // 本人が選ぶまで push は繋がない（勝手に片方を消さない）
+        setState({ kind: "conflict" });
+        return;
+    }
   } catch (err) {
     noteFailure("同期の向きを判断できませんでした", err);
     setState({
@@ -514,7 +510,7 @@ export async function resolveConflict(direction: "pull" | "push"): Promise<boole
     }
   }
 
-  writeDeviceFlag(SYNCED_USER_FLAG, userId);
+  writeDeviceFlag(DEVICE_KEY.syncedUser, userId);
   enablePush();
   setState({ kind: "ready" });
   return true;
