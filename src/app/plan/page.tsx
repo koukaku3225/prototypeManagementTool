@@ -18,7 +18,6 @@ import {
 import { habitBoxesOn, isGhost, materializeHabitBox } from "@/lib/habit-plan";
 import {
   currentBox,
-  duplicateSlot,
   durationMin,
   humanDuration,
   nextBox,
@@ -164,25 +163,6 @@ export default function PlanPage() {
       createdAt: new Date().toISOString(),
     });
     setIsNew(true);
-  }
-
-  /** 同じ日に複製する。元の直後に置く */
-  function duplicate(b: TimeBox) {
-    const copy: TimeBox = {
-      ...b,
-      id: crypto.randomUUID(),
-      ...duplicateSlot(b),
-      // 複製したものは習慣から切り離す。出どころを引き継ぐと
-      // 「同じ習慣の枠」が2つある状態になり、重複判定が壊れる
-      habitId: null,
-      completedAt: null,
-      review: null,
-      createdAt: new Date().toISOString(),
-    };
-    upsertTimeBox(copy);
-    reload(date);
-    setIsNew(false);
-    setEditing(copy);
   }
 
   function remove(id: string) {
@@ -348,7 +328,6 @@ export default function PlanPage() {
           isNew={isNew}
           onSave={save}
           onDelete={remove}
-          onDuplicate={duplicate}
           onClose={close}
         />
       )}

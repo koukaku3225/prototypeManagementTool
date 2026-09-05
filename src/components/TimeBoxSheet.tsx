@@ -33,7 +33,6 @@ export function TimeBoxSheet({
   isNew = false,
   onSave,
   onDelete,
-  onDuplicate,
   onClose,
 }: {
   box: TimeBox;
@@ -42,7 +41,6 @@ export function TimeBoxSheet({
   isNew?: boolean;
   onSave: (b: TimeBox) => void;
   onDelete: (id: string) => void;
-  onDuplicate?: (b: TimeBox) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<TimeBox>(box);
@@ -91,14 +89,6 @@ export function TimeBoxSheet({
 
   function setRange(start: string, end: string) {
     patch(normalizeRange(start, end));
-  }
-
-  function complete() {
-    patch({
-      completedAt: new Date().toISOString(),
-      review: draft.review ?? emptyReview(),
-    });
-    setReviewing(true);
   }
 
   function uncomplete() {
@@ -300,7 +290,10 @@ export function TimeBoxSheet({
                 </div>
               </details>
 
-              {/* 複製・削除。主操作ではないので下に置く */}
+              {/*
+                完了まわり。消すのは下の主操作の並びへ移した
+                （「閉じる」の直前に置きたい、という求めに合わせている）
+              */}
               {!isNew && (
                 <div className="mt-3 flex flex-col gap-2">
                   {done && (
@@ -316,6 +309,17 @@ export function TimeBoxSheet({
                           <span className="ml-1">・できばえ {draft.review.score}%</span>
                         )}
                       </div>
+                      {/*
+                        振り返りの入口。以前は下の主操作の位置にあったが、
+                        そこは「閉じる」に譲ったので、完了の説明のすぐ下へ移す
+                      */}
+                      <button
+                        type="button"
+                        onClick={() => setReviewing(true)}
+                        className="min-h-11 rounded-xl border border-line bg-surface px-4 text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        振り返りを書く / 直す
+                      </button>
                       <button
                         type="button"
                         onClick={uncomplete}
@@ -326,51 +330,11 @@ export function TimeBoxSheet({
                     </>
                   )}
 
-                  {onDuplicate && (
-                    <button
-                      type="button"
-                      onClick={() => onDuplicate(draft)}
-                      className="min-h-11 rounded-xl border border-line bg-surface px-4 text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                    >
-                      この予定を複製する
-                    </button>
-                  )}
-
-                  {fromHabit ? (
+                  {fromHabit && (
                     <p className="rounded-lg border border-line bg-surface px-3 py-2.5 text-[12.5px] leading-relaxed text-muted">
                       この予定は習慣から自動で並んでいます。時刻や曜日を変えるなら
                       習慣そのものを、この日だけ動かすならドラッグしてください。
                     </p>
-                  ) : confirmDelete ? (
-                    <div className="rounded-lg border border-line bg-surface px-3 py-2.5">
-                      <p className="text-[12.5px] leading-relaxed">
-                        この予定を消します。振り返りも一緒に消えます。
-                      </p>
-                      <div className="mt-2 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => onDelete(draft.id)}
-                          className="min-h-11 flex-1 rounded-lg border border-accent-line bg-accent-soft px-3 text-[13px] text-accent"
-                        >
-                          消す
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDelete(false)}
-                          className="min-h-11 flex-1 rounded-lg border border-line px-3 text-[13px] text-muted"
-                        >
-                          やめる
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDelete(true)}
-                      className="min-h-11 rounded-xl border border-line bg-surface px-4 text-[13.5px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                    >
-                      この予定を消す
-                    </button>
                   )}
                 </div>
               )}
@@ -404,22 +368,56 @@ export function TimeBoxSheet({
                     この時間に入れる
                   </button>
                 </div>
-              ) : done ? (
-                <button
-                  type="button"
-                  onClick={() => setReviewing(true)}
-                  className="min-h-[52px] w-full rounded-xl border border-line bg-surface px-4 text-[14.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                >
-                  振り返りを書く / 直す
-                </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={complete}
-                  className="min-h-[52px] w-full rounded-xl bg-indigo px-4 text-[15px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                >
-                  完了にする
-                </button>
+                /*
+                  既にある予定は、触るたびに保存されている（patch が onSave を
+                  呼ぶ）。だから主操作は「決定」ではなく「閉じる」でよい。
+                  完了はホーム画面の一覧と、時間割の「いまの時間」バーから押せる。
+
+                  消すのはその直前に置く。取り返しがつかない操作なので、
+                  色は赤にして、面は張らない（押しやすさで閉じるに勝たせない）。
+                */
+                <div className="flex flex-col gap-2">
+                  {!fromHabit &&
+                    (confirmDelete ? (
+                      <div className="rounded-lg border border-line bg-surface px-3 py-2.5">
+                        <p className="text-[12.5px] leading-relaxed">
+                          この予定を消します。振り返りも一緒に消えます。
+                        </p>
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onDelete(draft.id)}
+                            className="min-h-11 flex-1 rounded-lg border border-[var(--c-rose-line)] bg-[var(--c-rose-bg)] px-3 text-[13px] text-[var(--c-rose-fg)]"
+                          >
+                            消す
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDelete(false)}
+                            className="min-h-11 flex-1 rounded-lg border border-line px-3 text-[13px] text-muted"
+                          >
+                            やめる
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(true)}
+                        className="min-h-11 rounded-xl px-4 text-[13.5px] text-[var(--c-rose-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        この予定を消す
+                      </button>
+                    ))}
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="min-h-[52px] w-full rounded-xl bg-indigo px-4 text-[15px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    閉じる
+                  </button>
+                </div>
               )}
             </div>
           </>
