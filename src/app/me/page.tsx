@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { Heatmap } from "@/components/Heatmap";
+import { useSupabaseUser } from "@/hooks/useSupabaseUser";
 import {
   activeHabits,
   loadArchive,
@@ -37,6 +38,7 @@ export default function MePage() {
   >([]);
   const [sessions, setSessions] = useState(0);
   const [ready, setReady] = useState(false);
+  const { userId, email, loading: authLoading } = useSupabaseUser();
 
   useEffect(() => {
     const logs = loadHabitLogs();
@@ -68,6 +70,35 @@ export default function MePage() {
     <>
       <AppHeader title="わたし" />
       <main className="phone flex flex-1 flex-col px-5 py-6">
+        {/*
+          ログインの入り口。以前は「設定」の中の「クラウド同期」という
+          見出しの下にしか無く、ログインしたい人が探す場所ではなかった
+          （実際に「ログインボタンが見当たらない」と迷わせた）。
+          未ログインのときだけ、いちばん上に出す。
+        */}
+        {!authLoading && !userId && (
+          <Link
+            href="/login"
+            className="mb-5 flex items-center gap-3 rounded-xl border border-accent-line bg-accent-soft px-4 py-3.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] font-medium text-accent">
+                ログインする
+              </span>
+              <span className="mt-0.5 block text-[11.5px] leading-relaxed text-accent">
+                いまはこの端末のブラウザにだけ残っています。ログインすると、
+                スマホとPCで同じ内容を見られます。
+              </span>
+            </span>
+            <span aria-hidden="true" className="shrink-0 text-accent">
+              →
+            </span>
+          </Link>
+        )}
+        {!authLoading && userId && (
+          <p className="mb-5 text-[11.5px] text-muted">{email} でログイン中</p>
+        )}
+
         <h2 className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
           続いていること
         </h2>

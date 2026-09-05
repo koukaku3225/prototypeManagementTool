@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { captureState, restoreState, setLocalBackupHook } from "@/lib/storage";
+import {
+  captureState,
+  hasUserContent,
+  restoreState,
+  setLocalBackupHook,
+} from "@/lib/storage";
 
 /**
  * ローカルディスクへの自動バックアップと、空っぽ起動時の復元案内。
@@ -13,10 +18,6 @@ import { captureState, restoreState, setLocalBackupHook } from "@/lib/storage";
  * ブラウザ側で何が起きても残る。ログインの有無は関係ない。
  */
 const DEBOUNCE_MS = 4000;
-
-function isEmptyState(snap: Record<string, string>): boolean {
-  return Object.values(snap).every((v) => !v || v === "[]" || v === "{}");
-}
 
 export function LocalBackupBoot() {
   const timer = useRef<number | null>(null);
@@ -49,11 +50,11 @@ export function LocalBackupBoot() {
 
   // 起動時、いま何もないのにディスク側にバックアップがあれば申し出る
   useEffect(() => {
-    if (!isEmptyState(captureState())) return;
+    if (hasUserContent(captureState())) return;
     fetch("/api/local-backup")
       .then((r) => r.json())
       .then((res: { ok: boolean; data: Record<string, string> | null }) => {
-        if (res.ok && res.data && !isEmptyState(res.data)) setOffer(res.data);
+        if (res.ok && res.data && hasUserContent(res.data)) setOffer(res.data);
       })
       .catch(() => {
         /* 無ければ何も出さない */

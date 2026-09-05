@@ -9,7 +9,15 @@
  * 失敗しても localStorage 側の保存は成功しているので、画面には影響しない。
  * ログインしていない・オフラインのときは何も起きない（前と同じ動作）。
  */
-import { captureState, KEY, restoreState, setSyncHook } from "@/lib/storage";
+import {
+  captureState,
+  hasUserContent,
+  KEY,
+  readDeviceFlag,
+  restoreState,
+  setSyncHook,
+  writeDeviceFlag,
+} from "@/lib/storage";
 import { supabaseBrowser } from "./client";
 import {
   bigStoryFromRow,
@@ -38,6 +46,65 @@ let lastSyncError: { at: string; message: string } | null = null;
 
 export function getLastSyncError() {
   return lastSyncError;
+}
+
+/**
+ * この端末が、どのユーザーとして一度クラウドと突き合わせ済みかを覚えておく。
+ *
+ * 「初めてこの端末でこのアカウントにログインした」かどうかが分からないと、
+ * 取り込むべきか送るべきかを判断できない。端末固有の情報なので、
+ * 同期にもスナップショットにも乗せない。
+ */
+const SYNCED_USER_FLAG = "gc.syncedUser";
+
+/**
+ * 同期の状態。UI（設定画面）が、いま何が起きているかを出すために使う。
+ *
+ * conflict は「この端末にもクラウドにも中身があり、しかもこの端末は
+ * まだ一度もこのアカウントと突き合わせていない」状態。どちらが正しいかを
+ * 機械的に決める方法が無いので、本人に選んでもらうまで push は繋がない。
+ */
+export type SyncState =
+  | { kind: "off" }
+  | { kind: "checking" }
+  | { kind: "pulling" }
+  | { kind: "pushing" }
+  | { kind: "ready" }
+  | { kind: "conflict" }
+  | { kind: "failed"; message: string };
+
+let syncState: SyncState = { kind: "off" };
+const stateListeners = new Set<(s: SyncState) => void>();
+
+export const getSyncState = (): SyncState => syncState;
+
+export function onSyncState(fn: (s: SyncState) => void): () => void {
+  stateListeners.add(fn);
+  return () => stateListeners.delete(fn);
+}
+
+function setState(s: SyncState): void {
+  syncState = s;
+  for (const fn of stateListeners) fn(s);
+}
+
+/**
+ * push（ローカル保存 → クラウド）を繋ぐ／切る。
+ *
+ * pushKey() の突き合わせは「ローカルに無いものはクラウドからも消す」なので、
+ * 取り込みが済んでいない空の端末で繋ぐと、クラウド側を空にしてしまう。
+ * 向きが決まるまでは必ず切っておく。
+ */
+let pushEnabled = false;
+
+function enablePush(): void {
+  pushEnabled = true;
+  setSyncHook(currentUserId ? (key, value) => void pushKey(key, value) : null);
+}
+
+function disablePush(): void {
+  pushEnabled = false;
+  setSyncHook(null);
 }
 
 function noteFailure(context: string, err: unknown) {
@@ -325,7 +392,9 @@ export async function pullAll(): Promise<boolean> {
 
     setSyncHook(null);
     const ok = restoreState(data);
-    setSyncHook(userId ? (key, value) => void pushKey(key, value) : null);
+    // 取り込み前に push が繋がっていたときだけ繋ぎ直す。
+    // まだ向きが決まっていない段階で勝手に繋がないようにする
+    if (pushEnabled) setSyncHook((key, value) => void pushKey(key, value));
     return ok;
   } catch (err) {
     noteFailure("クラウドからの取り込みに失敗しました", err);
@@ -333,12 +402,136 @@ export async function pullAll(): Promise<boolean> {
   }
 }
 
+/** クラウド側に、このユーザーの成果物が1件でもあるか */
+async function cloudHasContent(userId: string): Promise<boolean> {
+  const supabase = supabaseBrowser();
+  const tables = ["big_stories", "goal_cards", "timeboxes", "habits", "sessions"];
+  for (const t of tables) {
+    const { count, error } = await supabase
+      .from(t)
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId);
+    if (error) throw error;
+    if ((count ?? 0) > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * ログインした直後に、同期の向きを決める。
+ *
+ * ここが無かったせいで、本番で「ローカルで作ったものが出てこない」
+ * という状態になっていた。push しか繋いでおらず、pull は設定画面の
+ * ボタンを自分で押したときにしか走らなかったため。
+ *
+ * さらに悪いことに、空の端末で push だけが繋がると、最初の保存操作で
+ * クラウド側のデータが「ローカルに無いもの」として消える。
+ * 向きが決まるまで push を繋がないのは、その事故を防ぐため。
+ */
+async function resolveInitialSync(userId: string): Promise<void> {
+  setState({ kind: "checking" });
+  try {
+    const alreadySynced = readDeviceFlag(SYNCED_USER_FLAG) === userId;
+    if (alreadySynced) {
+      // この端末では突き合わせ済み。いつもどおり送るだけでよい
+      enablePush();
+      setState({ kind: "ready" });
+      return;
+    }
+
+    const localHas = hasUserContent(captureState());
+    const cloudHas = await cloudHasContent(userId);
+    // 確認している間にログアウト・アカウント切り替えが起きていたら手を引く
+    if (currentUserId !== userId) return;
+
+    if (!localHas && cloudHas) {
+      // この端末は空。クラウドを正として取り込む
+      setState({ kind: "pulling" });
+      const ok = await pullAll();
+      if (currentUserId !== userId) return;
+      if (!ok) {
+        setState({ kind: "failed", message: "クラウドからの取り込みに失敗しました" });
+        return;
+      }
+      writeDeviceFlag(SYNCED_USER_FLAG, userId);
+      enablePush();
+      setState({ kind: "ready" });
+      return;
+    }
+
+    if (!cloudHas) {
+      // クラウドが空。この端末の内容を初期値として送る（空同士でも害はない）
+      enablePush();
+      writeDeviceFlag(SYNCED_USER_FLAG, userId);
+      setState({ kind: "pushing" });
+      await backfillAll();
+      if (currentUserId !== userId) return;
+      setState({ kind: "ready" });
+      return;
+    }
+
+    // 両方に中身がある。どちらが新しいかは機械的に決められないので、
+    // 本人が選ぶまで push は繋がない（勝手に片方を消さない）
+    setState({ kind: "conflict" });
+  } catch (err) {
+    noteFailure("同期の向きを判断できませんでした", err);
+    setState({
+      kind: "failed",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * 衝突（両方に中身がある）を本人の選択で解決する。設定画面から呼ぶ。
+ * "pull" ＝ クラウドを正としてこの端末を上書き、"push" ＝ この端末を正として送る。
+ */
+export async function resolveConflict(direction: "pull" | "push"): Promise<boolean> {
+  const userId = currentUserId;
+  if (!userId) return false;
+
+  if (direction === "pull") {
+    setState({ kind: "pulling" });
+    const ok = await pullAll();
+    if (!ok) {
+      setState({ kind: "failed", message: "取り込みに失敗しました" });
+      return false;
+    }
+  } else {
+    setState({ kind: "pushing" });
+    enablePush();
+    const r = await backfillAll();
+    if (!r.ok) {
+      setState({ kind: "failed", message: "送信に一部失敗しました" });
+      return false;
+    }
+  }
+
+  writeDeviceFlag(SYNCED_USER_FLAG, userId);
+  enablePush();
+  setState({ kind: "ready" });
+  return true;
+}
+
 /**
  * ログイン状態が変わったときに呼ぶ。
- * userId が付けば以後の write() が裏で同期されるようになり、
- * null に戻せば同期が止まる（サインアウト時）。
+ *
+ * 以前はここで push フックを繋ぐだけだった。それだと
+ * 「クラウドにあるものを取りに行く」経路が自動では一度も走らない。
+ * いまは向きを決めてから繋ぐ（resolveInitialSync）。
  */
 export function setSyncUser(userId: string | null): void {
+  const prev = currentUserId;
   currentUserId = userId;
-  setSyncHook(userId ? (key, value) => void pushKey(key, value) : null);
+
+  if (!userId) {
+    disablePush();
+    setState({ kind: "off" });
+    return;
+  }
+  // 同じユーザーで呼び直されただけなら、決着済みの状態を壊さない
+  if (prev === userId && syncState.kind !== "off") return;
+
+  disablePush();
+  void resolveInitialSync(userId);
 }
