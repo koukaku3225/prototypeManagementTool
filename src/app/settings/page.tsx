@@ -8,7 +8,15 @@ import { download } from "@/lib/export";
 import { today } from "@/lib/date";
 import { useSupabaseUser } from "@/hooks/useSupabaseUser";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { backfillAll, getLastSyncError, pullAll } from "@/lib/supabase/sync";
+import {
+  backfillAll,
+  getLastSyncError,
+  getSyncState,
+  onSyncState,
+  pullAll,
+  resolveConflict,
+  type SyncState,
+} from "@/lib/supabase/sync";
 import {
   applySnapshot,
   captureState,
@@ -35,8 +43,15 @@ export default function SettingsPage() {
   const { userId, email, loading: authLoading } = useSupabaseUser();
   const [syncBusy, setSyncBusy] = useState(false);
   const [confirmPull, setConfirmPull] = useState(false);
+  const [sync, setSync] = useState<SyncState>({ kind: "off" });
 
   useEffect(() => setSnaps(listSnapshots()), []);
+
+  // 同期の向きを決める処理は裏で走るので、その結果をここに映す
+  useEffect(() => {
+    setSync(getSyncState());
+    return onSyncState(setSync);
+  }, []);
 
   function flash(text: string) {
     setMsg(text);
@@ -73,6 +88,60 @@ export default function SettingsPage() {
               <p className="mt-3 rounded-lg border border-accent-line bg-accent-soft px-3 py-2 text-[12.5px] text-accent">
                 {email} でログイン中
               </p>
+
+              {/*
+                いま同期がどうなっているか。特に conflict のときは、
+                本人が選ぶまで書き込みを止めているので、黙っていてはいけない
+              */}
+              {sync.kind === "conflict" ? (
+                <div className="mt-3 rounded-lg border border-accent-line bg-accent-soft px-3 py-3">
+                  <p className="text-[12.5px] leading-relaxed text-accent">
+                    <strong className="block font-medium">
+                      この端末とクラウドの両方に、それぞれ中身があります。
+                    </strong>
+                    どちらを残すか決まるまで、クラウドへの自動保存は止めています。
+                    片方を選ぶと、もう片方はその内容で上書きされます。
+                  </p>
+                  <div className="mt-2.5 flex flex-col gap-2">
+                    <button
+                      type="button"
+                      disabled={syncBusy}
+                      onClick={async () => {
+                        setSyncBusy(true);
+                        const ok = await resolveConflict("pull");
+                        setSyncBusy(false);
+                        flash(ok ? "クラウドの内容を取り込みました" : "取り込めませんでした");
+                        if (ok) setTimeout(() => router.push("/"), 400);
+                      }}
+                      className="min-h-11 rounded-lg border border-line bg-surface px-3 text-[13px] disabled:opacity-50"
+                    >
+                      クラウドを残す（この端末を上書き）
+                    </button>
+                    <button
+                      type="button"
+                      disabled={syncBusy}
+                      onClick={async () => {
+                        setSyncBusy(true);
+                        const ok = await resolveConflict("push");
+                        setSyncBusy(false);
+                        flash(ok ? "この端末の内容を送りました" : "送信に失敗しました");
+                      }}
+                      className="min-h-11 rounded-lg border border-line bg-surface px-3 text-[13px] disabled:opacity-50"
+                    >
+                      この端末を残す（クラウドを上書き）
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-2 text-[11.5px] text-muted">
+                  {sync.kind === "checking" && "同期の向きを確認しています…"}
+                  {sync.kind === "pulling" && "クラウドから取り込んでいます…"}
+                  {sync.kind === "pushing" && "クラウドへ送っています…"}
+                  {sync.kind === "ready" && "自動で同期しています"}
+                  {sync.kind === "failed" && `同期できていません: ${sync.message}`}
+                </p>
+              )}
+
               <div className="mt-3 flex flex-col gap-2">
                 <button
                   type="button"

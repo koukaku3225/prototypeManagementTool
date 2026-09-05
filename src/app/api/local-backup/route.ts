@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { LocalBackupSchema } from "@/lib/api-schema";
+import { hasUserContent } from "@/lib/storage-keys";
 
 /**
  * ローカルディスクへのバックアップ。
@@ -60,9 +61,15 @@ export async function POST(req: Request) {
   }
   const data = parsed.data;
 
-  // 空っぽの状態をそのまま「最新」として書くと、直前の良い状態を
-  // latest.json から追い出してしまう。空なら世代だけ残して latest は更新しない
-  const hasContent = Object.values(data).some((v) => v && v !== "[]" && v !== "{}");
+  /*
+   * 空っぽの状態をそのまま「最新」として書くと、直前の良い状態を
+   * latest.json から追い出してしまう。空なら世代だけ残して latest は更新しない。
+   *
+   * 以前はここで gc.schemaVersion / gc.variant まで「中身」として数えていた。
+   * どちらも必ず値が入っているので、実質いつでも中身ありと判定され、
+   * ほぼ空のスナップショットが latest.json を上書きしていた（実害あり）。
+   */
+  const hasContent = hasUserContent(data);
 
   try {
     await ensureDir();

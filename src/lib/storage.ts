@@ -23,21 +23,8 @@ import {
   type TimeBox,
 } from "@/types/timebox";
 
-export const KEY = {
-  session: "gc.session",
-  card: "gc.card",           // レガシー。移行元としてのみ読む
-  cards: "gc.cards",
-  bigstory: "gc.bigstory",
-  stories: "gc.stories",     // レガシー。SmallStory 廃止で不要。移行で捨てる
-  profile: "gc.profile",
-  variant: "gc.variant",
-  archive: "gc.sessions",
-  habits: "gc.habits",
-  habitLogs: "gc.habitlogs",
-  timeboxes: "gc.timeboxes",
-  running: "gc.running",
-  schemaVersion: "gc.schemaVersion",
-} as const;
+export { KEY, DEVICE_LOCAL_KEYS, hasUserContent } from "@/lib/storage-keys";
+import { KEY } from "@/lib/storage-keys";
 
 /** localStorage は例外を投げうる（プライベートモード、容量超過）。必ず包む。 */
 function read<T>(key: string): T | null {
@@ -97,6 +84,30 @@ function isQuotaError(err: unknown): boolean {
     err.code === 22 ||
     err.code === 1014
   );
+}
+
+/**
+ * 端末固有の小さな覚え書き。ユーザーの成果物ではないので、
+ * 同期にもスナップショットにも乗せない（KEY にも入れない）。
+ *
+ * localStorage を直接触るのはこのファイルの役目なので、ここに閉じてある。
+ * 読み書きに失敗しても、これが無いと困るのは「最適化」の部分だけなので、
+ * 保存失敗の帯は出さずに黙って諦める。
+ */
+export function readDeviceFlag(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+export function writeDeviceFlag(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* 覚えられなくても、次回もう一度判断し直すだけで済む */
+  }
 }
 
 /**
@@ -250,7 +261,14 @@ const MIGRATIONS: Record<number, () => void> = {
     }
 
     if (moved > 0) write(KEY.timeboxes, boxes);
-    write(KEY.cards, cards);
+    /*
+     * カードが1枚も無いなら書かない。
+     * まっさらな端末でも移行は走るので、以前はここで必ず [] を書いていた。
+     * その書き込みが同期フックに乗ると、クラウド側のカードを
+     * 「ローカルに無いもの」として消しにいく（reconcileCollection）。
+     * 変換するものが無いときは、そもそも触らないのが正しい。
+     */
+    if (cards.length > 0) write(KEY.cards, cards);
   },
 };
 
