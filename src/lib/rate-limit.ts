@@ -92,7 +92,31 @@ export async function checkRateLimit(
   if (!redis || !perMinute) return null;
 
   const dayLimiter = kind === "chat" ? perDayChat! : perDayStructure!;
-  const [minute, day] = await Promise.all([perMinute.limit(id), dayLimiter.limit(id)]);
+
+  let minute: { success: boolean };
+  let day: { success: boolean };
+  try {
+    [minute, day] = await Promise.all([perMinute.limit(id), dayLimiter.limit(id)]);
+  } catch (err) {
+    /*
+     * 制限を確認できなかった（Upstashのトークンが無効・障害・ネットワーク断）。
+     * ここで例外を投げると、APIルートごと500になって対話が丸ごと使えなくなる。
+     * 実際にそうなった: 本番のUpstashトークンが無効になっていて
+     * 「WRONGPASS invalid or missing auth token」で /api/chat が全滅し、
+     * 目標設定そのものができなくなった。
+     *
+     * 費用の防衛線はこれ1枚ではない。Anthropicコンソール側の支出上限が
+     * 最後の砦としてあり、REQUIRE_AUTH が未ログインを締め出す。
+     * この層が一時的に開くことより、製品が使えなくなることのほうが害が大きい。
+     * よって「確認できなければ通す」。ただし黙って通さず、必ずログに残す。
+     */
+    console.error(
+      "[rate-limit] 制限を確認できませんでした。無制限で通します。" +
+        "UPSTASH_REDIS_REST_URL / _TOKEN を確認してください:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
 
   if (!minute.success || !day.success) {
     return Response.json(

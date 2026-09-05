@@ -129,6 +129,29 @@ for (const file of walk(SRC)) {
   });
 }
 
+/*
+ * 補助的な仕組みの失敗が、主機能を止めてはいけない。
+ *
+ * レート制限は費用を守るための保険であって、対話そのものではない。
+ * ところが例外を投げっぱなしだったため、Upstashのトークンが無効になった
+ * だけで /api/chat が丸ごと500になり、目標設定ができなくなった。
+ * 外部サービスに問い合わせる保険は、失敗しても通す（fail open）こと。
+ */
+{
+  const file = join(SRC, "lib", "rate-limit.ts");
+  const text = readFileSync(file, "utf8");
+  const fn = text.slice(text.indexOf("export async function checkRateLimit"));
+  if (!/\bcatch\s*\(/.test(fn)) {
+    failed++;
+    console.error(
+      `✗ ${relative(ROOT, file)}\n` +
+        `  checkRateLimit に catch がない\n` +
+        `  → Upstashが落ちるとAPIルートごと500になり、対話が使えなくなる。\n` +
+        `    確認できなければ通す（ログは必ず残す）\n`,
+    );
+  }
+}
+
 const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const deps = { ...pkg.dependencies, ...pkg.devDependencies };
 for (const rule of FORBIDDEN_DEPS) {
