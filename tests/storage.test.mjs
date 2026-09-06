@@ -386,5 +386,47 @@ t("resetAll はレガシーキーも含めて全部消す", () => {
   }
 });
 
+// ---------------------------------------------------------------- タイムボックス（カレンダー同期用の刻印）
+
+t("upsertTimeBox は updatedAt を刻む", () => {
+  reset();
+  const before = new Date().toISOString();
+  S.upsertTimeBox({
+    id: "tb-1",
+    date: "2026-09-05",
+    start: "10:00",
+    end: "10:30",
+    title: "テスト",
+    cardId: null,
+    meta: { why: "", obstacle: "", counter: "" },
+    completedAt: null,
+    review: null,
+    createdAt: before,
+  });
+  const saved = S.loadTimeBoxes().find((b) => b.id === "tb-1");
+  assert.ok(saved.updatedAt, "updatedAt が入っていない");
+  assert.ok(saved.updatedAt >= before, "updatedAt が古すぎる");
+});
+
+t("upsertTimeBox は呼ぶたびに updatedAt を更新する", () => {
+  // 「どちらが新しいか」の判断に使うので、更新のたびに動かないと意味がない
+  reset();
+  S.upsertTimeBox({
+    id: "tb-2",
+    date: "2026-09-05",
+    start: "10:00",
+    end: "10:30",
+    title: "一回目",
+    cardId: null,
+    meta: { why: "", obstacle: "", counter: "" },
+    completedAt: null,
+    review: null,
+    createdAt: "2026-09-01T00:00:00.000Z",
+    updatedAt: "2026-09-01T00:00:00.000Z",
+  });
+  const saved = S.loadTimeBoxes().find((b) => b.id === "tb-2");
+  assert.notEqual(saved.updatedAt, "2026-09-01T00:00:00.000Z", "更新されていない");
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

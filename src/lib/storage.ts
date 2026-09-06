@@ -550,9 +550,12 @@ export const timeBoxesOfCard = (cardId: string): TimeBox[] =>
 
 export function upsertTimeBox(b: TimeBox): void {
   const all = loadTimeBoxes();
+  // 保存のたびに更新時刻を刻む。書き込みが必ずここを通るので、
+  // 呼び出し側で付け忘れることがない（カレンダー同期の突き合わせに使う）
+  const stamped: TimeBox = { ...b, updatedAt: new Date().toISOString() };
   const i = all.findIndex((x) => x.id === b.id);
-  if (i >= 0) all[i] = b;
-  else all.push(b);
+  if (i >= 0) all[i] = stamped;
+  else all.push(stamped);
   write(KEY.timeboxes, all);
 }
 
