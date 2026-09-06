@@ -6,14 +6,16 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx tests/phase-machine.test.mjs && tsx tests/date.test.mjs && tsx tests/storage.test.mjs && tsx tests/habit.test.mjs && tsx tests/habit-plan.test.mjs && tsx tests/timebox.test.mjs && tsx tests/day-grid-tone.test.mjs && tsx tests/chat-prompt.test.mjs && tsx tests/goal-card.test.mjs && tsx tests/storage-keys.test.mjs && tsx tests/sync-decision.test.mjs && tsx tests/calendar-decide.test.mjs && tsx tests/calendar-engine.test.mjs && node tests/forbidden.test.mjs"
+    "test": "tsx tests/phase-machine.test.mjs && tsx tests/date.test.mjs && tsx tests/storage.test.mjs && tsx tests/habit.test.mjs && tsx tests/habit-plan.test.mjs && tsx tests/timebox.test.mjs && tsx tests/day-grid-tone.test.mjs && tsx tests/chat-prompt.test.mjs && tsx tests/goal-card.test.mjs && tsx tests/storage-keys.test.mjs && tsx tests/sync-decision.test.mjs && tsx tests/calendar-decide.test.mjs && tsx tests/calendar-engine.test.mjs && tsx tests/mcp-data.test.mjs && tsx tests/mcp-auth.test.mjs && tsx tests/mcp-consent.test.mjs && tsx tests/safe-next.test.mjs && tsx tests/mcp-server.test.mjs && node tests/forbidden.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@supabase/ssr": "^0.12.5",
     "@supabase/supabase-js": "^2.112.4",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.4",
+    "jose": "^6.2.12",
     "next": "16.3.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",

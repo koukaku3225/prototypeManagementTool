@@ -382,6 +382,12 @@ export default function SettingsPage() {
           >
             内部計測を見る（M1〜M7）
           </Link>
+          <Link
+            href="/settings/connections"
+            className="mt-2.5 block text-[13px] underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            外部AIとの連携を確認・解除
+          </Link>
 
           <div className="mt-4">
             {confirmReset ? (

@@ -1,0 +1,9 @@
+# MCPは、OAuthとRLSの確認が終わるまでtrueにしない
+MCP_ENABLED=false
+MCP_RESOURCE_URL=https://your-app.example/api/mcp
+MCP_ISSUER=https://YOUR_PROJECT_REF.supabase.co/auth/v1
+MCP_AUDIENCE=https://your-app.example/api/mcp
+MCP_JWKS_URL=https://YOUR_PROJECT_REF.supabase.co/auth/v1/.well-known/jwks.json
+MCP_ALLOWED_CLIENT_IDS=registered-chatgpt-client-id,registered-claude-client-id
+# 32文字以上のランダム値。サーバーだけに設定する
+MCP_CURSOR_SECRET=replace-with-at-least-32-random-characters
