@@ -70,3 +70,25 @@ export function decideSyncDirection(i: SyncInputs): SyncDirection {
   //    突き合わせ済みの端末は、いつもどおり送ってよい
   return i.alreadySynced ? "push" : "conflict";
 }
+
+/**
+ * 外部キー違反か（Postgres のエラーコード 23503）。
+ *
+ * timeboxes は card_id → goal_cards、habit_id → habits を参照する。
+ * 参照先がまだクラウドに無い枠が1件でも混ざると、
+ * **その回の書き込みがまるごと拒否される**（実際に時間割だけが
+ * 保存され続けず、別端末で見て初めて発覚した）。
+ *
+ * この失敗は「送る順番が悪かった」だけなので、依存順に全部送り直せば直る。
+ * 呼び出し側はこれを見て自己修復を試みる。
+ */
+export function isForeignKeyViolation(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: unknown; message?: unknown };
+  if (e.code === "23503") return true;
+  // code が落ちている経路のために、文言でも拾う
+  return (
+    typeof e.message === "string" &&
+    e.message.includes("foreign key constraint")
+  );
+}
