@@ -119,6 +119,29 @@ export const LocalBackupSchema = z.record(z.string(), z.string());
 export type ChatRequestInput = z.infer<typeof ChatRequestSchema>;
 export type StructureRequestInput = z.infer<typeof StructureRequestSchema>;
 
+/** カレンダー同期。ブラウザが持っている枠をそのまま送って突き合わせる */
+export const CalendarSyncRequestSchema = z.object({
+  boxes: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(200),
+        date: z.string().max(10),
+        start: z.string().max(5),
+        end: z.string().max(5),
+        title: z.string().max(300),
+        googleEventId: z.string().max(1024).nullable().optional(),
+        updatedAt: z.string().max(40).optional(),
+        hasNotes: z.boolean(),
+      }),
+    )
+    // 1件約150バイトとして500件で約75KB。MAX_BODY_BYTES(200,000)に収まる
+    // 上限にする。2000件だと約300KBになり parseBody が必ず413で弾いてしまい、
+    // 到達しえない上限を書くことになるため
+    .max(500),
+  /** 削除の確認を本人が押したか。ブレーキを解除する */
+  confirmDeletes: z.boolean().optional(),
+});
+
 /**
  * ボディを読んでサイズを見てから parse する。
  *
