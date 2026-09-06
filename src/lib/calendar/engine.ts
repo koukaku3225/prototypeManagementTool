@@ -143,6 +143,28 @@ function ownedEvent(
 }
 
 /**
+ * 枠に対応するイベントの状態を判定する。
+ *
+ * 差分取得（syncToken）をやめて毎回この期間を全件取得するようにしたので、
+ * 「一度送った googleEventId が、今回の全件取得結果に一件も無い」こと自体が
+ * 「カレンダー側で削除された」証拠として使える。差分取得のままだと
+ * 変更の無いイベントがそもそも結果に含まれないため、この判定はできなかった
+ * （消えたのか単に変更が無かっただけなのか区別できない）。
+ *
+ * b.googleEventId が null（まだ一度もカレンダーに送っていない枠）は、
+ * 単に「これから作る」だけなので missing のまま。
+ */
+function eventStateOf(
+  byId: Map<string, GoogleEvent>,
+  b: SyncBoxInput,
+  e: GoogleEvent | undefined,
+): "missing" | "present" | "cancelled" {
+  if (e) return e.status === "cancelled" ? "cancelled" : "present";
+  if (b.googleEventId && !byId.has(b.googleEventId)) return "cancelled";
+  return "missing";
+}
+
+/**
  * 同期の本体。
  *
  * 判断は decide.ts に委ね、ここは「その判断どおりに動かす」ことに徹する。
@@ -176,7 +198,12 @@ export async function runSync(
   // 同期のたびに createEvent が起きて予定が増殖していた（レビューで指摘）。
   // 全件取得なら毎回同じ状態から突き合わせるので、この事故は起きない。
   const listed = await deps.listEvents(token, link.calendarId, { timeMin, timeMax });
-  if (!listed.ok) return { ok: false, message: "予定を取得できませんでした。" };
+  if (!listed.ok) {
+    // ここで lastError を更新しないと、取得失敗が握りつぶされて
+    // 「同期が止まっているのに誰も気づけない」状態になる（レビューで指摘）
+    await deps.updateLink({ lastError: "予定を取得できませんでした" });
+    return { ok: false, message: "予定を取得できませんでした。" };
+  }
 
   const events = listed.events;
   const byId = new Map(events.map((e) => [e.id, e]));
@@ -204,7 +231,7 @@ export async function runSync(
   for (const b of inWindow) {
     if (isGhostId(b.id)) continue;
     const e = ownedEvent(byId, byMark, b);
-    if (e && e.status === "cancelled" && !b.hasNotes) deleteCount++;
+    if (eventStateOf(byId, b, e) === "cancelled" && !b.hasNotes) deleteCount++;
   }
   for (const e of events) {
     if (e.status === "cancelled") continue;
@@ -242,7 +269,7 @@ export async function runSync(
       boxIsGhost: isGhostId(b.id),
       boxHasNotes: b.hasNotes,
       boxUpdatedAt: b.updatedAt ?? null,
-      eventState: !e ? "missing" : e.status === "cancelled" ? "cancelled" : "present",
+      eventState: eventStateOf(byId, b, e),
       eventHasMark: Boolean(e && markOf(e)),
       eventUpdated: e?.updated ?? null,
       contentEqual,

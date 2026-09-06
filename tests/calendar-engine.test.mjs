@@ -84,18 +84,21 @@ t("#1 時刻変換はサーバーのタイムゾーンに依存しない", () =>
 });
 
 await at("#2 内容が一致していれば2回目の同期で作り直さない", async () => {
+  // 固定日付だと60日を過ぎた時点で期間外に落ちて「中身ゼロで通る」ように
+  // なり、再発検知が消える（レビューで指摘）。相対日付にしておく
+  const day = addDays(3);
   const event = {
     id: "ev1",
     status: "confirmed",
     summary: "テスト予定",
     updated: "2026-09-01T00:00:00Z",
-    start: { dateTime: "2026-09-10T10:00:00+09:00" },
-    end: { dateTime: "2026-09-10T11:00:00+09:00" },
+    start: { dateTime: `${day}T10:00:00+09:00` },
+    end: { dateTime: `${day}T11:00:00+09:00` },
     extendedProperties: { private: { timeboxId: "box1" } },
   };
   const box = {
     id: "box1",
-    date: "2026-09-10",
+    date: day,
     start: "10:00",
     end: "11:00",
     title: "テスト予定",
@@ -131,22 +134,24 @@ await at("#2 内容が一致していれば2回目の同期で作り直さない
 await at("#3 印の無い予定を取り込んだあと、二重取り込みされない", async () => {
   // 1回目の同期で取り込まれ、アプリ側の枠に googleEventId が付いた状態を再現する。
   // カレンダー側は人が作った予定なので extendedProperties（印）は無いまま。
+  // 固定日付だと時間が経つと期間外に落ちて再発検知が消えるので相対日付にする
+  const day = addDays(10);
   const event = {
     id: "ev2",
     status: "confirmed",
     summary: "外部予定",
     updated: "2026-09-01T00:00:00Z",
-    start: { dateTime: "2026-09-15T09:00:00+09:00" },
-    end: { dateTime: "2026-09-15T09:30:00+09:00" },
+    start: { dateTime: `${day}T09:00:00+09:00` },
+    end: { dateTime: `${day}T09:30:00+09:00` },
   };
   const box = {
     id: "local-999",
-    date: "2026-09-15",
+    date: day,
     start: "09:00",
     end: "09:30",
     title: "外部予定",
     googleEventId: "ev2",
-    updatedAt: "2026-09-15T00:00:00Z",
+    updatedAt: `${day}T00:00:00Z`,
     hasNotes: false,
   };
   const { deps, calls } = makeDeps([event]);
@@ -191,6 +196,82 @@ await at("#5 削除ブレーキが働くとAPI呼び出しが1件も起きない
   assert.equal(calls.delete.length, 0, "deleteEventが呼ばれてはいけない");
   assert.equal(calls.insert.length, 0, "insertEventが呼ばれてはいけない");
   assert.equal(calls.patch.length, 0, "patchEventが呼ばれてはいけない");
+});
+
+await at("#6 カレンダーで削除され書き込みも無い枠は deletes に入る", async () => {
+  const day = addDays(3);
+  const event = {
+    id: "ev6",
+    status: "cancelled",
+    summary: "消された予定",
+    updated: "2026-09-01T00:00:00Z",
+    start: { dateTime: `${day}T10:00:00+09:00` },
+    end: { dateTime: `${day}T11:00:00+09:00` },
+    extendedProperties: { private: { timeboxId: "box6" } },
+  };
+  const box = {
+    id: "box6",
+    date: day,
+    start: "10:00",
+    end: "11:00",
+    title: "消された予定",
+    googleEventId: "ev6",
+    updatedAt: "2026-09-01T00:00:00Z",
+    hasNotes: false,
+  };
+  const { deps } = makeDeps([event]);
+  const r = await runSync([box], false, deps);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.result.deletes, ["box6"]);
+});
+
+await at("#7 カレンダーで削除されても振り返りがあれば残す（deletesに入らない）", async () => {
+  const day = addDays(3);
+  const event = {
+    id: "ev7",
+    status: "cancelled",
+    summary: "消された予定",
+    updated: "2026-09-01T00:00:00Z",
+    start: { dateTime: `${day}T10:00:00+09:00` },
+    end: { dateTime: `${day}T11:00:00+09:00` },
+    extendedProperties: { private: { timeboxId: "box7" } },
+  };
+  const box = {
+    id: "box7",
+    date: day,
+    start: "10:00",
+    end: "11:00",
+    title: "消された予定",
+    googleEventId: "ev7",
+    updatedAt: "2026-09-01T00:00:00Z",
+    hasNotes: true, // 振り返り等が書かれている
+  };
+  const { deps } = makeDeps([event]);
+  const r = await runSync([box], false, deps);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.result.deletes, [], "書き込みのある枠は消してはいけない（不変条件1）");
+});
+
+await at("#8 googleEventIdを持つ枠が全件取得の結果に見つからなければ削除された扱いにする（復活させない）", async () => {
+  // 差分取得をやめて全件取得にしたので、「窓の中に該当イベントが無い」こと
+  // 自体が「カレンダー側で削除された」証拠になる（レビューで指摘のC-3対応）。
+  // events を空にして、対応するイベントがどこにも見つからない状況を再現する
+  const day = addDays(3);
+  const box = {
+    id: "box8",
+    date: day,
+    start: "10:00",
+    end: "11:00",
+    title: "本当は消された予定",
+    googleEventId: "ev-gone",
+    updatedAt: "2026-09-01T00:00:00Z",
+    hasNotes: false,
+  };
+  const { deps, calls } = makeDeps([]); // 全件取得の結果に対応イベントが無い
+  const r = await runSync([box], false, deps);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.result.deletes, ["box8"]);
+  assert.equal(calls.insert.length, 0, "消された予定を復活させてはいけない（createEventが呼ばれてはいけない）");
 });
 
 console.log(`${passed} passed, ${failed} failed`);

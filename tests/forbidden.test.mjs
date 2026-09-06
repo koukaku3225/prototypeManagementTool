@@ -177,7 +177,7 @@ for (const file of walk(SRC)) {
    * 本人が書いたメタ認知と振り返りが同期のたびに消える。
    */
   for (const field of ["meta", "review", "cardId", "color"]) {
-    if (new RegExp(`\\bu\\.${field}\\b`).test(text)) {
+    if (new RegExp(`\\bu\\??\\.${field}\\b`).test(text)) {
       failed++;
       console.error(
         `✗ ${relative(ROOT, file)}\n` +
