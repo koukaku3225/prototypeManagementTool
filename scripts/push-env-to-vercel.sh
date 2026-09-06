@@ -32,9 +32,10 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-# 送る変数。ここに無いものは触らない（GOOGLE_OAUTH_* はSupabase側に登録済みで、
-# アプリ自身は読まないため対象外）
-VARS="ANTHROPIC_API_KEY NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN"
+# 送る変数。ここに無いものは触らない。
+# GOOGLE_OAUTH_* は当初「Supabaseに登録済みでアプリは読まない」ため対象外にしていたが、
+# Googleカレンダー連携で自前OAuthを持つようになり、アプリ自身が読むようになった。
+VARS="ANTHROPIC_API_KEY NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET"
 TARGETS="production preview"
 
 # .env.local から値を1つ取り出す。前後の空白と引用符を落とす
