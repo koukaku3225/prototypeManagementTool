@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
+import { CalendarLink } from "@/components/CalendarLink";
 import { download } from "@/lib/export";
 import { today } from "@/lib/date";
 import { useSupabaseUser } from "@/hooks/useSupabaseUser";
@@ -225,6 +226,14 @@ export default function SettingsPage() {
               ログインする
             </Link>
           )}
+        </section>
+
+        {/* ── Googleカレンダー ─────────────────── */}
+        <section className="mt-3 rounded-xl border border-line bg-surface px-4 py-4">
+          <h2 className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
+            Googleカレンダー
+          </h2>
+          <CalendarLink />
         </section>
 
         {/* ── スナップショット ─────────────────── */}
