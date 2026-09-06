@@ -19,7 +19,7 @@ import {
   setSyncHook,
   writeDeviceFlag,
 } from "@/lib/storage";
-import { decideSyncDirection } from "./sync-decision";
+import { decideSyncDirection, isForeignKeyViolation } from "./sync-decision";
 import { supabaseBrowser } from "./client";
 import {
   bigStoryFromRow,
@@ -337,6 +337,34 @@ export async function pushKey(key: string, value: unknown): Promise<void> {
     }
   } catch (err) {
     noteFailure(`同期に失敗しました（${key}）`, err);
+    await healIfDanglingReference(err);
+  }
+}
+
+/**
+ * 参照先がまだクラウドに無いせいで失敗したなら、依存順に全部送り直す。
+ *
+ * timeboxes は目標カードと習慣を参照する。pushKey は「書き込みのあった
+ * キーだけ」を送るので、ログインより前に作った習慣のように
+ * 「ローカルにはあるが、その後一度も書かれていないもの」はクラウドへ届かない。
+ * その状態で時間割を保存すると外部キー違反になり、**毎回まるごと拒否され続ける**。
+ * 実際にこれで、1日分の予定が別端末に現れないまま溜まった。
+ *
+ * backfillAll() はカード・習慣を時間割より先に送るので、一度通せば解消する。
+ * 自分自身が pushKey を呼ぶため、再入は healing で止める。
+ */
+let healing = false;
+
+async function healIfDanglingReference(err: unknown): Promise<void> {
+  if (healing || !isForeignKeyViolation(err)) return;
+  healing = true;
+  try {
+    console.warn("[supabase sync] 参照先が未同期のため、依存順に送り直します");
+    await backfillAll();
+  } catch (e) {
+    noteFailure("送り直しにも失敗しました", e);
+  } finally {
+    healing = false;
   }
 }
 
