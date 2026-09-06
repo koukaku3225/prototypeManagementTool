@@ -20,6 +20,7 @@ import {
   writeDeviceFlag,
 } from "@/lib/storage";
 import { decideSyncDirection, isForeignKeyViolation } from "./sync-decision";
+import { isValidUuid } from "@/lib/uuid";
 import { supabaseBrowser } from "./client";
 import {
   bigStoryFromRow,
@@ -165,12 +166,47 @@ async function reconcileCollection(
   rows: Record<string, unknown>[],
 ) {
   const supabase = supabaseBrowser();
+
+  /*
+   * 主キーが uuid 列のテーブルでは、UUIDでない ID の行を先に外す。
+   *
+   * upsert は配列を1回で送るので、1件でも `22P02
+   * (invalid input syntax for type uuid)` になると**その回の書き込みが
+   * まるごと拒否される**。つまり不正な1件が、正常な他の全部を道連れにする。
+   * しかも本人の操作は成功して見えるため、別端末で開くまで気づけない。
+   *
+   * 移行 v3 が localStorage 側を直すので、ここへ来るのは
+   * 移行より先に同期が走った場合などの取りこぼしだけ。
+   * 落としたことは黙らせず、帯に出して本人に伝える。
+   */
+  let sendRows = rows;
+  if (idColumn === "id") {
+    const bad = rows.filter((r) => !isValidUuid(r.id));
+    if (bad.length > 0) {
+      sendRows = rows.filter((r) => isValidUuid(r.id));
+      noteFailure(
+        `${table}: IDの形式が不正な${bad.length}件を送れませんでした`,
+        new Error(
+          `uuid ではない id: ${bad
+            .slice(0, 3)
+            .map((r) => String(r.id))
+            .join(", ")}`,
+        ),
+      );
+    }
+  }
+
   const { data: existing, error: readErr } = await supabase
     .from(table)
     .select(idColumn)
     .eq("user_id", userId);
   if (readErr) throw readErr;
 
+  /*
+   * 消す判断には、送れなかった行の ID も「残す」側へ入れておく。
+   * 除外したぶんを keep から外すと、クラウド側にある対応する行を
+   * 「ローカルで消された」とみなして消してしまう。
+   */
   const keep = new Set(incomingIds);
   const gone = (existing ?? [])
     .map((r: Record<string, unknown>) => r[idColumn] as string)
@@ -183,8 +219,8 @@ async function reconcileCollection(
    * 逆に delete が失敗しても余分な行が残るだけで、次の同期で片付く。
    * 失うより、余るほうがましである。
    */
-  if (rows.length > 0) {
-    const { error } = await supabase.from(table).upsert(rows);
+  if (sendRows.length > 0) {
+    const { error } = await supabase.from(table).upsert(sendRows);
     if (error) throw error;
   }
   if (gone.length > 0) {

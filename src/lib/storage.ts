@@ -25,6 +25,7 @@ import {
 
 export { KEY, DEVICE_KEY, DEVICE_LOCAL_KEYS, hasUserContent } from "@/lib/storage-keys";
 import { DEVICE_KEY, KEY } from "@/lib/storage-keys";
+import { isValidUuid } from "@/lib/uuid";
 
 /** localStorage は例外を投げうる（プライベートモード、容量超過）。必ず包む。 */
 function read<T>(key: string): T | null {
@@ -179,7 +180,7 @@ function remove(key: string): void {
  *   - 消す前に移す。読めなくなったデータは戻らない
  *   - 新しいキーを足したら SNAPSHOT_TARGETS と resetAll() にも足す
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** 版 n への移行。キーは移行後の版番号 */
 const MIGRATIONS: Record<number, () => void> = {
@@ -269,6 +270,45 @@ const MIGRATIONS: Record<number, () => void> = {
      * 変換するものが無いときは、そもそも触らないのが正しい。
      */
     if (cards.length > 0) write(KEY.cards, cards);
+  },
+
+  /**
+   * v2 → v3。時間割の ID を UUID に直す。
+   *
+   * 直前の v2 が、旧「次の一歩」から `from-task-<元のid>` という ID の枠を作る。
+   * Supabase 側の主キーは `uuid` 型なので、この形は
+   * `22P02 invalid input syntax for type uuid` で弾かれる。
+   * しかも reconcileCollection() は配列を1回の upsert で送るので、
+   * **1件混ざるだけでその日の時間割がまるごと保存されない**。
+   * 本人の操作は成功して見えるため、別端末で開くまで気づけない。
+   *
+   * 時間割の id は他のテーブルから参照されていない（参照するのは
+   * timeboxes → goal_cards / habits の向きだけ）ので、
+   * 差し替えても壊れるものは無い。中身はそのまま持ち越す。
+   *
+   * ついでに ID の重複も解消する。重複したまま送ると、
+   * 同じ主キーの行が1回の upsert に2つ入って、これも全体が弾かれる。
+   */
+  3: () => {
+    const boxes = read<TimeBox[]>(KEY.timeboxes) ?? [];
+    if (boxes.length === 0) return;
+
+    const seen = new Set<string>();
+    let fixed = 0;
+    const next = boxes.map((b) => {
+      const ok = isValidUuid(b.id) && !seen.has(b.id);
+      if (ok) {
+        seen.add(b.id);
+        return b;
+      }
+      fixed++;
+      const id = crypto.randomUUID();
+      seen.add(id);
+      return { ...b, id };
+    });
+
+    // 直すものが無ければ書かない。無用な書き込みは同期にも乗ってしまう
+    if (fixed > 0) write(KEY.timeboxes, next);
   },
 };
 

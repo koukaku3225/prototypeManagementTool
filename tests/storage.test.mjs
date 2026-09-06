@@ -45,7 +45,19 @@ const store = new FakeStorage();
 globalThis.localStorage = store;
 if (!globalThis.crypto) globalThis.crypto = {};
 let uuidCounter = 0;
-globalThis.crypto.randomUUID = () => `uuid-${++uuidCounter}`;
+/*
+ * 本物と同じ「UUIDの形」を返す。連番なのは、どの呼び出しで作られたIDかを
+ * テストから追えるようにするため。
+ *
+ * 以前は `uuid-1` のような、UUIDでない文字列を返していた。
+ * これは実物と形が違うので、「UUIDでない値が混ざる」という種類の不具合
+ * （Postgres の uuid 列に入らず、同期がまるごと拒否される）を
+ * テストが素通ししてしまう。スタブは実物の性質を守る。
+ */
+globalThis.crypto.randomUUID = () => {
+  const n = String(++uuidCounter).padStart(12, "0");
+  return `00000000-0000-4000-8000-${n}`;
+};
 
 const S = await import("../src/lib/storage.ts");
 
@@ -168,6 +180,106 @@ t("壊れた版番号は 0 とみなして移行し直す", () => {
   reset({ "gc.schemaVersion": '"こわれている"' });
   S.loadCards();
   assert.equal(parsed("gc.schemaVersion"), S.SCHEMA_VERSION);
+});
+
+// ------------------------------------------------- 移行 v3（時間割IDのUUID化）
+
+/**
+ * 移行 v2 が作る `from-task-*` は Postgres の uuid 型に入らない。
+ * reconcileCollection() は配列を1回の upsert で送るので、1件混ざるだけで
+ * その日の時間割がまるごと保存されず、しかも本人には成功して見える。
+ * v3 でローカル側を直しておく。
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function tbox(id, over = {}) {
+  return {
+    id,
+    date: "2026-09-07",
+    start: "10:00",
+    end: "11:00",
+    title: `予定 ${id}`,
+    cardId: null,
+    meta: { why: "", obstacle: "", counter: "" },
+    completedAt: null,
+    review: null,
+    createdAt: "2026-09-07T00:00:00.000Z",
+    ...over,
+  };
+}
+
+t("移行v3: UUIDでない時間割IDが UUID に置き換わる", () => {
+  reset({
+    "gc.schemaVersion": "2",
+    "gc.timeboxes": JSON.stringify([
+      tbox("from-task-1"),
+      tbox("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"),
+    ]),
+  });
+  S.loadTimeBoxes();
+  const after = parsed("gc.timeboxes");
+  assert.equal(after.length, 2, "件数が変わった");
+  for (const b of after) {
+    assert.ok(UUID_RE.test(b.id), `UUIDになっていない: ${b.id}`);
+  }
+});
+
+t("移行v3: 正しいIDは変えず、中身も持ち越す", () => {
+  const keep = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+  reset({
+    "gc.schemaVersion": "2",
+    "gc.timeboxes": JSON.stringify([
+      tbox("from-task-9", { title: "移行された予定", start: "21:00" }),
+      tbox(keep),
+    ]),
+  });
+  S.loadTimeBoxes();
+  const after = parsed("gc.timeboxes");
+  assert.ok(
+    after.some((b) => b.id === keep),
+    "正しいIDまで置き換えている",
+  );
+  const moved = after.find((b) => b.title === "移行された予定");
+  assert.ok(moved, "移行された予定が消えた");
+  assert.equal(moved.start, "21:00", "中身が持ち越されていない");
+  assert.notEqual(moved.id, "from-task-9", "IDが直っていない");
+});
+
+t("移行v3: 重複したIDも解消する", () => {
+  // 同じ主キーが1回の upsert に2つ入ると、これも全体が弾かれる
+  const dup = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+  reset({
+    "gc.schemaVersion": "2",
+    "gc.timeboxes": JSON.stringify([tbox(dup), tbox(dup, { title: "2件目" })]),
+  });
+  S.loadTimeBoxes();
+  const after = parsed("gc.timeboxes");
+  assert.equal(after.length, 2, "件数が変わった");
+  assert.equal(new Set(after.map((b) => b.id)).size, 2, "IDが重複したまま");
+});
+
+t("移行v3: 何度実行しても同じ結果（冪等）", () => {
+  reset({
+    "gc.schemaVersion": "2",
+    "gc.timeboxes": JSON.stringify([tbox("from-task-1"), tbox("from-task-2")]),
+  });
+  S.loadTimeBoxes();
+  const after1 = raw("gc.timeboxes");
+  S.__resetMigrationFlagForTest();
+  S.loadTimeBoxes();
+  assert.equal(raw("gc.timeboxes"), after1, "2回目で内容が変わった");
+});
+
+t("移行v3: 直すものが無ければ書き込まない", () => {
+  // 無用な書き込みは同期フックに乗ってしまう
+  const ids = [
+    "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+    "b1ffcd88-8d1a-4fe9-cc7e-7cc8ce491b22",
+  ];
+  const before = JSON.stringify(ids.map((id) => tbox(id)));
+  reset({ "gc.schemaVersion": "2", "gc.timeboxes": before });
+  S.loadTimeBoxes();
+  assert.equal(raw("gc.timeboxes"), before, "触る必要が無いのに書き換えた");
 });
 
 t("空の localStorage でも落ちず、版番号だけ立つ", () => {
