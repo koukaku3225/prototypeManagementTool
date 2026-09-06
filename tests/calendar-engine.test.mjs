@@ -104,6 +104,24 @@ await at("#2 内容が一致していれば2回目の同期で作り直さない
     hasNotes: false,
   };
   const { deps, calls } = makeDeps([event]);
+  // C-1（差分取得のせいで毎回全件が重複作成される）の再発検知。
+  // syncToken を渡すと「変更のあった予定だけ」しか返らないのに、
+  // エンジンはそれを「期間内の全予定」として扱うため、2回目以降
+  // 内容が変わっていない枠まですべて重複作成されてしまう。
+  // モックの戻り値を差し替えるだけでは実装側の退行を検知できないので、
+  // 呼び出し引数に syncToken が含まれていないことを直接確認する。
+  // LINK.syncToken は null なので、もし実装が単に link.syncToken を
+  // そのまま渡すようになっても null==null で見逃してしまう。
+  // ここだけ非nullの値を持つ連携情報にして、渡されたら必ず引っかかるようにする
+  deps.loadLink = async () => ({ ...LINK, syncToken: "stale-sync-token" });
+  const originalListEvents = deps.listEvents;
+  deps.listEvents = async (token, calendarId, opts) => {
+    assert.ok(
+      !opts || !("syncToken" in opts) || opts.syncToken == null,
+      "listEvents に syncToken を渡してはいけない（差分取得は廃止した）",
+    );
+    return originalListEvents(token, calendarId, opts);
+  };
   const r = await runSync([box], false, deps);
   assert.equal(r.ok, true);
   assert.equal(calls.insert.length, 0, "insertEventが呼ばれてはいけない");
