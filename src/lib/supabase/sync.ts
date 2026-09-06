@@ -51,6 +51,21 @@ export function getLastSyncError() {
 }
 
 /**
+ * 同期の失敗を画面へ出すための購読口。
+ *
+ * これまで lastSyncError は設定画面を開いたときにしか読まれず、
+ * 「保存が失敗し続けているのに、本人は気づかないまま入力を続ける」
+ * という壊れ方をした（別の端末で見て初めて分かった）。
+ * 状態(SyncState)は ready のままなので、状態の購読だけでは捕まらない。
+ */
+const errorListeners = new Set<(e: typeof lastSyncError) => void>();
+
+export function onSyncError(fn: (e: typeof lastSyncError) => void): () => void {
+  errorListeners.add(fn);
+  return () => errorListeners.delete(fn);
+}
+
+/**
  * 同期の状態。UI（設定画面）が、いま何が起きているかを出すために使う。
  *
  * conflict は「この端末にもクラウドにも中身があり、しかもこの端末は
@@ -100,13 +115,41 @@ function disablePush(): void {
   setSyncHook(null);
 }
 
+/**
+ * エラーを人が読める1行にする。
+ *
+ * Supabase が返すエラーは Error のインスタンスではなく、
+ * { message, details, hint, code } を持つただのオブジェクトである。
+ * そのため `String(err)` は "[object Object]" になり、画面にも
+ * コンソールにも理由が一切残らなかった（実際に「同期に失敗しました
+ * （gc.timeboxes）: [object Object]」とだけ出て、原因の特定に
+ * 手間取った）。原因が読めない失敗は、無いのと同じくらい質が悪い。
+ */
+function describeError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    const parts = [e.message, e.details, e.hint, e.code]
+      .filter((v): v is string | number => v !== null && v !== undefined && v !== "")
+      .map(String);
+    if (parts.length > 0) return parts.join(" / ");
+    try {
+      return JSON.stringify(err);
+    } catch {
+      /* 循環参照などで文字列化できないときは、下の String() に落とす */
+    }
+  }
+  return String(err);
+}
+
 function noteFailure(context: string, err: unknown) {
   lastSyncError = {
     at: new Date().toISOString(),
-    message: `${context}: ${err instanceof Error ? err.message : String(err)}`,
+    message: `${context}: ${describeError(err)}`,
   };
   // 同期は保険。落ちてもコンソールに残すだけで、ユーザー操作は止めない
-  console.warn("[supabase sync]", lastSyncError.message);
+  console.warn("[supabase sync]", lastSyncError.message, err);
+  for (const fn of errorListeners) fn(lastSyncError);
 }
 
 /**
@@ -133,16 +176,23 @@ async function reconcileCollection(
     .map((r: Record<string, unknown>) => r[idColumn] as string)
     .filter((id: string) => !keep.has(id));
 
+  /*
+   * 先に書き、あとで消す。順序を逆にすると、削除だけ成功して
+   * upsert が失敗したときに、消した行が戻らないまま終わる。
+   * この順なら、upsert が失敗しても消えたものは無く、
+   * 逆に delete が失敗しても余分な行が残るだけで、次の同期で片付く。
+   * 失うより、余るほうがましである。
+   */
+  if (rows.length > 0) {
+    const { error } = await supabase.from(table).upsert(rows);
+    if (error) throw error;
+  }
   if (gone.length > 0) {
     const { error } = await supabase
       .from(table)
       .delete()
       .eq("user_id", userId)
       .in(idColumn, gone);
-    if (error) throw error;
-  }
-  if (rows.length > 0) {
-    const { error } = await supabase.from(table).upsert(rows);
     if (error) throw error;
   }
 }
