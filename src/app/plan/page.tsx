@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
+import { CalendarSyncBoot } from "@/components/CalendarSyncBoot";
 import { DayGrid } from "@/components/DayGrid";
 import { NowBar } from "@/components/NowBar";
 import { Snackbar } from "@/components/Snackbar";
@@ -213,6 +214,7 @@ export default function PlanPage() {
   return (
     <>
       <AppHeader title="時間割" />
+      <CalendarSyncBoot onApplied={() => reload(date)} />
       <main className="phone flex min-h-0 flex-1 flex-col px-4 pb-3 pt-3">
         {/* 日付の移動。どれも指で押せる大きさにしてある */}
         <div className="flex items-center gap-2">

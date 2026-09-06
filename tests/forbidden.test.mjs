@@ -152,6 +152,42 @@ for (const file of walk(SRC)) {
   }
 }
 
+/*
+ * カレンダー同期は、Supabase同期の向きが決着してからでないと走らせない。
+ *
+ * まっさらな端末で走ると「全部アプリで消された」と誤判定して
+ * カレンダー側を空にする。クラウド同期で実際に踏んだ形なので、
+ * ガードが外れていないことを機械的に見張る。
+ */
+{
+  const file = join(SRC, "components", "CalendarSyncBoot.tsx");
+  const text = readFileSync(file, "utf8");
+  if (!/getSyncState\(\)\.kind\s*!==\s*"ready"/.test(text)) {
+    failed++;
+    console.error(
+      `✗ ${relative(ROOT, file)}\n` +
+        `  同期開始前の getSyncState() === "ready" の確認が無い\n` +
+        `  → 空の端末で走ると、カレンダー側の予定を全部消しにいく\n`,
+    );
+  }
+
+  /*
+   * カレンダーは title/start/end しか持たない。
+   * サーバーから返った値で meta / review / cardId / color を書き換えると、
+   * 本人が書いたメタ認知と振り返りが同期のたびに消える。
+   */
+  for (const field of ["meta", "review", "cardId", "color"]) {
+    if (new RegExp(`\\bu\\.${field}\\b`).test(text)) {
+      failed++;
+      console.error(
+        `✗ ${relative(ROOT, file)}\n` +
+          `  同期結果から ${field} を読んでいる\n` +
+          `  → カレンダーはこの項目を持たない。書き戻すと本人の記入が消える\n`,
+      );
+    }
+  }
+}
+
 const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const deps = { ...pkg.dependencies, ...pkg.devDependencies };
 for (const rule of FORBIDDEN_DEPS) {
