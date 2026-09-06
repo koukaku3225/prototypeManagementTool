@@ -125,9 +125,9 @@ export const CalendarSyncRequestSchema = z.object({
     .array(
       z.object({
         id: z.string().min(1).max(200),
-        date: z.string().max(10),
-        start: z.string().max(5),
-        end: z.string().max(5),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        start: z.string().regex(/^\d{2}:\d{2}$/),
+        end: z.string().regex(/^\d{2}:\d{2}$/),
         title: z.string().max(300),
         googleEventId: z.string().max(1024).nullable().optional(),
         updatedAt: z.string().max(40).optional(),

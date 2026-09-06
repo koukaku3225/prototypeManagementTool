@@ -6,18 +6,20 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const denied = await requireAuthIfEnabled();
-  if (denied) return denied;
-
-  const parsed = await parseBody(req, CalendarSyncRequestSchema);
-  if (!parsed.ok) {
-    return Response.json(
-      { ok: false, message: "不正な入力です。" },
-      { status: parsed.status },
-    );
-  }
-
   try {
+    // cookies() 由来の例外は try の外だと素通りして500になる。
+    // このルートは失敗時も ok:false で返す方針なので、認証チェックも中に入れる
+    const denied = await requireAuthIfEnabled();
+    if (denied) return denied;
+
+    const parsed = await parseBody(req, CalendarSyncRequestSchema);
+    if (!parsed.ok) {
+      return Response.json(
+        { ok: false, message: "不正な入力です。" },
+        { status: parsed.status },
+      );
+    }
+
     const r = await runSync(parsed.data.boxes, parsed.data.confirmDeletes ?? false);
     return Response.json(r.ok ? { ok: true, ...r.result } : r);
   } catch (err) {
