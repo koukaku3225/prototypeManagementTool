@@ -16,7 +16,16 @@ export interface CalendarLink {
   lastError: string | null;
 }
 
-/** ログイン中のユーザーの連携情報。未連携なら null */
+/**
+ * ログイン中のユーザーの連携情報。
+ *
+ * - 未ログイン → null
+ * - クエリ失敗 → throw（ネットワーク障害等を呼び出し側に知らせる）
+ * - 未連携（行が無い） → null
+ *
+ * error と「行が無い」を分けるのは、両方 null にすると通信障害のときに
+ * 「連携してください」と誤案内してしまうため。
+ */
 export async function loadLink(): Promise<CalendarLink | null> {
   const supabase = await supabaseServer();
   const {
@@ -29,7 +38,10 @@ export async function loadLink(): Promise<CalendarLink | null> {
     .select("*")
     .eq("user_id", user.id)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error) {
+    throw new Error(`[calendar/link] 連携情報の取得に失敗しました: ${error.message}`);
+  }
+  if (!data) return null;
 
   return {
     userId: data.user_id as string,
@@ -56,6 +68,7 @@ export async function saveLink(v: {
     user_id: user.id,
     refresh_token: v.refreshToken,
     calendar_id: v.calendarId,
+    // 作り直しなので前回の差分取得の位置とエラーは引き継がない
     sync_token: null,
     connected_at: new Date().toISOString(),
     last_error: null,
@@ -81,19 +94,31 @@ export async function updateLink(v: {
   if (v.lastError !== undefined) patch.last_error = v.lastError;
   if (Object.keys(patch).length === 0) return;
 
-  await supabase.from("google_calendar_links").update(patch).eq("user_id", user.id);
+  const { error } = await supabase.from("google_calendar_links").update(patch).eq("user_id", user.id);
+  if (error) {
+    console.error("[calendar/link] 連携情報の更新に失敗しました:", error.message);
+  }
 }
 
 /**
  * 連携を解除する。
  * カレンダー側の予定は消さない —— 消すと取り返しがつかないので、
  * 残して本人に判断してもらう。
+ *
+ * 連携解除はGoogleへのアクセス権を破棄する操作なので、失敗を黙って
+ * 成功に見せてはいけない。成否を返して、呼び出し元に判断させる。
  */
-export async function deleteLink(): Promise<void> {
+export async function deleteLink(): Promise<boolean> {
   const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return;
-  await supabase.from("google_calendar_links").delete().eq("user_id", user.id);
+  if (!user) return false;
+
+  const { error } = await supabase.from("google_calendar_links").delete().eq("user_id", user.id);
+  if (error) {
+    console.error("[calendar/link] 連携解除に失敗しました:", error.message);
+    return false;
+  }
+  return true;
 }
