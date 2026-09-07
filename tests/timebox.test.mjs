@@ -6,6 +6,8 @@
  */
 import assert from "node:assert/strict";
 import {
+  applyEndInput,
+  applyStartInput,
   colorForCard,
   colorOf,
   currentBox,
@@ -25,6 +27,7 @@ import {
   snap,
   toMinutes,
   toTime,
+  toTimeInputValue,
   totalMinutes,
   lastAdviceFor,
 } from "../src/lib/timebox.ts";
@@ -265,6 +268,96 @@ t("正しい範囲はそのまま", () => {
 
 t("壊れた終了時刻は既定の長さで補う", () => {
   assert.deepEqual(normalizeRange("20:00", "夜"), { start: "20:00", end: "20:30" });
+});
+
+// ------------------------------------------------------------ 時刻欄の入力
+/*
+ * <input type="time"> は仕様上 00:00〜23:59 しか値として持てない。
+ * "24:00" を渡すとブラウザが無効値として空文字に落とすので、欄が空になり、
+ * タップしても 0:00 から始まる。実機（Android Chrome）でこれを踏んだ。
+ */
+
+t("24:00 に終わる枠は、時刻欄では 23:59 として出す", () => {
+  assert.equal(toTimeInputValue("24:00"), "23:59");
+});
+
+t("普通の時刻はそのまま出す", () => {
+  assert.equal(toTimeInputValue("22:45"), "22:45");
+  assert.equal(toTimeInputValue("00:00"), "00:00");
+});
+
+t("読めない値は空欄にする（勝手に 00:00 と読み替えない）", () => {
+  assert.equal(toTimeInputValue(""), "");
+  assert.equal(toTimeInputValue("夜"), "");
+});
+
+t("開始を直すと、長さを保ったまま枠ごと動く", () => {
+  assert.deepEqual(applyStartInput(box("a", "22:30", "22:45"), "09:00"), {
+    start: "09:00",
+    end: "09:15",
+  });
+  assert.deepEqual(applyStartInput(box("a", "09:00", "17:00"), "10:00"), {
+    start: "10:00",
+    end: "18:00",
+  });
+});
+
+t("開始を遅くしても、終了が15分に潰れない", () => {
+  // 以前は normalizeRange が終了を「開始+15分」に押し戻していた
+  assert.deepEqual(applyStartInput(box("a", "22:30", "22:45"), "23:00"), {
+    start: "23:00",
+    end: "23:15",
+  });
+  assert.deepEqual(applyStartInput(box("a", "09:00", "11:00"), "23:00"), {
+    start: "22:00",
+    end: "24:00",
+  });
+});
+
+t("終了を直すと、長さだけが変わる", () => {
+  assert.deepEqual(applyEndInput(box("a", "22:30", "22:45"), "23:30"), {
+    start: "22:30",
+    end: "23:30",
+  });
+});
+
+t("終了が開始以前なら、枠は動かさず断る", () => {
+  // 無言で元に戻すと「押しても何も起きない」に見える。
+  // 動かさないことと、動かせなかったと伝えることの両方が要る
+  assert.deepEqual(applyEndInput(box("a", "22:30", "22:45"), "22:00"), {
+    start: "22:30",
+    end: "22:45",
+    rejected: "終わりは開始より後にしてください",
+  });
+  assert.deepEqual(applyEndInput(box("a", "22:30", "22:45"), "22:30"), {
+    start: "22:30",
+    end: "22:45",
+    rejected: "終わりは開始より後にしてください",
+  });
+});
+
+t("空欄になっても 00:00 へ飛ばさない（何も変えない）", () => {
+  // Androidの時刻ダイアログには「削除」がある。押すと value が空文字になり、
+  // 以前は開始が 00:00 に化けていた
+  assert.deepEqual(applyStartInput(box("a", "22:30", "22:45"), ""), {
+    start: "22:30",
+    end: "22:45",
+  });
+  assert.deepEqual(applyEndInput(box("a", "22:30", "22:45"), ""), {
+    start: "22:30",
+    end: "22:45",
+  });
+});
+
+t("日の外へははみ出さない", () => {
+  assert.deepEqual(applyStartInput(box("a", "09:00", "11:00"), "23:30"), {
+    start: "22:00",
+    end: "24:00",
+  });
+  assert.deepEqual(applyEndInput(box("a", "23:00", "23:30"), "23:59"), {
+    start: "23:00",
+    end: "23:59",
+  });
 });
 
 // ---------------------------------------------------------------- 合計

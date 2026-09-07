@@ -4,11 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   BOX_COLORS,
   COLOR_LABEL,
+  applyEndInput,
+  applyStartInput,
   colorOf,
   durationMin,
   humanDuration,
   lastAdviceFor,
-  normalizeRange,
+  toTimeInputValue,
 } from "@/lib/timebox";
 import { isGhost } from "@/lib/habit-plan";
 import { goalCardLabel } from "@/lib/goal-card";
@@ -48,6 +50,12 @@ export function TimeBoxSheet({
   const [draft, setDraft] = useState<TimeBox>(box);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  /*
+   * 時刻の入力を受け付けなかったときの理由。
+   * 黙って元の値に戻すと「押しても何も起きない」としか見えず、
+   * 本人には壊れているのか操作を間違えたのかが判断できない。
+   */
+  const [timeNote, setTimeNote] = useState<string | null>(null);
 
   /*
    * 見ている枠が「別のものに変わった」ときだけ状態を戻す。
@@ -61,6 +69,7 @@ export function TimeBoxSheet({
     setDraft(box);
     setConfirmDelete(false);
     setReviewing(false);
+    setTimeNote(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [box.id]);
 
@@ -89,8 +98,18 @@ export function TimeBoxSheet({
   const patchMeta = (over: Partial<TimeBox["meta"]>) =>
     patch({ meta: { ...draft.meta, ...over } });
 
-  function setRange(start: string, end: string) {
-    patch(normalizeRange(start, end));
+  /**
+   * 時刻欄からの入力を反映する。
+   *
+   * 判断は timebox.ts の純粋関数に寄せてある（総当たりできるように）。
+   * ここは「変わったときだけ保存する」ことと「断った理由を出す」ことに徹する。
+   * 値が変わっていないのに onSave を呼ぶと、更新時刻だけが動いて
+   * カレンダー同期が無駄に走る。
+   */
+  function applyTime(next: { start: string; end: string; rejected?: string }) {
+    setTimeNote(next.rejected ?? null);
+    if (next.start === draft.start && next.end === draft.end) return;
+    patch({ start: next.start, end: next.end });
   }
 
   function uncomplete() {
@@ -173,13 +192,18 @@ export function TimeBoxSheet({
 
             {/* 中身。長くなってもここだけがスクロールする */}
             <div className="phone min-h-0 flex-1 overflow-y-auto px-4 pb-3">
-              {/* 時間 */}
+              {/*
+                時間。value は必ず toTimeInputValue を通すこと。
+                "24:00" をそのまま渡すと、HTMLの仕様上ブラウザが無効値として
+                空文字に落とし、欄が空になって二度と直せなくなる
+                （Android Chrome で実際に踏んだ）。
+              */}
               <div className="flex items-center gap-2">
                 <input
                   type="time"
                   step={900}
-                  value={draft.start}
-                  onChange={(e) => setRange(e.target.value, draft.end)}
+                  value={toTimeInputValue(draft.start)}
+                  onChange={(e) => applyTime(applyStartInput(draft, e.target.value))}
                   className="min-h-11 rounded-lg border border-line bg-surface px-2.5 font-mono text-[15px]"
                   aria-label="開始時刻"
                 />
@@ -189,8 +213,8 @@ export function TimeBoxSheet({
                 <input
                   type="time"
                   step={900}
-                  value={draft.end}
-                  onChange={(e) => setRange(draft.start, e.target.value)}
+                  value={toTimeInputValue(draft.end)}
+                  onChange={(e) => applyTime(applyEndInput(draft, e.target.value))}
                   className="min-h-11 rounded-lg border border-line bg-surface px-2.5 font-mono text-[15px]"
                   aria-label="終了時刻"
                 />
@@ -198,6 +222,11 @@ export function TimeBoxSheet({
                   {humanDuration(mins)}
                 </span>
               </div>
+              {timeNote && (
+                <p role="status" className="mt-1.5 text-[12px] text-[var(--c-rose-fg)]">
+                  {timeNote}
+                </p>
+              )}
 
               {/* 何をやるか */}
               <input

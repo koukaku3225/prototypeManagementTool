@@ -204,6 +204,91 @@ export function normalizeRange(
   return { start: toTime(s), end: toTime(e) };
 }
 
+// ------------------------------------------------------------ 時刻欄の入力
+/*
+ * 画面の時刻欄（<input type="time">）専用の変換。
+ *
+ * この欄は normalizeRange を直に通していたが、それが3つの壊れ方を生んでいた。
+ * normalizeRange は「保存されている値を直す」ための関数で、
+ * 「人がいま打っている途中の値」に当てるものではなかった。
+ *
+ *   1. "24:00" を value に渡していた。HTMLの仕様では時は00〜23までで、
+ *      それ以外はブラウザが無効値として**空文字に落とす**。欄が空になり、
+ *      タップしても 0:00 から始まる。実機（Android Chrome）で踏んだ。
+ *   2. 空文字を `?? 0` で拾っていたので、欄を空にすると開始が 00:00 へ飛んだ。
+ *      Androidの時刻ダイアログには「削除」があるので、簡単に踏める。
+ *   3. 終了を開始以前にすると「開始+15分」に押し戻していた。画面上は何も
+ *      変わらないので、本人には「編集できない」としか見えない。
+ *
+ * ここでは「読めない入力は何も変えない」「入力した時刻は必ず尊重する」
+ * 「断るときは断ったと伝える」の3つを守る。
+ */
+
+/**
+ * 枠の時刻を `<input type="time">` の value にする。
+ *
+ * "24:00" は仕様上そのまま渡せないので 23:59 に寄せる。
+ * 1分ずれるが、欄が空になって直せなくなるよりはるかにましである。
+ * 読めない値は空文字。ここで 00:00 と読み替えてはいけない
+ * （読み替えると、壊れた値が「正しい00:00」として保存されてしまう）。
+ */
+export function toTimeInputValue(time: string): string {
+  const m = toMinutes(time);
+  if (m === null) return "";
+  return toTime(Math.min(m, DAY_MINUTES - 1));
+}
+
+/** 枠の長さ。壊れていても最低15分は保つ */
+function lengthOf(box: Pick<TimeBox, "start" | "end">): number {
+  const s = toMinutes(box.start) ?? 0;
+  const e = toMinutes(box.end) ?? s + DEFAULT_DURATION;
+  return Math.max(MIN_DURATION, e - s);
+}
+
+/**
+ * 時刻欄で「開始」を直したとき。長さを保ったまま枠ごと動かす。
+ *
+ * Googleカレンダーと同じ動きにしてある。開始だけを動かして終了を
+ * 置き去りにすると、9時〜17時の枠の開始を10時にしただけで
+ * 長さが15分に潰れる（以前はそうなっていた）。
+ *
+ * 読めない値（空欄・入力の途中）のときは何も変えない。
+ */
+export function applyStartInput(
+  box: Pick<TimeBox, "start" | "end">,
+  next: string,
+): { start: string; end: string } {
+  const v = toMinutes(next);
+  if (v === null) return { start: box.start, end: box.end };
+  const len = lengthOf(box);
+  const s = Math.max(0, Math.min(DAY_MINUTES - len, v));
+  return { start: toTime(s), end: toTime(s + len) };
+}
+
+/**
+ * 時刻欄で「終了」を直したとき。開始はそのままに、長さだけを変える。
+ *
+ * 開始以前を指されたら枠は動かさず、断った理由を返す。
+ * 黙って元の値に戻すのがいちばん質の悪い壊れ方で、
+ * 本人には「押しても何も起きない」としか見えなかった。
+ */
+export function applyEndInput(
+  box: Pick<TimeBox, "start" | "end">,
+  next: string,
+): { start: string; end: string; rejected?: string } {
+  const v = toMinutes(next);
+  if (v === null) return { start: box.start, end: box.end };
+  const s = toMinutes(box.start) ?? 0;
+  if (v <= s) {
+    return {
+      start: box.start,
+      end: box.end,
+      rejected: "終わりは開始より後にしてください",
+    };
+  }
+  return { start: toTime(s), end: toTime(Math.min(DAY_MINUTES, v)) };
+}
+
 /** その日の合計時間（分）。完了ぶんだけ数えることもできる */
 export function totalMinutes(boxes: TimeBox[], onlyDone = false): number {
   return boxes
