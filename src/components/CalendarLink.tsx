@@ -23,6 +23,31 @@ export function CalendarLink() {
   const [state, setState] = useState<CalendarStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [disconnectFailed, setDisconnectFailed] = useState(false);
+  /**
+   * 連携を始められなかった理由。
+   *
+   * サーバー側は鍵が未設定のとき `/settings?calendar=misconfigured` へ
+   * 返すが、この画面がそれを読んでいなかった。結果、連携ボタンを押しても
+   * 設定画面に戻るだけで**何も起きないように見えた**
+   * （ログインで同じ壊れ方をして実際に迷わせている）。
+   * 押した結果は必ず画面に出す。
+   */
+  const [startError, setStartError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const reason = new URLSearchParams(location.search).get("calendar");
+    // connected は成功なので何も出さない（下の連携済み表示で分かる）
+    const MESSAGES: Record<string, string> = {
+      misconfigured:
+        "この環境ではGoogleカレンダー連携の鍵（GOOGLE_OAUTH_CLIENT_ID / _SECRET）が設定されていません。Vercelの環境変数に追加して、再デプロイしてください。",
+      state:
+        "連携の往復を確認できませんでした。時間が経ちすぎたか、別のタブで開き直した可能性があります。もう一度お試しください。",
+      denied: "Googleの画面で許可されませんでした。連携するには許可が必要です。",
+      save: "連携情報を保存できませんでした。時間をおいてもう一度お試しください。",
+      error: "連携に失敗しました。もう一度お試しください。",
+    };
+    if (reason && MESSAGES[reason]) setStartError(MESSAGES[reason]);
+  }, []);
 
   useEffect(() => {
     fetch("/api/calendar/status")
@@ -41,6 +66,15 @@ export function CalendarLink() {
   if (!state.connected) {
     return (
       <>
+        {/* 押した結果を必ず出す。黙って戻すと「何も起きない」に見える */}
+        {startError && (
+          <p
+            role="alert"
+            className="mt-1.5 rounded-lg border border-accent-line bg-accent-soft px-3 py-2.5 text-[12px] leading-relaxed text-accent"
+          >
+            {startError}
+          </p>
+        )}
         {state.unknown ? (
           <p className="mt-1.5 text-[12px] leading-relaxed text-accent">
             連携状態を確認できませんでした。時間をおいて開き直してください。
