@@ -33,6 +33,7 @@ import {
 import { addDays, dueLabel, today } from "@/lib/date";
 import { DEVICE_KEY } from "@/lib/storage-keys";
 import { shouldShowOnboarding } from "@/lib/onboarding";
+import type { OverlayEvent } from "@/lib/calendar/overlay";
 import { MAX_SMALL_STORIES } from "@/types/goal";
 import { emptyMeta, emptyReview, type TimeBox } from "@/types/timebox";
 import type { GoalCard } from "@/types/goal";
@@ -70,6 +71,14 @@ export default function PlanPage() {
    * 空状態にしか無く、自分でタブを押さない限り届かない。
    */
   const [showIntro, setShowIntro] = useState(false);
+  /**
+   * Googleカレンダーの本物の予定。時間割に重ねて出すためだけに持つ。
+   *
+   * アプリのデータにはしない（localStorage にも Supabase にも書かない）。
+   * 取り込むと専用カレンダーへ書き戻されて予定が二重になり、
+   * 次の同期で消える。混ぜないことが前提の設計。
+   */
+  const [overlay, setOverlay] = useState<OverlayEvent[]>([]);
   /** 直前の操作。取り消しに使う */
   const [undo, setUndo] = useState<{ message: string; revert: () => void } | null>(
     null,
@@ -105,6 +114,30 @@ export default function PlanPage() {
   useEffect(() => {
     reload(date);
   }, [date, reload]);
+
+  /*
+   * 表示している日の「本物の予定」を取り直す。
+   *
+   * 失敗しても時間割は普通に使えなければならないので、
+   * 何も言わずに空にする（付加機能が主機能を止めない）。
+   * 日付を切り替えている最中の応答が入れ替わらないよう、
+   * 古い応答は捨てる。
+   */
+  useEffect(() => {
+    let alive = true;
+    setOverlay([]);
+    fetch(`/api/calendar/overlay?date=${date}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive && d?.ok) setOverlay(d.events ?? []);
+      })
+      .catch(() => {
+        /* 連携していない・通信できない。重ねないだけ */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [date]);
 
   // 現在時刻。分が変わるたびに動かす（秒まで追う必要はない）
   useEffect(() => {
@@ -374,6 +407,7 @@ export default function PlanPage() {
         <div className="relative mt-2 flex min-h-0 flex-1 flex-col">
           <DayGrid
             boxes={boxes}
+            overlay={overlay}
             nowMinutes={nowMinutes}
             isToday={isToday}
             onPickSlot={(m) => draftAt(slotAt(m))}

@@ -80,10 +80,24 @@ export function CalendarLink() {
             連携状態を確認できませんでした。時間をおいて開き直してください。
           </p>
         ) : (
+          <>
           <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-            連携すると「目標設定コーチ」という専用カレンダーが作られ、時間割の予定と
-            タイトル・時間が双方向に同期されます。ほかのカレンダーには触れません。
+            連携すると、次の2つができるようになります。
           </p>
+          <ul className="mt-1.5 flex flex-col gap-1 text-[12px] leading-relaxed text-muted">
+            <li>
+              ・<strong className="font-medium">書き込み</strong>：「目標設定コーチ」という
+              専用カレンダーが新しく作られ、時間割の予定とタイトル・時間が双方向に同期されます。
+              <strong className="font-medium">書き込みはこのカレンダーだけ</strong>で、
+              ほかのカレンダーは変更できません。
+            </li>
+            <li>
+              ・<strong className="font-medium">読み取り</strong>：ほかのカレンダーの予定を
+              時間割に薄く重ねて表示します。空き時間が一目で分かるようにするためです。
+              <strong className="font-medium">表示するだけ</strong>で、アプリには保存しません。
+            </li>
+          </ul>
+          </>
         )}
         <a
           href="/api/calendar/connect"

@@ -4,14 +4,35 @@
  * 公式SDKを入れず fetch で書くのは、使うのが数エンドポイントだけで、
  * 依存を1つ増やすほどの分量ではないため。
  *
- * スコープは calendar.app.created のみ。これは「このアプリが作成した
- * カレンダー」だけを対象にする権限で、本人のメインカレンダーには
- * 構造上アクセスできない。万一トークンが漏れたときの被害を、
- * アプリが既に持っている情報の範囲に閉じ込めるための選択。
+ * スコープは2つに分けてある。
+ *   - 書き込みは calendar.app.created（このアプリが作ったカレンダーだけ）
+ *   - 読み取りは calendar.readonly（本人の全カレンダー）
+ *
+ * 「本人の予定を読めるが、絶対に書き換えられない」という形にしてある。
+ * 万一トークンが漏れても、本人のカレンダーが壊されることはない。
  */
 
-export const CALENDAR_SCOPE =
+/**
+ * 書き込みは「このアプリが作ったカレンダー」だけに閉じる権限。
+ * 万一トークンが漏れても、本人のメインカレンダーは書き換えられない。
+ */
+export const CALENDAR_WRITE_SCOPE =
   "https://www.googleapis.com/auth/calendar.app.created";
+
+/**
+ * 本人の全カレンダーを**読むだけ**の権限。
+ *
+ * 時間割に本物の予定を重ねて表示するために足した。
+ * これが無いと、アプリは自分が作ったカレンダーしか見えず、
+ * 「アプリを開いても本当の予定が分からない」まま空き時間を判断できない。
+ *
+ * 読み取り専用なので、この権限でアプリが本人の予定を書き換えることはない。
+ * 重ねて出すだけで、アプリ側にも保存しない（下記 overlay の経路）。
+ */
+export const CALENDAR_READ_SCOPE =
+  "https://www.googleapis.com/auth/calendar.readonly";
+
+export const CALENDAR_SCOPE = `${CALENDAR_WRITE_SCOPE} ${CALENDAR_READ_SCOPE}`;
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const API = "https://www.googleapis.com/calendar/v3";
@@ -216,4 +237,48 @@ export async function deleteEvent(
   if (!res.ok && res.status !== 404 && res.status !== 410) {
     throw new Error(`予定を削除できませんでした (${res.status})`);
   }
+}
+
+/** カレンダー一覧の1件。重ねて表示するのに要るぶんだけ */
+export interface GoogleCalendarSummary {
+  id: string;
+  summary: string;
+  /** 本人が非表示にしているカレンダーは重ねない */
+  selected: boolean;
+}
+
+/**
+ * 本人が持っているカレンダーの一覧。読み取り専用。
+ *
+ * 「重ねて表示する」ために、どのカレンダーを読むかを決める材料。
+ * Googleカレンダー側で非表示にしているものはここでも重ねない
+ * （向こうで消しているのにこちらで出るのは、本人の意思に反する）。
+ */
+export async function listCalendars(
+  token: string,
+): Promise<GoogleCalendarSummary[]> {
+  const out: GoogleCalendarSummary[] = [];
+  let pageToken: string | undefined;
+  do {
+    const q = new URLSearchParams({ maxResults: "250", showHidden: "false" });
+    if (pageToken) q.set("pageToken", pageToken);
+    const res = await call(token, `/users/me/calendarList?${q}`);
+    if (!res.ok) throw new Error(`カレンダー一覧を取得できませんでした (${res.status})`);
+    const j = (await res.json()) as {
+      items?: { id?: string; summary?: string; selected?: boolean }[];
+      nextPageToken?: string;
+    };
+    for (const c of j.items ?? []) {
+      if (!c.id) continue;
+      out.push({
+        id: c.id,
+        summary: c.summary ?? "",
+        // selected は「向こうの画面でチェックが入っているか」。
+        // 省略されることがあり、その場合は表示扱いにする
+        selected: c.selected !== false,
+      });
+    }
+    pageToken = j.nextPageToken;
+  } while (pageToken);
+  return out;
 }

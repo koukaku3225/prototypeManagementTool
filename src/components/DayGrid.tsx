@@ -12,6 +12,7 @@ import {
   toMinutes,
   toTime,
 } from "@/lib/timebox";
+import type { OverlayEvent } from "@/lib/calendar/overlay";
 import type { TimeBox } from "@/types/timebox";
 
 /**
@@ -69,6 +70,7 @@ export const TONE: Record<string, { box: string; done: string }> = {
 
 export function DayGrid({
   boxes,
+  overlay = [],
   nowMinutes,
   isToday,
   onPickSlot,
@@ -77,6 +79,11 @@ export function DayGrid({
   onCreateRange,
 }: {
   boxes: TimeBox[];
+  /**
+   * Googleカレンダーの本物の予定。読み取り専用の背景として敷く。
+   * 押せないし、アプリのデータにもならない。
+   */
+  overlay?: OverlayEvent[];
   nowMinutes: number;
   isToday: boolean;
   onPickSlot: (minutes: number) => void;
@@ -275,6 +282,43 @@ export function DayGrid({
               />
             </div>
           ))}
+
+          {/*
+            Googleカレンダーの本物の予定。読み取り専用の背景。
+            アプリの枠より奥に、色を持たせず薄く敷く。押せない
+            （pointer-events-none）ので、上を押せば普通に枠を作れる。
+            これはアプリのデータではないので、ここでしか存在しない。
+          */}
+          {overlay.length > 0 && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-9 right-1.5"
+            >
+              {overlay.map((e, i) => {
+                const from = toMinutes(e.start) ?? 0;
+                const to = toMinutes(e.end) ?? 0;
+                const h = Math.max(0, to - from);
+                if (h <= 0) return null;
+                return (
+                  <div
+                    key={`${e.calendarName}-${e.start}-${e.end}-${i}`}
+                    style={{
+                      position: "absolute",
+                      top: `${(from / DAY_MINUTES) * 100}%`,
+                      height: `${(h / DAY_MINUTES) * 100}%`,
+                      left: 0,
+                      right: 0,
+                    }}
+                    className="overflow-hidden rounded-md border border-dashed border-line bg-surface-2/60 px-1.5 py-0.5"
+                  >
+                    <span className="block truncate text-[9.5px] leading-tight text-muted">
+                      {e.title}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <div className="absolute inset-y-0 left-9 right-1.5">
             {placed.map(({ box, top, height, col, cols }) => {
