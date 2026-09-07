@@ -15,6 +15,7 @@ import {
   saveSession,
   upsertCard,
 } from "@/lib/storage";
+import { stashPendingCard } from "@/lib/goal-card";
 import { MAX_SMALL_STORIES, type BigStory, type CoachId } from "@/types/goal";
 
 /** 目標を足す。対話でも手入力でも同じ形の目標ができる。 */
@@ -41,7 +42,15 @@ export default function NewGoalPage() {
 
   function startManual() {
     const card = emptyCard(coach, big?.id ?? null);
-    upsertCard(card);
+    /*
+     * ここでは保存しない。空のまま保存すると、押しただけで枠（最大3つ）を
+     * 1つ占めてしまう（レビューで指摘）。/goal/[id] に一時的に持ち越し、
+     * 本人が最初の項目を書いたときに初めて保存する。
+     * sessionStorage が使えない環境（プライベートモード等）では
+     * 持ち越せないので、そのときだけ以前どおり即保存にする
+     * （下書きを消してしまうより、空のカードが残るほうがまだ復旧できる）。
+     */
+    if (!stashPendingCard(card)) upsertCard(card);
     router.push(`/goal/${card.id}`);
   }
 

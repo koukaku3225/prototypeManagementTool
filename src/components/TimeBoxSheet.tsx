@@ -13,7 +13,7 @@ import {
   toTimeInputValue,
 } from "@/lib/timebox";
 import { isGhost } from "@/lib/habit-plan";
-import { goalCardLabel } from "@/lib/goal-card";
+import { goalSelectOptions } from "@/lib/goal-card";
 import { loadTimeBoxes } from "@/lib/storage";
 import { emptyReview, type TimeBox } from "@/types/timebox";
 import type { GoalCard } from "@/types/goal";
@@ -40,6 +40,7 @@ export function TimeBoxSheet({
   onClose,
 }: {
   box: TimeBox;
+  /** 目標カードは絞り込まずに全件渡す。並べるものは goalSelectOptions が決める */
   cards: GoalCard[];
   /** まだ保存していない新しい枠。保存を押すまで作らない */
   isNew?: boolean;
@@ -132,6 +133,15 @@ export function TimeBoxSheet({
    * 新しい枠（未保存）でも、目標さえ選べば前回の対策は読めるべきなので
    * isNew では絞らない。
    */
+  /*
+   * 並べる目標。いま紐づいている目標が完了済みでも必ず残す
+   * （goal-card.ts の goalSelectOptions 参照）。
+   */
+  const cardOptions = useMemo(
+    () => goalSelectOptions(cards, draft.cardId),
+    [cards, draft.cardId],
+  );
+
   const lastAdvice = useMemo(
     () => lastAdviceFor({ id: draft.id, cardId: draft.cardId, date: draft.date }, loadTimeBoxes()),
     // draft 全体を依存にすると、タイトルを1文字打つたびに
@@ -250,9 +260,9 @@ export function TimeBoxSheet({
                   aria-label="紐づける目標"
                 >
                   <option value="">（紐づけない）</option>
-                  {cards.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {goalCardLabel(c)}
+                  {cardOptions.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
                     </option>
                   ))}
                 </select>

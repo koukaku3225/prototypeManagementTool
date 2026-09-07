@@ -20,7 +20,7 @@ import {
   timeBoxesOn,
   upsertTimeBox,
 } from "@/lib/storage";
-import { habitBoxesOn, isGhost, materializeHabitBox } from "@/lib/habit-plan";
+import { habitBoxesOn, habitsOfActiveCards, isGhost, materializeHabitBox } from "@/lib/habit-plan";
 import {
   currentBox,
   durationMin,
@@ -33,6 +33,7 @@ import {
 import { addDays, dueLabel, today } from "@/lib/date";
 import { DEVICE_KEY } from "@/lib/storage-keys";
 import { shouldShowOnboarding } from "@/lib/onboarding";
+import { presetCardIdFrom } from "@/lib/goal-card";
 import type { OverlayEvent } from "@/lib/calendar/overlay";
 import { MAX_SMALL_STORIES } from "@/types/goal";
 import { emptyMeta, emptyReview, type TimeBox } from "@/types/timebox";
@@ -52,6 +53,11 @@ export default function PlanPage() {
   const [date, setDate] = useState(today());
   const [boxes, setBoxes] = useState<TimeBox[]>([]);
   const [cards, setCards] = useState<GoalCard[]>([]);
+  /**
+   * 目標画面から `?card=` で渡ってきた目標。
+   * この画面で作る新しい予定に、最初から紐づけておく（選び直させない）。
+   */
+  const [presetCardId, setPresetCardId] = useState<string | null>(null);
   const [editing, setEditing] = useState<TimeBox | null>(null);
   /**
    * 編集中の枠がまだ保存されていないか。
@@ -92,12 +98,21 @@ export default function PlanPage() {
    */
   const reload = useCallback((d: string) => {
     const real = timeBoxesOn(d);
-    setBoxes([...real, ...habitBoxesOn(d, activeHabits(), loadTimeBoxes())]);
+    // cards state に頼らず毎回読み直す。reload は cards のセット前にも呼ばれる
+    const habits = habitsOfActiveCards(activeHabits(), loadCards());
+    setBoxes([...real, ...habitBoxesOn(d, habits, loadTimeBoxes())]);
   }, []);
 
   useEffect(() => {
     const all = loadCards();
-    setCards(all.filter((c) => (c.status ?? "active") !== "done"));
+    // 絞り込まずに全件持つ。完了した目標を選択肢に出すかは TimeBoxSheet 側の判断
+    setCards(all);
+    /*
+     * useSearchParams ではなく location を読む。この画面はクライアント側
+     * だけで完結していて、Suspense 境界を足す理由がここには無い
+     * （CalendarLink も同じやり方で `?calendar=` を読んでいる）。
+     */
+    setPresetCardId(presetCardIdFrom(location.search, all));
     setShowIntro(
       shouldShowOnboarding({
         hasBigStory: loadBigStory() !== null,
@@ -216,7 +231,8 @@ export default function PlanPage() {
       start: range.start,
       end: range.end,
       title: "",
-      cardId: null,
+      // 目標画面から来たなら、その目標を最初から入れておく
+      cardId: presetCardId,
       color: null,
       meta: emptyMeta(),
       completedAt: null,

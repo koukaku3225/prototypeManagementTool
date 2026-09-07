@@ -25,6 +25,7 @@ import {
   overlaps,
   slotAt,
   snap,
+  sortByStart,
   toMinutes,
   toTime,
   toTimeInputValue,
@@ -652,6 +653,54 @@ t("同じ日なら、あとから完了したほうを採る", () => {
 t("前後の空白は落として返す", () => {
   const all = [reviewed("x", "cardA", "2026-09-05", "  タイマー  ")];
   assert.equal(lastAdviceFor(target, all), "タイマー");
+});
+
+// ---------------------------------------------------------- sortByStart
+
+t("開始が早い順に並べ直す", () => {
+  const r = sortByStart([
+    { id: "b", start: "23:00", end: "23:30" },
+    { id: "a", start: "21:00", end: "21:30" },
+  ]);
+  assert.deepEqual(r.map((b) => b.id), ["a", "b"]);
+});
+
+t("習慣の枠をうしろに足しただけの並びを、時刻順に直す", () => {
+  // リスト表示が実際に作っていた並び（実体の枠 → 習慣の枠）
+  const r = sortByStart([
+    { id: "real-23", start: "23:00", end: "23:30" },
+    { id: "habit-21", start: "21:00", end: "21:30" },
+  ]);
+  assert.equal(r[0].id, "habit-21");
+});
+
+t("同じ開始なら、終わりが早いほうを先にする（並びが毎回同じになる）", () => {
+  const r = sortByStart([
+    { id: "long", start: "09:00", end: "11:00" },
+    { id: "short", start: "09:00", end: "09:30" },
+  ]);
+  assert.deepEqual(r.map((b) => b.id), ["short", "long"]);
+});
+
+t("元の配列は変えない", () => {
+  const input = [
+    { id: "b", start: "23:00", end: "23:30" },
+    { id: "a", start: "21:00", end: "21:30" },
+  ];
+  sortByStart(input);
+  assert.equal(input[0].id, "b");
+});
+
+t("時刻が壊れている枠は末尾へ落とす（消さない）", () => {
+  const r = sortByStart([
+    { id: "broken", start: "", end: "" },
+    { id: "ok", start: "10:00", end: "10:30" },
+  ]);
+  assert.deepEqual(r.map((b) => b.id), ["ok", "broken"]);
+});
+
+t("空の配列でも落ちない", () => {
+  assert.deepEqual(sortByStart([]), []);
 });
 
 console.log(`${passed} passed, ${failed} failed`);

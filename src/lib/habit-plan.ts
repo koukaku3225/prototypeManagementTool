@@ -1,4 +1,5 @@
 import type { Habit } from "@/types/behavior";
+import type { GoalCard } from "@/types/goal";
 import { emptyMeta, type TimeBox } from "@/types/timebox";
 import { DAY_MINUTES, DEFAULT_DURATION, toMinutes, toTime } from "@/lib/timebox";
 
@@ -38,6 +39,29 @@ export function placedOn(habit: Habit, date: string): boolean {
     return s.days.includes(dow);
   }
   return false;
+}
+
+/**
+ * 目標を完了にした習慣を除く。
+ *
+ * 「この目標を完了にする（枠が空きます）」を押しても、習慣は自動では
+ * アーカイブされない。そのままだと完了させた翌日も時間割に並び続け、
+ * しかも予定シートの「どの目標のためか」はもう完了した目標を選択肢に
+ * 出さないので、紐づけ直す手立てが無いまま並び続けることになる
+ * （レビューで指摘）。「完了にする＝終わったこと」を、
+ * 時間割・今日のチェックリストの両方に反映する。
+ *
+ * 習慣そのものは消さない。目標側の「繰り返すこと」からは
+ * 引き続き見えるし、「進行中に戻す」を押せばまた並ぶようになる。
+ */
+export function habitsOfActiveCards(
+  habits: Habit[],
+  cards: Pick<GoalCard, "id" | "status">[],
+): Habit[] {
+  const done = new Set(
+    cards.filter((c) => (c.status ?? "active") === "done").map((c) => c.id),
+  );
+  return habits.filter((h) => !done.has(h.cardId));
 }
 
 /**

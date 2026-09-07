@@ -18,6 +18,7 @@ import {
   upsertCard,
 } from "@/lib/storage";
 import { normalizeTime } from "@/lib/date";
+import { clearPendingCard, peekPendingCard } from "@/lib/goal-card";
 import type { BigStory, GoalCard, Obstacle } from "@/types/goal";
 import type { Habit } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
@@ -43,7 +44,12 @@ export default function GoalDetailPage({
   const [boxes, setBoxes] = useState<TimeBox[]>([]);
 
   useEffect(() => {
-    setCard(loadCardById(id));
+    /*
+     * /goal/new の「手入力でつくる」は、押した瞬間には保存していない
+     * （goal-card.ts の stashPendingCard 参照）。まだ localStorage に無い
+     * カードは、渡された下書きが無いか見てから初めて「見つからない」と判定する。
+     */
+    setCard(loadCardById(id) ?? peekPendingCard(id));
     setBig(loadBigStory());
     setHabits(habitsOfCard(id));
     setBoxes(
@@ -64,6 +70,8 @@ export default function GoalDetailPage({
           ? prev.editedFields
           : [...prev.editedFields, path];
         upsertCard(next);
+        // 保存できたので、一時置き場の下書きはもう要らない
+        clearPendingCard(next.id);
         return next;
       });
     },
@@ -95,6 +103,19 @@ export default function GoalDetailPage({
 
   const coach = COACHES[card.coachId];
   const isDone = (card.status ?? "active") === "done";
+
+  /**
+   * まだ保存していない下書きなら、ここで初めて永続化する。
+   *
+   * 「手入力でつくる」は押した時点では保存しない（空の目標が枠を1つ
+   * 占めてしまうため）。本人が最初の項目を書けば update() が保存するが、
+   * 先に習慣を足した場合はそこを通らないので、その手前で呼ぶ。
+   */
+  function persistDraft() {
+    if (!card || loadCardById(card.id)) return;
+    upsertCard(card);
+    clearPendingCard(card.id);
+  }
 
   function addObstacle() {
     update("woop.obstacles", (c) => ({
@@ -442,8 +463,12 @@ export default function GoalDetailPage({
                 ))}
               </ul>
             )}
+            {/*
+              目標を引き継ぐ（`?card=`）。ここから作る予定は、この目標の
+              ためのものに決まっているので、向こうで選び直させない
+            */}
             <Link
-              href="/plan"
+              href={`/plan?card=${encodeURIComponent(card.id)}`}
               className="mt-3 block text-[12px] text-accent underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               時間割で予定を作る →
@@ -458,7 +483,15 @@ export default function GoalDetailPage({
             <HabitEditor
               cardId={card.id}
               habits={habits}
-              onChange={() => setHabits(habitsOfCard(card.id))}
+              onChange={() => {
+                /*
+                 * 習慣は目標のidを持つ。目標がまだ下書き（未保存）のまま
+                 * 習慣だけ保存されると、どこからも辿れない習慣が残る。
+                 * 先に目標を確定させてから習慣を読み直す。
+                 */
+                persistDraft();
+                setHabits(habitsOfCard(card.id));
+              }}
             />
           </Block>
         </div>
@@ -509,8 +542,23 @@ export default function GoalDetailPage({
 
           {confirmDelete ? (
             <div className="rounded-xl border border-line bg-surface px-4 py-3.5">
+              {/*
+                deleteCard() は目標だけでなく、紐づく予定・習慣・習慣の記録も
+                連鎖で消す（storage.ts の deleteCard 参照）。それを言わずに
+                「戻せません」とだけ出すと、消してから初めて巻き添えに気づく
+                ことになる（実際にレビューで指摘された）。件数まで出す。
+              */}
               <p className="text-[13px] leading-relaxed">
-                この目標を消します。戻せません。
+                この目標を消します。
+                {(boxes.length > 0 || habits.length > 0) && (
+                  <>
+                    紐づく予定{boxes.length > 0 && `${boxes.length}件`}
+                    {boxes.length > 0 && habits.length > 0 && "・"}
+                    {habits.length > 0 && `習慣${habits.length}件（記録ごと）`}
+                    も一緒に消えます。
+                  </>
+                )}
+                戻せません。
               </p>
               <div className="mt-2.5 flex gap-2">
                 <button

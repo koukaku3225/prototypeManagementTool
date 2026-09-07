@@ -233,7 +233,23 @@ export default function SettingsPage() {
           <h2 className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
             Googleカレンダー
           </h2>
-          <CalendarLink />
+          {/*
+            連携情報はログインした本人に紐づけて保管する（Supabase）。
+            ログインしていないと、Googleの同意画面まで通したあとに
+            保存先が無くて失敗し、「連携できませんでした」に落ちる。
+            権限だけ渡して何も起きない、という結末を作らないために、
+            ここで先にログインを促す。
+          */}
+          {authLoading ? (
+            <p className="mt-2.5 text-[12.5px] text-muted">確認中…</p>
+          ) : userId ? (
+            <CalendarLink />
+          ) : (
+            <p className="mt-2.5 text-[12px] leading-relaxed text-muted">
+              カレンダー連携には、先に上の「ログインする」が必要です。
+              連携先はログインした本人に紐づけて保管します。
+            </p>
+          )}
         </section>
 
         {/* ── スナップショット ─────────────────── */}
@@ -380,7 +396,7 @@ export default function SettingsPage() {
             href="/metrics"
             className="mt-2.5 block text-[13px] underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
-            内部計測を見る（M1〜M7）
+            内部計測を見る（M1〜M8）
           </Link>
           <Link
             href="/settings/connections"

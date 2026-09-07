@@ -10,6 +10,7 @@ import {
   canPlace,
   habitBoxId,
   habitBoxesOn,
+  habitsOfActiveCards,
   isGhost,
   materializeHabitBox,
   placedOn,
@@ -193,6 +194,47 @@ t("実体化しても、どの習慣から来たかは残す", () => {
   assert.equal(real.habitId, "h1");
   assert.equal(real.title, "卓球");
   assert.equal(isGhost(real), false, "実体化したら自動配置とは見なさない");
+});
+
+// -------------------------------------------------------------- 完了した目標の習慣
+
+t("目標を完了にすると、その習慣は除かれる", () => {
+  const r = habitsOfActiveCards(
+    [habit()],
+    [{ id: "card-1", status: "done" }],
+  );
+  assert.deepEqual(r, []);
+});
+
+t("進行中の目標の習慣は残る", () => {
+  const r = habitsOfActiveCards(
+    [habit()],
+    [{ id: "card-1", status: "active" }],
+  );
+  assert.equal(r.length, 1);
+});
+
+t("status が無い（古いデータ）目標は active 扱い", () => {
+  const r = habitsOfActiveCards([habit()], [{ id: "card-1" }]);
+  assert.equal(r.length, 1);
+});
+
+t("紐づく目標がカード一覧に無くても、除きはしない（孤児は落とさない）", () => {
+  const r = habitsOfActiveCards([habit()], []);
+  assert.equal(r.length, 1);
+});
+
+t("完了した目標とそうでない目標が混ざっていても、対象の習慣だけ除く", () => {
+  const h1 = habit({ id: "h1", cardId: "card-1" });
+  const h2 = habit({ id: "h2", cardId: "card-2" });
+  const r = habitsOfActiveCards(
+    [h1, h2],
+    [
+      { id: "card-1", status: "done" },
+      { id: "card-2", status: "active" },
+    ],
+  );
+  assert.deepEqual(r.map((h) => h.id), ["h2"]);
 });
 
 console.log(`${passed} passed, ${failed} failed`);

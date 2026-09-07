@@ -46,7 +46,8 @@ export function EditableField({
         <button
           type="button"
           onClick={() => setEditing(true)}
-          aria-label={`${label}を編集`}
+          // 「何を」のように label が「を」で終わると助詞が重なる（何をを編集）
+          aria-label={label.endsWith("を") ? `${label}編集` : `${label}を編集`}
           className="flex min-h-8 shrink-0 items-center gap-1 rounded-lg border border-line bg-surface-2 px-2.5 text-[11.5px] text-muted hover:bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           <svg

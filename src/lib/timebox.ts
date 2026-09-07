@@ -147,6 +147,27 @@ export function layout(boxes: TimeBox[]): PlacedBox[] {
   return out;
 }
 
+/**
+ * 開始が早い順に並べ直す。
+ *
+ * リスト表示は「実体のある枠」と「習慣から自動で起こした枠」を
+ * `[...real, ...ghost]` と足しているだけだったので、習慣の枠が必ず
+ * 後ろに来ていた。21:00の習慣が23:00の予定の下に出て、
+ * 上から順に読めない状態になっていた（時間割は時刻で位置が決まるので
+ * この画面にだけ出ていた）。
+ *
+ * 元の配列は変えない。時刻が壊れている枠は末尾へ落とす。
+ * 同時刻は終了が早いほうを先にして、並びが毎回同じになるようにする。
+ */
+export function sortByStart<T extends Pick<TimeBox, "start" | "end">>(
+  boxes: T[],
+): T[] {
+  const key = (t: string) => toMinutes(t) ?? DAY_MINUTES + 1;
+  return [...boxes].sort(
+    (a, b) => key(a.start) - key(b.start) || key(a.end) - key(b.end),
+  );
+}
+
 /** いま進行中の枠。複数あれば最も早く始まったもの */
 export function currentBox(boxes: TimeBox[], nowMinutes: number): TimeBox | null {
   const running = boxes

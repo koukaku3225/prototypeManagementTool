@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { goalCardLabel } from "@/lib/goal-card";
+import { useEffect, useMemo, useState } from "react";
+import { goalSelectOptions } from "@/lib/goal-card";
 import { humanDuration } from "@/lib/timebox";
 import type { GoalCard } from "@/types/goal";
 import type { RunningEntry } from "@/types/timebox";
@@ -24,6 +24,7 @@ export function RunningBar({
   onCancel,
 }: {
   entry: RunningEntry;
+  /** 目標カードは絞り込まずに全件渡す。並べるものは goalSelectOptions が決める */
   cards: GoalCard[];
   onChange: (over: Partial<Omit<RunningEntry, "startedAt">>) => void;
   onStop: () => void;
@@ -31,6 +32,10 @@ export function RunningBar({
 }) {
   const [elapsed, setElapsed] = useState(0);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const cardOptions = useMemo(
+    () => goalSelectOptions(cards, entry.cardId),
+    [cards, entry.cardId],
+  );
 
   useEffect(() => {
     const tick = () => {
@@ -78,7 +83,12 @@ export function RunningBar({
           className="mt-2 min-h-11 w-full rounded-lg border border-line bg-paper px-3 text-[14.5px] outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
         />
 
-        {cards.length > 0 && (
+        {/*
+          並べる目標は goalSelectOptions が決める。いま紐づいている目標が
+          完了済みでも選択肢に残す（残さないと、画面は「紐づけない」なのに
+          データは紐づいたまま、という食い違いが起きる）
+        */}
+        {cardOptions.length > 0 && (
           <select
             value={entry.cardId ?? ""}
             onChange={(e) => onChange({ cardId: e.target.value || null })}
@@ -86,9 +96,9 @@ export function RunningBar({
             className="mt-2 min-h-11 w-full rounded-lg border border-line bg-paper px-3 text-[13.5px]"
           >
             <option value="">（目標に紐づけない）</option>
-            {cards.map((c) => (
-              <option key={c.id} value={c.id}>
-                {goalCardLabel(c)}
+            {cardOptions.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
               </option>
             ))}
           </select>

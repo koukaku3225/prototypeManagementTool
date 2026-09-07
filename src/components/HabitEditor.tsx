@@ -26,10 +26,18 @@ export function HabitEditor({
   onChange: () => void;
 }) {
   const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
+  /*
+   * 「＋ 繰り返すことを足す」を押した瞬間に空の習慣を保存していたため、
+   * 触っただけで中身の無い習慣が1件残った（レビューで指摘）。
+   * TimeBoxSheet が「この時間に入れる」を押すまで枠を作らないのと同じ考え方で、
+   * 押した直後は画面上だけの下書きにし、最初の入力があったときに初めて保存する。
+   */
+  const [draft, setDraft] = useState<Habit | null>(null);
 
   function add() {
+    if (draft) return; // 何も書いていない下書きが既にあるなら、それで足りる
     const now = new Date().toISOString();
-    upsertHabit({
+    setDraft({
       id: crypto.randomUUID(),
       cardId,
       title: "",
@@ -42,24 +50,27 @@ export function HabitEditor({
       createdAt: now,
       archivedAt: null,
     });
-    onChange();
   }
 
   function patch(h: Habit, over: Partial<Habit>) {
-    upsertHabit({ ...h, ...over });
+    const next = { ...h, ...over };
+    upsertHabit(next);
+    if (draft?.id === h.id) setDraft(null);
     onChange();
   }
 
+  const rows = draft ? [...habits, draft] : habits;
+
   return (
     <div className="flex flex-col gap-3">
-      {habits.length === 0 && (
+      {rows.length === 0 && (
         <p className="text-[12.5px] leading-relaxed text-muted">
           繰り返す行動を決めておくと、［今日］にチェック欄が出ます。
           一歩（1回きり）と違って、こちらは続き具合が記録されます。
         </p>
       )}
 
-      {habits.map((h) => (
+      {rows.map((h) => (
         <div key={h.id} className="rounded-lg border border-line bg-paper px-3 py-3">
           <EditableField
             label="繰り返すこと"
@@ -212,6 +223,8 @@ export function HabitEditor({
             />
           </div>
 
+          {/* まだ保存していない下書きには「やめる」を出さない。やめる対象が無い */}
+          {draft?.id !== h.id && (
           <div className="mt-2.5">
             {confirmArchive === h.id ? (
               <div className="rounded-md border border-line bg-surface px-2.5 py-2">
@@ -249,6 +262,7 @@ export function HabitEditor({
               </button>
             )}
           </div>
+          )}
         </div>
       ))}
 

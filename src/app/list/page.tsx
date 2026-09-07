@@ -23,7 +23,13 @@ import {
   updateRunning,
   upsertTimeBox,
 } from "@/lib/storage";
-import { canPlace, habitBoxesOn, isGhost, materializeHabitBox } from "@/lib/habit-plan";
+import {
+  canPlace,
+  habitBoxesOn,
+  habitsOfActiveCards,
+  isGhost,
+  materializeHabitBox,
+} from "@/lib/habit-plan";
 import { computeStats } from "@/lib/habit";
 import {
   colorOf,
@@ -32,6 +38,7 @@ import {
   humanDuration,
   nextBox,
   slotFromNow,
+  sortByStart,
   toMinutes,
   totalMinutes,
 } from "@/lib/timebox";
@@ -69,10 +76,22 @@ export default function TodayPage() {
   const [ready, setReady] = useState(false);
 
   const reload = useCallback(() => {
-    setCards(loadCards());
-    // 習慣から自動で並ぶ枠も、実体のある枠と同じ扱いで混ぜる
-    const hs = activeHabits();
-    setBoxes([...timeBoxesOn(today()), ...habitBoxesOn(today(), hs, loadTimeBoxes())]);
+    const allCards = loadCards();
+    setCards(allCards);
+    /*
+     * 習慣から自動で並ぶ枠も、実体のある枠と同じ扱いで混ぜる。
+     * ただし目標を完了にした習慣は除く（habit-plan.ts の habitsOfActiveCards
+     * 参照）。今日のチェックリスト（todayHabits）もこの hs から作るので、
+     * 時間割と同じ基準で「終わった目標の習慣は出さない」が揃う。
+     */
+    const hs = habitsOfActiveCards(activeHabits(), allCards);
+    // 足しただけだと習慣の枠が必ず後ろに来る。時刻順に並べ直す
+    setBoxes(
+      sortByStart([
+        ...timeBoxesOn(today()),
+        ...habitBoxesOn(today(), hs, loadTimeBoxes()),
+      ]),
+    );
     setHabits(hs);
     setLogs(loadHabitLogs());
     setRunning(loadRunning());
@@ -426,7 +445,7 @@ export default function TodayPage() {
       {running ? (
         <RunningBar
           entry={running}
-          cards={active}
+          cards={cards}
           onChange={(over) => {
             updateRunning(over);
             setRunning(loadRunning());
@@ -450,7 +469,7 @@ export default function TodayPage() {
       {editing && (
         <TimeBoxSheet
           box={editing}
-          cards={active}
+          cards={cards}
           isNew={isNew}
           onSave={saveBox}
           onDelete={(id) => {
