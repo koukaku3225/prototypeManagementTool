@@ -433,8 +433,13 @@ export function TimeBoxSheet({
               ) : (
                 /*
                   既にある予定は、触るたびに保存されている（patch が onSave を
-                  呼ぶ）。だから主操作は「決定」ではなく「閉じる」でよい。
-                  完了はホーム画面の一覧と、時間割の「いまの時間」バーから押せる。
+                  呼ぶ）ので、内容の「決定」ボタンは要らない。
+
+                  ただし「完了にする」はここにしか無い操作。以前は
+                  「一覧と『いまの時間』バーから押せる」として外していたが、
+                  バーが出るのは進行中か直前の枠だけで、過ぎた枠・先の枠は
+                  この時間割からは完了にできなくなっていた（リスト表示に
+                  切り替えるしかなかった）。未完了なら主操作として戻す。
 
                   消すのはその直前に置く。取り返しがつかない操作なので、
                   色は赤にして、面は張らない（押しやすさで閉じるに勝たせない）。
@@ -472,13 +477,37 @@ export function TimeBoxSheet({
                         この予定を消す
                       </button>
                     ))}
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="min-h-[52px] w-full rounded-xl bg-indigo px-4 text-[15px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                  >
-                    閉じる
-                  </button>
+                  {done ? (
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="min-h-[52px] w-full rounded-xl bg-indigo px-4 text-[15px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    >
+                      閉じる
+                    </button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        className="min-h-[52px] flex-1 rounded-xl border border-line bg-surface px-4 text-[14px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        閉じる
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          patch({
+                            completedAt: new Date().toISOString(),
+                            review: draft.review ?? emptyReview(),
+                          })
+                        }
+                        className="min-h-[52px] flex-[2] rounded-xl bg-indigo px-4 text-[15px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        完了にする
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
