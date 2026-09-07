@@ -19,7 +19,8 @@ import {
   setSyncHook,
   writeDeviceFlag,
 } from "@/lib/storage";
-import { decideSyncDirection } from "./sync-decision";
+import { decideSyncDirection, isForeignKeyViolation } from "./sync-decision";
+import { isValidUuid } from "@/lib/uuid";
 import { supabaseBrowser } from "./client";
 import {
   bigStoryFromRow,
@@ -48,6 +49,21 @@ let lastSyncError: { at: string; message: string } | null = null;
 
 export function getLastSyncError() {
   return lastSyncError;
+}
+
+/**
+ * 同期の失敗を画面へ出すための購読口。
+ *
+ * これまで lastSyncError は設定画面を開いたときにしか読まれず、
+ * 「保存が失敗し続けているのに、本人は気づかないまま入力を続ける」
+ * という壊れ方をした（別の端末で見て初めて分かった）。
+ * 状態(SyncState)は ready のままなので、状態の購読だけでは捕まらない。
+ */
+const errorListeners = new Set<(e: typeof lastSyncError) => void>();
+
+export function onSyncError(fn: (e: typeof lastSyncError) => void): () => void {
+  errorListeners.add(fn);
+  return () => errorListeners.delete(fn);
 }
 
 /**
@@ -100,13 +116,41 @@ function disablePush(): void {
   setSyncHook(null);
 }
 
+/**
+ * エラーを人が読める1行にする。
+ *
+ * Supabase が返すエラーは Error のインスタンスではなく、
+ * { message, details, hint, code } を持つただのオブジェクトである。
+ * そのため `String(err)` は "[object Object]" になり、画面にも
+ * コンソールにも理由が一切残らなかった（実際に「同期に失敗しました
+ * （gc.timeboxes）: [object Object]」とだけ出て、原因の特定に
+ * 手間取った）。原因が読めない失敗は、無いのと同じくらい質が悪い。
+ */
+function describeError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    const parts = [e.message, e.details, e.hint, e.code]
+      .filter((v): v is string | number => v !== null && v !== undefined && v !== "")
+      .map(String);
+    if (parts.length > 0) return parts.join(" / ");
+    try {
+      return JSON.stringify(err);
+    } catch {
+      /* 循環参照などで文字列化できないときは、下の String() に落とす */
+    }
+  }
+  return String(err);
+}
+
 function noteFailure(context: string, err: unknown) {
   lastSyncError = {
     at: new Date().toISOString(),
-    message: `${context}: ${err instanceof Error ? err.message : String(err)}`,
+    message: `${context}: ${describeError(err)}`,
   };
   // 同期は保険。落ちてもコンソールに残すだけで、ユーザー操作は止めない
-  console.warn("[supabase sync]", lastSyncError.message);
+  console.warn("[supabase sync]", lastSyncError.message, err);
+  for (const fn of errorListeners) fn(lastSyncError);
 }
 
 /**
@@ -122,27 +166,69 @@ async function reconcileCollection(
   rows: Record<string, unknown>[],
 ) {
   const supabase = supabaseBrowser();
+
+  /*
+   * 主キーが uuid 列のテーブルでは、UUIDでない ID の行を先に外す。
+   *
+   * upsert は配列を1回で送るので、1件でも `22P02
+   * (invalid input syntax for type uuid)` になると**その回の書き込みが
+   * まるごと拒否される**。つまり不正な1件が、正常な他の全部を道連れにする。
+   * しかも本人の操作は成功して見えるため、別端末で開くまで気づけない。
+   *
+   * 移行 v3 が localStorage 側を直すので、ここへ来るのは
+   * 移行より先に同期が走った場合などの取りこぼしだけ。
+   * 落としたことは黙らせず、帯に出して本人に伝える。
+   */
+  let sendRows = rows;
+  if (idColumn === "id") {
+    const bad = rows.filter((r) => !isValidUuid(r.id));
+    if (bad.length > 0) {
+      sendRows = rows.filter((r) => isValidUuid(r.id));
+      noteFailure(
+        `${table}: IDの形式が不正な${bad.length}件を送れませんでした`,
+        new Error(
+          `uuid ではない id: ${bad
+            .slice(0, 3)
+            .map((r) => String(r.id))
+            .join(", ")}`,
+        ),
+      );
+    }
+  }
+
   const { data: existing, error: readErr } = await supabase
     .from(table)
     .select(idColumn)
     .eq("user_id", userId);
   if (readErr) throw readErr;
 
+  /*
+   * 消す判断には、送れなかった行の ID も「残す」側へ入れておく。
+   * 除外したぶんを keep から外すと、クラウド側にある対応する行を
+   * 「ローカルで消された」とみなして消してしまう。
+   */
   const keep = new Set(incomingIds);
   const gone = (existing ?? [])
     .map((r: Record<string, unknown>) => r[idColumn] as string)
     .filter((id: string) => !keep.has(id));
 
+  /*
+   * 先に書き、あとで消す。順序を逆にすると、削除だけ成功して
+   * upsert が失敗したときに、消した行が戻らないまま終わる。
+   * この順なら、upsert が失敗しても消えたものは無く、
+   * 逆に delete が失敗しても余分な行が残るだけで、次の同期で片付く。
+   * 失うより、余るほうがましである。
+   */
+  if (sendRows.length > 0) {
+    const { error } = await supabase.from(table).upsert(sendRows);
+    if (error) throw error;
+  }
   if (gone.length > 0) {
     const { error } = await supabase
       .from(table)
       .delete()
       .eq("user_id", userId)
       .in(idColumn, gone);
-    if (error) throw error;
-  }
-  if (rows.length > 0) {
-    const { error } = await supabase.from(table).upsert(rows);
     if (error) throw error;
   }
 }
@@ -287,6 +373,34 @@ export async function pushKey(key: string, value: unknown): Promise<void> {
     }
   } catch (err) {
     noteFailure(`同期に失敗しました（${key}）`, err);
+    await healIfDanglingReference(err);
+  }
+}
+
+/**
+ * 参照先がまだクラウドに無いせいで失敗したなら、依存順に全部送り直す。
+ *
+ * timeboxes は目標カードと習慣を参照する。pushKey は「書き込みのあった
+ * キーだけ」を送るので、ログインより前に作った習慣のように
+ * 「ローカルにはあるが、その後一度も書かれていないもの」はクラウドへ届かない。
+ * その状態で時間割を保存すると外部キー違反になり、**毎回まるごと拒否され続ける**。
+ * 実際にこれで、1日分の予定が別端末に現れないまま溜まった。
+ *
+ * backfillAll() はカード・習慣を時間割より先に送るので、一度通せば解消する。
+ * 自分自身が pushKey を呼ぶため、再入は healing で止める。
+ */
+let healing = false;
+
+async function healIfDanglingReference(err: unknown): Promise<void> {
+  if (healing || !isForeignKeyViolation(err)) return;
+  healing = true;
+  try {
+    console.warn("[supabase sync] 参照先が未同期のため、依存順に送り直します");
+    await backfillAll();
+  } catch (e) {
+    noteFailure("送り直しにも失敗しました", e);
+  } finally {
+    healing = false;
   }
 }
 

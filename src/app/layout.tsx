@@ -3,6 +3,7 @@ import { BottomNav } from "@/components/BottomNav";
 import { LocalBackupBoot } from "@/components/LocalBackupBoot";
 import { StorageAlert } from "@/components/StorageAlert";
 import { SyncBoot } from "@/components/SyncBoot";
+import { SyncStalledBar } from "@/components/SyncStalledBar";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -38,6 +39,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full flex flex-col bg-paper text-ink">
         <SyncBoot />
+        {/* クラウドへの保存が止まったら、どの画面にいても分かるようにする */}
+        <SyncStalledBar />
         {/*
           ログイン状態に関係なく常時効く、ディスクへのバックアップと
           空っぽ起動時の復元案内。StorageAlert より先に置く必要はないが、

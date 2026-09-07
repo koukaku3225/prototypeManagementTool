@@ -12,7 +12,7 @@
  * 実行は `npm test`。
  */
 import assert from "node:assert/strict";
-import { decideSyncDirection } from "../src/lib/supabase/sync-decision.ts";
+import { decideSyncDirection, isForeignKeyViolation } from "../src/lib/supabase/sync-decision.ts";
 
 let passed = 0;
 let failed = 0;
@@ -89,6 +89,30 @@ t("【不変条件】pull を返すのは、ローカルが空のときだけ", 
       assert.notEqual(d, "pull", "中身のあるローカルを上書きしようとしている");
     }
   }
+});
+
+// ---- 外部キー違反の判定。これを取り違えると自己修復が走らない ----
+
+t("Postgres のコード 23503 を外部キー違反と判定する", () => {
+  assert.equal(isForeignKeyViolation({ code: "23503" }), true);
+});
+
+t("コードが無くても文言で拾う", () => {
+  // Supabase の経路によっては code が落ちることがある
+  assert.equal(
+    isForeignKeyViolation({
+      message: 'violates foreign key constraint "timeboxes_habit_id_fkey"',
+    }),
+    true,
+  );
+});
+
+t("関係のないエラーを外部キー違反と誤判定しない", () => {
+  // 誤判定すると、直らない失敗のたびに全件送信を繰り返すことになる
+  assert.equal(isForeignKeyViolation({ code: "22P02", message: "invalid input syntax for type uuid" }), false);
+  assert.equal(isForeignKeyViolation(new Error("network error")), false);
+  assert.equal(isForeignKeyViolation(null), false);
+  assert.equal(isForeignKeyViolation("23503"), false);
 });
 
 console.log(`${passed} passed, ${failed} failed`);
