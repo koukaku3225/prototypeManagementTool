@@ -26,6 +26,7 @@ import {
   toMinutes,
   toTime,
   totalMinutes,
+  lastAdviceFor,
 } from "../src/lib/timebox.ts";
 
 let passed = 0;
@@ -485,6 +486,79 @@ t("長さ0の枠は数えない", () => {
   assert.equal(r.length, 1);
   assert.equal(r[0].cardId, "goal-2");
   assert.equal(r[0].ratio, 1);
+});
+
+// ------------------------------------------- 前回の対策の読み返し（改善3）
+
+/** 振り返り付きの完了済み枠を作る */
+function reviewed(id, cardId, date, next, completedAt) {
+  return {
+    id,
+    date,
+    start: "10:00",
+    end: "11:00",
+    title: id,
+    cardId,
+    meta: { why: "", obstacle: "", counter: "" },
+    completedAt: completedAt ?? `${date}T12:00:00.000Z`,
+    review: { score: null, good: "", bad: "", next },
+    createdAt: `${date}T00:00:00.000Z`,
+  };
+}
+
+const target = { id: "now", cardId: "cardA", date: "2026-09-10" };
+
+t("同じ目標で前回書いた対策を返す", () => {
+  const all = [
+    reviewed("old", "cardA", "2026-09-01", "朝にやる"),
+    reviewed("new", "cardA", "2026-09-05", "タイマーをかける"),
+  ];
+  assert.equal(lastAdviceFor(target, all), "タイマーをかける", "最新の1件を返していない");
+});
+
+t("別の目標の対策は混ぜない", () => {
+  const all = [reviewed("other", "cardB", "2026-09-05", "別の目標の話")];
+  assert.equal(lastAdviceFor(target, all), null);
+});
+
+t("目標に紐づいていない枠には出さない", () => {
+  const all = [reviewed("x", "cardA", "2026-09-05", "何か")];
+  assert.equal(lastAdviceFor({ id: "n", cardId: null, date: "2026-09-10" }, all), null);
+});
+
+t("未完了の枠の振り返りは使わない", () => {
+  const b = reviewed("x", "cardA", "2026-09-05", "未完了の記入");
+  b.completedAt = null;
+  assert.equal(lastAdviceFor(target, [b]), null);
+});
+
+t("対策が空・空白だけなら出さない", () => {
+  // 余計な空欄を出さない
+  assert.equal(lastAdviceFor(target, [reviewed("x", "cardA", "2026-09-05", "")]), null);
+  assert.equal(lastAdviceFor(target, [reviewed("y", "cardA", "2026-09-05", "   ")]), null);
+});
+
+t("自分自身の振り返りは前回にしない", () => {
+  const self = reviewed("now", "cardA", "2026-09-10", "自分の記入");
+  assert.equal(lastAdviceFor(target, [self]), null);
+});
+
+t("未来の予定の振り返りは前回にしない", () => {
+  const future = reviewed("future", "cardA", "2026-09-20", "先の話");
+  assert.equal(lastAdviceFor(target, [future]), null);
+});
+
+t("同じ日なら、あとから完了したほうを採る", () => {
+  const all = [
+    reviewed("a", "cardA", "2026-09-05", "先に完了", "2026-09-05T10:00:00.000Z"),
+    reviewed("b", "cardA", "2026-09-05", "あとで完了", "2026-09-05T20:00:00.000Z"),
+  ];
+  assert.equal(lastAdviceFor(target, all), "あとで完了");
+});
+
+t("前後の空白は落として返す", () => {
+  const all = [reviewed("x", "cardA", "2026-09-05", "  タイマー  ")];
+  assert.equal(lastAdviceFor(target, all), "タイマー");
 });
 
 console.log(`${passed} passed, ${failed} failed`);

@@ -124,7 +124,14 @@ https://prototype-management-tool.vercel.app/api/calendar/callback
 2. `code` をGoogleのトークンエンドポイントへ送り、`refresh_token` を得る
 3. 専用カレンダーを作る（`calendars.insert`、`summary: "目標設定コーチ"`）
 4. `google_calendar_links` に保存
-5. 初回同期を実行し、`/settings?calendar=connected` へリダイレクト
+5. `/settings?calendar=connected` へリダイレクト（**初回同期はここでは実行しない**）
+
+**初回同期はクライアント（時間割画面）から走らせる。** 同期対象の枠は
+localStorage にしかなく、サーバー（callback）からは取得できない。
+もしサーバー側から `boxes` 無し・空配列で `runSync` を呼ぶと、
+「アプリ側にこの枠は無い」＝印付きイベントが全部アプリで消された、と
+誤判定して**カレンダー側の予定を全削除しにいく**。
+`callback` から `runSync` を直接呼んではならない。
 
 ### `POST /api/calendar/sync`
 

@@ -50,7 +50,15 @@ const perDayStructure = redis
     })
   : null;
 
-export type RateLimitKind = "chat" | "structure";
+const perDayMcp = redis
+  ? new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(500, "1 d"),
+      prefix: "rl:day:mcp",
+    })
+  : null;
+
+export type RateLimitKind = "chat" | "structure" | "mcp";
 
 /**
  * 呼び出し元を1つのidに解決する。
@@ -91,7 +99,7 @@ export async function checkRateLimit(
 ): Promise<Response | null> {
   if (!redis || !perMinute) return null;
 
-  const dayLimiter = kind === "chat" ? perDayChat! : perDayStructure!;
+  const dayLimiter = kind === "chat" ? perDayChat! : kind === "structure" ? perDayStructure! : perDayMcp!;
 
   let minute: { success: boolean };
   let day: { success: boolean };

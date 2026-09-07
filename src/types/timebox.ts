@@ -63,6 +63,19 @@ export interface TimeBox {
   completedAt: string | null;
   /** 完了時にだけ入る。未完了なら null */
   review: TimeBoxReview | null;
+  /**
+   * カレンダー側のイベントID。連携していない・まだ送っていない枠は null。
+   * これで「アプリの枠」と「カレンダーの予定」を突き合わせる。
+   */
+  googleEventId?: string | null;
+  /**
+   * 最後に触った時刻（ISO8601）。
+   *
+   * カレンダーと双方向に同期するとき「どちらが新しいか」を決める材料。
+   * createdAt しか無いと、両方で編集されたときに judgement ができない。
+   * upsertTimeBox() が必ず刻むので、呼び出し側は気にしなくてよい。
+   */
+  updatedAt?: string;
   createdAt: string;
 }
 

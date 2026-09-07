@@ -202,6 +202,8 @@ export function timeBoxToRow(b: TimeBox, userId: string) {
     meta: b.meta,
     completed_at: b.completedAt,
     review: b.review,
+    google_event_id: b.googleEventId ?? null,
+    updated_at: b.updatedAt ?? null,
     created_at: b.createdAt,
   };
 }
@@ -219,6 +221,8 @@ export function timeBoxFromRow(r: Record<string, unknown>): TimeBox {
     meta: r.meta as TimeBox["meta"],
     completedAt: (r.completed_at as string | null) ?? null,
     review: (r.review as TimeBox["review"]) ?? null,
+    googleEventId: (r.google_event_id as string | null) ?? null,
+    updatedAt: (r.updated_at as string | null) ?? undefined,
     createdAt: r.created_at as string,
   };
 }

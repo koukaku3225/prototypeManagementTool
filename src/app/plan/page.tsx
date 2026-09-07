@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
+import { CalendarSyncBoot } from "@/components/CalendarSyncBoot";
 import { DayGrid } from "@/components/DayGrid";
 import { NowBar } from "@/components/NowBar";
 import { Snackbar } from "@/components/Snackbar";
@@ -10,6 +11,9 @@ import { TimeBoxSheet } from "@/components/TimeBoxSheet";
 import {
   activeHabits,
   deleteTimeBox,
+  loadBigStory,
+  readDeviceFlag,
+  writeDeviceFlag,
   loadCards,
   loadTimeBoxes,
   setHabitLog,
@@ -27,6 +31,9 @@ import {
   totalMinutes,
 } from "@/lib/timebox";
 import { addDays, dueLabel, today } from "@/lib/date";
+import { DEVICE_KEY } from "@/lib/storage-keys";
+import { shouldShowOnboarding } from "@/lib/onboarding";
+import { MAX_SMALL_STORIES } from "@/types/goal";
 import { emptyMeta, emptyReview, type TimeBox } from "@/types/timebox";
 import type { GoalCard } from "@/types/goal";
 
@@ -39,6 +46,7 @@ import type { GoalCard } from "@/types/goal";
  *
  * 表示はいまのところ1日ぶんだけ。週表示は、1日ぶんが使われるのを見てから。
  */
+
 export default function PlanPage() {
   const [date, setDate] = useState(today());
   const [boxes, setBoxes] = useState<TimeBox[]>([]);
@@ -54,6 +62,14 @@ export default function PlanPage() {
   const [isNew, setIsNew] = useState(false);
   const [nowMinutes, setNow] = useState(0);
   const [ready, setReady] = useState(false);
+  /**
+   * 初回の案内を出すか。
+   *
+   * 既定の表示を時間割にしたことで、何も持っていない人が最初に見るのが
+   * 空のグリッドと＋ボタンだけになった。対話への入口は目標タブの
+   * 空状態にしか無く、自分でタブを押さない限り届かない。
+   */
+  const [showIntro, setShowIntro] = useState(false);
   /** 直前の操作。取り消しに使う */
   const [undo, setUndo] = useState<{ message: string; revert: () => void } | null>(
     null,
@@ -71,7 +87,18 @@ export default function PlanPage() {
   }, []);
 
   useEffect(() => {
-    setCards(loadCards().filter((c) => (c.status ?? "active") !== "done"));
+    const all = loadCards();
+    setCards(all.filter((c) => (c.status ?? "active") !== "done"));
+    setShowIntro(
+      shouldShowOnboarding({
+        hasBigStory: loadBigStory() !== null,
+        cardCount: all.length,
+        // 習慣から起こしただけの枠は数えない。実体だけを見る
+        timeBoxCount: loadTimeBoxes().length,
+        habitCount: activeHabits().length,
+        dismissed: readDeviceFlag(DEVICE_KEY.introDismissed) === "1",
+      }),
+    );
     setReady(true);
   }, []);
 
@@ -213,7 +240,52 @@ export default function PlanPage() {
   return (
     <>
       <AppHeader title="時間割" />
+      <CalendarSyncBoot onApplied={() => reload(date)} />
       <main className="phone flex min-h-0 flex-1 flex-col px-4 pb-3 pt-3">
+        {/*
+          初めて使う人への案内。
+          何も持っていない人が空のグリッドに置き去りになるのを防ぐ。
+          所要時間を先に書くのは、離脱の最大要因が「思ったより長い」だから
+          （mvp-spec §3.2）。「先に時間割だけ使う」で閉じられる＝判断を奪わない。
+        */}
+        {showIntro && (
+          <section className="mb-3 rounded-xl border border-accent-line bg-accent-soft px-4 py-4">
+            <h2 className="font-serif text-[19px] leading-[1.45] font-bold text-balance text-accent">
+              あなたの&ldquo;理想&rdquo;を、明日の一歩に変えます
+            </h2>
+            <p className="mt-2 text-[13px] leading-relaxed text-accent">
+              まず5〜10年の大きな物語を言葉にして、そこから直近の目標を
+              最大{MAX_SMALL_STORIES}つまでぶら下げていきます。
+              <br />
+              対話は約30〜40分。途中で中断できます。
+            </p>
+            <div className="mt-3 flex flex-col gap-2">
+              <Link
+                href="/story/new"
+                className="rounded-xl bg-indigo px-4 py-3 text-center text-[14.5px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                大きな物語をつくる
+              </Link>
+              <Link
+                href="/goal/new"
+                className="rounded-xl border border-line bg-surface px-4 py-2.5 text-center text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                先に直近の目標だけつくる
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  writeDeviceFlag(DEVICE_KEY.introDismissed, "1");
+                  setShowIntro(false);
+                }}
+                className="min-h-9 text-[12.5px] text-accent underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                先に時間割だけ使う
+              </button>
+            </div>
+          </section>
+        )}
+
         {/* 日付の移動。どれも指で押せる大きさにしてある */}
         <div className="flex items-center gap-2">
           <button

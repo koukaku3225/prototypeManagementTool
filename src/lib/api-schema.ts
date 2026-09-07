@@ -23,6 +23,36 @@ export const CoachIdSchema = z.enum(coachIds);
 export const PhaseIdSchema = z.enum(phaseIds);
 export const StoryModeSchema = z.enum(["big", "small"]);
 
+/** MCPの外部クライアントから届く入力。user_idは認証結果から決めるため受け取らない。 */
+const McpDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}, "実在する日付をYYYY-MM-DDで指定してください");
+
+export const McpGoalsInputSchema = z.object({
+  include_big_story: z.boolean().default(false),
+  cursor: z.string().max(2048).optional(),
+}).strict();
+
+export const McpWeeklyInputSchema = z.object({
+  week_start: McpDateSchema,
+  goal_id: z.uuid().optional(),
+  cursor: z.string().max(2048).optional(),
+}).strict();
+
+/** Streamable HTTPのJSON-RPC本文。個々のtools/call引数は上のスキーマで再検証する。 */
+const McpSingleEnvelopeSchema = z.object({
+  jsonrpc: z.literal("2.0"),
+  id: z.union([z.string().max(200), z.number().safe()]).nullable().optional(),
+  method: z.string().min(1).max(100),
+  params: z.unknown().optional(),
+}).strict();
+export const McpEnvelopeSchema = z.union([
+  McpSingleEnvelopeSchema,
+  z.array(McpSingleEnvelopeSchema).min(1).max(20),
+]);
+
 /**
  * 1メッセージの上限。
  * 対話1発言としては十分に長く、悪用には短い。
@@ -118,6 +148,29 @@ export const LocalBackupSchema = z.record(z.string(), z.string());
 
 export type ChatRequestInput = z.infer<typeof ChatRequestSchema>;
 export type StructureRequestInput = z.infer<typeof StructureRequestSchema>;
+
+/** カレンダー同期。ブラウザが持っている枠をそのまま送って突き合わせる */
+export const CalendarSyncRequestSchema = z.object({
+  boxes: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(200),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        start: z.string().regex(/^\d{2}:\d{2}$/),
+        end: z.string().regex(/^\d{2}:\d{2}$/),
+        title: z.string().max(300),
+        googleEventId: z.string().max(1024).nullable().optional(),
+        updatedAt: z.string().max(40).optional(),
+        hasNotes: z.boolean(),
+      }),
+    )
+    // 1件約150バイトとして500件で約75KB。MAX_BODY_BYTES(200,000)に収まる
+    // 上限にする。2000件だと約300KBになり parseBody が必ず413で弾いてしまい、
+    // 到達しえない上限を書くことになるため
+    .max(500),
+  /** 削除の確認を本人が押したか。ブレーキを解除する */
+  confirmDeletes: z.boolean().optional(),
+});
 
 /**
  * ボディを読んでサイズを見てから parse する。

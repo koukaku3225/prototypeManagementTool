@@ -50,6 +50,10 @@ export const DEVICE_LOCAL_KEYS: readonly string[] = [
 export const DEVICE_KEY = {
   /** どのユーザーとして一度クラウドと突き合わせたか */
   syncedUser: "gc.syncedUser",
+  /** 初回の案内を「先に時間割だけ使う」で閉じたか */
+  introDismissed: "gc.introDismissed",
+  /** 前回この端末が同期したGoogleカレンダー。再連携の検知に使う */
+  lastCalendarId: "gc.lastCalendarId",
 } as const;
 
 /**

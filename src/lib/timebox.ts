@@ -402,3 +402,45 @@ export function shareByCard(boxes: TimeBox[]): CardShare[] {
     }))
     .sort((a, b) => b.minutes - a.minutes);
 }
+
+/**
+ * 同じ目標で前回書いた「今後の対策」を探す。
+ *
+ * 振り返りでは「できばえ％」「よかったこと」「悪かったこと」
+ * 「今後の対策（次に同じ時間帯が来たとき、どうするか）」を書ける。
+ * ところが**この3つの文章はどこにも再表示されていなかった**。
+ * 一覧にもシートにも出るのは％のバッジだけで、せっかく言語化した対策を
+ * 次に同じことを始めるときに読み返す場所が無い。
+ * メタ認知（始める前に決めておく）は重視する作りなのに、
+ * 振り返り側だけが片肺だった。
+ *
+ * 始める直前に自分の言葉を読み返せるように、いちばん近い1件だけを返す。
+ * 3件も4件も出すと読まれないので、最新の1件に絞る。
+ */
+export function lastAdviceFor(
+  target: Pick<TimeBox, "id" | "cardId" | "date">,
+  all: TimeBox[],
+): string | null {
+  // 目標に紐づいていない枠は、比べる相手を決められない
+  if (!target.cardId) return null;
+
+  const candidates = all.filter(
+    (b) =>
+      b.id !== target.id &&
+      b.cardId === target.cardId &&
+      Boolean(b.completedAt) &&
+      // 空白だけの記入は「書いていない」と同じ
+      Boolean(b.review?.next?.trim()) &&
+      // 未来の予定の振り返りは「前回」ではない
+      b.date <= target.date,
+  );
+  if (candidates.length === 0) return null;
+
+  // 日付が同じなら、あとから完了したほうを新しいとみなす
+  candidates.sort(
+    (a, b) =>
+      b.date.localeCompare(a.date) ||
+      (b.completedAt ?? "").localeCompare(a.completedAt ?? ""),
+  );
+  return candidates[0].review?.next?.trim() ?? null;
+}

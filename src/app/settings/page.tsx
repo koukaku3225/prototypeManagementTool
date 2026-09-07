@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
+import { CalendarLink } from "@/components/CalendarLink";
 import { download } from "@/lib/export";
 import { today } from "@/lib/date";
 import { useSupabaseUser } from "@/hooks/useSupabaseUser";
@@ -227,6 +228,14 @@ export default function SettingsPage() {
           )}
         </section>
 
+        {/* ── Googleカレンダー ─────────────────── */}
+        <section className="mt-3 rounded-xl border border-line bg-surface px-4 py-4">
+          <h2 className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
+            Googleカレンダー
+          </h2>
+          <CalendarLink />
+        </section>
+
         {/* ── スナップショット ─────────────────── */}
         <section className="rounded-xl border border-line bg-surface px-4 py-4">
           <h2 className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
@@ -372,6 +381,12 @@ export default function SettingsPage() {
             className="mt-2.5 block text-[13px] underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             内部計測を見る（M1〜M7）
+          </Link>
+          <Link
+            href="/settings/connections"
+            className="mt-2.5 block text-[13px] underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            外部AIとの連携を確認・解除
           </Link>
 
           <div className="mt-4">

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { safeNextPath } from "@/lib/safe-next";
 
 /**
  * ログイン。
@@ -13,6 +14,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
  */
 export default function LoginPage() {
   const params = useSearchParams();
+  const nextPath = safeNextPath(params.get("next"));
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -38,7 +40,7 @@ export default function LoginPage() {
     const { error: err } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: {
-        emailRedirectTo: `${location.origin}/auth/callback`,
+        emailRedirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
       },
     });
     setBusy(false);
@@ -64,7 +66,7 @@ export default function LoginPage() {
     const { error: err } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${location.origin}/auth/callback`,
+        redirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
       },
     });
     // 成功時はここで別ドメインへ遷移するので、busyを戻す必要はない。
