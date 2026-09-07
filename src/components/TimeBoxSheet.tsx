@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BOX_COLORS,
   COLOR_LABEL,
   colorOf,
   durationMin,
   humanDuration,
+  lastAdviceFor,
   normalizeRange,
 } from "@/lib/timebox";
 import { isGhost } from "@/lib/habit-plan";
 import { goalCardLabel } from "@/lib/goal-card";
+import { loadTimeBoxes } from "@/lib/storage";
 import { emptyReview, type TimeBox } from "@/types/timebox";
 import type { GoalCard } from "@/types/goal";
 
@@ -105,6 +107,19 @@ export function TimeBoxSheet({
    * （消しても、次に開いたときに習慣からまた起きてくる）。
    */
   const fromHabit = !isNew && isGhost(draft);
+  /*
+   * 前回、同じ目標で書いた「今後の対策」。
+   * 開くたびに全件読むが、この規模（数百件）なら体感に影響しない。
+   * 新しい枠（未保存）でも、目標さえ選べば前回の対策は読めるべきなので
+   * isNew では絞らない。
+   */
+  const lastAdvice = useMemo(
+    () => lastAdviceFor({ id: draft.id, cardId: draft.cardId, date: draft.date }, loadTimeBoxes()),
+    // draft 全体を依存にすると、タイトルを1文字打つたびに
+    // localStorage の全時間割を読み直すことになる。結果に効くのはこの3つだけ
+    [draft.id, draft.cardId, draft.date],
+  );
+
   const hasMeta = Boolean(
     draft.meta.why || draft.meta.obstacle || draft.meta.counter,
   );
@@ -259,6 +274,24 @@ export function TimeBoxSheet({
                 メタ認知。先に書いておいて、時間が来たら読む。
                 空のときは畳んでおく（3つ並ぶと主操作が画面の外へ出る）
               */}
+              {/*
+                前回、同じ目標で自分が書いた「今後の対策」。
+                振り返りで言語化したものが、これまでどこにも再表示されず
+                書き捨てになっていた。始める直前に読み返せて初めて、
+                メタ認知から行動への輪が閉じる。
+                書いていなければ何も出さない（空欄を増やさない）。
+              */}
+              {lastAdvice && (
+                <div className="mt-4 rounded-xl border border-accent-line bg-accent-soft px-3.5 py-3">
+                  <p className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-accent">
+                    前回の自分から
+                  </p>
+                  <p className="mt-1.5 text-[13px] leading-relaxed whitespace-pre-wrap text-accent">
+                    {lastAdvice}
+                  </p>
+                </div>
+              )}
+
               <details
                 open={hasMeta}
                 className="mt-4 rounded-xl border border-line bg-surface px-3.5"

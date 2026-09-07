@@ -148,10 +148,37 @@ function noteFailure(context: string, err: unknown) {
     at: new Date().toISOString(),
     message: `${context}: ${describeError(err)}`,
   };
+  failureSeq++;
   // 同期は保険。落ちてもコンソールに残すだけで、ユーザー操作は止めない
   console.warn("[supabase sync]", lastSyncError.message, err);
   for (const fn of errorListeners) fn(lastSyncError);
 }
+
+/**
+ * 成功したので、直前の失敗を取り下げる。
+ *
+ * これが無かったせいで、`lastSyncError` に null を入れる箇所がコード全体に
+ * 一つも無く、**一度でも失敗すると、その後どれだけ成功しても帯が出続けた**。
+ * 一時的な通信断や、自己修復が成功した直後にも起きる。
+ * 「保存できていないと言い続ける」のは、黙って壊れるのと同じくらい悪い。
+ *
+ * 既に取り下げ済みなら購読者を起こさない（毎回の保存で無駄に再描画しない）。
+ */
+function clearFailure(): void {
+  if (lastSyncError === null) return;
+  lastSyncError = null;
+  for (const fn of errorListeners) fn(null);
+}
+
+/**
+ * noteFailure が呼ばれた回数。
+ *
+ * 「この処理の間に新しい失敗が記録されたか」を見るために使う。
+ * 中で警告を出しつつ全体としては成功する経路があるため
+ * （不正IDの行を除外したときなど）、最後に無条件で取り下げると
+ * その警告まで消してしまう。回数で見分ける。
+ */
+let failureSeq = 0;
 
 /**
  * 配列で持つコレクション（goal_cards / habits / habit_logs / timeboxes）を
@@ -272,7 +299,36 @@ export async function pushKey(key: string, value: unknown): Promise<void> {
   const userId = currentUserId;
   if (!userId) return; // ログインしていなければ何もしない
 
+  const seenBefore = failureSeq;
   try {
+    const wrote = await pushOne(key, value, userId);
+    /*
+     * 実際に書けて、その間に新しい失敗も記録されていないときだけ取り下げる。
+     *
+     * - 同期対象外のキー（schemaVersion 等）で取り下げると、
+     *   本物の失敗を無関係な書き込みで握りつぶす
+     * - 中で警告を出した経路（不正IDの除外）で取り下げると、
+     *   本人に伝えるべき警告が即座に消える
+     */
+    if (wrote && failureSeq === seenBefore) clearFailure();
+  } catch (err) {
+    noteFailure(`同期に失敗しました（${key}）`, err);
+    await healIfDanglingReference(err);
+  }
+}
+
+/**
+ * 1キー分の書き込み本体。書いたら true、同期対象外なら false。
+ *
+ * pushKey から分けてあるのは、switch の中に return が多く、
+ * 「成功したか」を呼び出し側で1箇所にまとめて判断するため。
+ */
+async function pushOne(
+  key: string,
+  value: unknown,
+  userId: string,
+): Promise<boolean> {
+  {
     const supabase = supabaseBrowser();
 
     switch (key) {
@@ -289,18 +345,18 @@ export async function pushKey(key: string, value: unknown): Promise<void> {
             .upsert(bigStoryToRow(value as BigStory, userId));
           if (error) throw error;
         }
-        return;
+        return true;
       }
       case KEY.profile: {
-        if (value === null) return; // プロフィールは明示的に消す操作が無い
+        if (value === null) return false; // プロフィールは明示的に消す操作が無い
         const { error } = await supabase
           .from("user_profiles")
           .upsert(profileToRow(value as UserProfile, userId));
         if (error) throw error;
-        return;
+        return true;
       }
       case KEY.session: {
-        if (value === null) return; // 「進行中を閉じた」だけ。行自体は消さない
+        if (value === null) return false; // 「進行中を閉じた」だけ。行自体は消さない
         const s = value as Session;
         const { error } = await supabase.from("sessions").upsert(sessionToRow(s, userId));
         if (error) throw error;
@@ -311,11 +367,11 @@ export async function pushKey(key: string, value: unknown): Promise<void> {
             .upsert(usageRows, { onConflict: "session_id,at,kind", ignoreDuplicates: true });
           if (uErr) throw uErr;
         }
-        return;
+        return true;
       }
       case KEY.archive: {
         const sessions = value as Session[];
-        if (sessions.length === 0) return;
+        if (sessions.length === 0) return false;
         const { error } = await supabase
           .from("sessions")
           .upsert(sessions.map((s) => sessionToRow(s, userId)));
@@ -328,7 +384,7 @@ export async function pushKey(key: string, value: unknown): Promise<void> {
             .upsert(usageRows, { onConflict: "session_id,at,kind", ignoreDuplicates: true });
           if (uErr) throw uErr;
         }
-        return;
+        return true;
       }
       case KEY.cards: {
         const cards = value as GoalCard[];
@@ -339,7 +395,7 @@ export async function pushKey(key: string, value: unknown): Promise<void> {
           "id",
           cards.map((c) => goalCardToRow(c, userId)),
         );
-        return;
+        return true;
       }
       case KEY.habits: {
         const habits = value as Habit[];
@@ -350,11 +406,11 @@ export async function pushKey(key: string, value: unknown): Promise<void> {
           "id",
           habits.map((h) => habitToRow(h, userId)),
         );
-        return;
+        return true;
       }
       case KEY.habitLogs: {
         await reconcileHabitLogs(userId, value as HabitLog[]);
-        return;
+        return true;
       }
       case KEY.timeboxes: {
         const boxes = value as TimeBox[];
@@ -365,15 +421,12 @@ export async function pushKey(key: string, value: unknown): Promise<void> {
           "id",
           boxes.map((b) => timeBoxToRow(b, userId)),
         );
-        return;
+        return true;
       }
       default:
         // schemaVersion / variant / snapshots はローカルだけの関心事。同期しない
-        return;
+        return false;
     }
-  } catch (err) {
-    noteFailure(`同期に失敗しました（${key}）`, err);
-    await healIfDanglingReference(err);
   }
 }
 
@@ -396,7 +449,16 @@ async function healIfDanglingReference(err: unknown): Promise<void> {
   healing = true;
   try {
     console.warn("[supabase sync] 参照先が未同期のため、依存順に送り直します");
-    await backfillAll();
+    /*
+     * 修復が成功したら、引き金になった失敗を取り下げる。
+     *
+     * 呼び出し元は noteFailure を済ませてからここへ来るので、
+     * 黙って戻ると「直ったのに帯が出たまま」になる。
+     * backfillAll は全部送れたときに自分で取り下げるが、
+     * ここでも明示しておく（読む人が順序を追わなくて済む）。
+     */
+    const r = await backfillAll();
+    if (r.ok) clearFailure();
   } catch (e) {
     noteFailure("送り直しにも失敗しました", e);
   } finally {
@@ -426,16 +488,24 @@ export async function backfillAll(): Promise<{
   for (const key of keys) {
     const raw = snap[key];
     if (raw === undefined) continue;
-    const before = lastSyncError;
+    /*
+     * 「新しい失敗が記録されたか」は回数で見る。
+     * lastSyncError の中身を比べる形だと、pushKey が成功して
+     * 失敗を取り下げた（null にした）ときに、前の値と違うという理由で
+     * 「失敗した」と数えてしまう。
+     */
+    const before = failureSeq;
     try {
       await pushKey(key, JSON.parse(raw));
-      if (lastSyncError === before) pushed.push(key);
+      if (failureSeq === before) pushed.push(key);
       else failed.push(key);
     } catch (err) {
       noteFailure(`バックフィルに失敗しました（${key}）`, err);
       failed.push(key);
     }
   }
+  // 全部送れたなら、それ以前の失敗はもう残っていない
+  if (failed.length === 0) clearFailure();
   return { ok: failed.length === 0, pushed, failed };
 }
 

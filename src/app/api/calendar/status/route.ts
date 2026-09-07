@@ -14,6 +14,15 @@ export async function GET() {
       connected: Boolean(link),
       lastSyncedAt: link?.lastSyncedAt ?? null,
       lastError: link?.lastError ?? null,
+      /*
+       * どのカレンダーに繋いでいるか。
+       * ブラウザ側が「前回と違う＝繋ぎ直した」を判定して、古い予定IDを
+       * 落とすために使う（落とさないと、新しいカレンダーにIDが無いことを
+       * 「削除された」と誤判定して時間割が消える）。
+       * カレンダーIDは本人のメールアドレスであることが多いが、
+       * これは本人にしか返らない（requireAuthIfEnabled + RLS）。
+       */
+      calendarId: link?.calendarId ?? null,
     });
   } catch (err) {
     /*
@@ -26,6 +35,8 @@ export async function GET() {
       connected: false,
       lastSyncedAt: null,
       lastError: "連携状態を確認できませんでした",
+      // 分からないときは null。ブラウザ側はこれを見て「触らない」を選ぶ
+      calendarId: null,
       unknown: true,
     });
   }

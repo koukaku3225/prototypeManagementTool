@@ -9,6 +9,7 @@ import {
   onSyncState,
   type SyncState,
 } from "@/lib/supabase/sync";
+import { shouldShowSyncBar, syncBarKey } from "@/lib/supabase/sync-bar";
 
 /**
  * クラウドへの保存が止まっていることを、どの画面にいても知らせる帯。
@@ -29,7 +30,15 @@ import {
 export function SyncStalledBar() {
   const [state, setState] = useState<SyncState>({ kind: "off" });
   const [error, setError] = useState<{ at: string; message: string } | null>(null);
-  const [dismissed, setDismissed] = useState(false);
+  /**
+   * 「どの状況を閉じたか」を覚える。単なる真偽値にしない。
+   *
+   * 以前は `useState(false)` のまま二度と false へ戻らず、一度閉じると
+   * **本物の失敗が完全に無言になった**（リロードするまで戻らない）。
+   * 黙って壊れるのを防ぐための帯が、黙る仕組みを持っていた。
+   * 閉じた対象が変わったら、また出す。
+   */
+  const [dismissedKey, setDismissedKey] = useState<string | null>(null);
 
   useEffect(() => {
     setState(getSyncState());
@@ -42,18 +51,17 @@ export function SyncStalledBar() {
     };
   }, []);
 
-  /*
-   * 出すのは「本人が動かないと直らない状態」だけに絞る。
-   * checking / pulling / pushing は放っておけば終わるので出さない。
-   * off（未ログイン）も、同期しないことを選んでいるだけなので出さない。
-   *
-   * 状態が ready でも、個々の保存が失敗し続けることがある
-   * （実際に timeboxes だけ弾かれ続けていた）。状態だけを見ていると
-   * これを取りこぼすので、直近の失敗も同じ重さで扱う。
-   */
-  const stalled =
-    state.kind === "conflict" || state.kind === "failed" || error !== null;
-  if (!stalled || dismissed) return null;
+  // 出す条件の判断は sync-bar.ts にある（総当たりでテストしてある）
+  const key = syncBarKey(state.kind, error?.at ?? null);
+  if (
+    !shouldShowSyncBar({
+      stateKind: state.kind,
+      errorAt: error?.at ?? null,
+      dismissedKey,
+    })
+  ) {
+    return null;
+  }
 
   const conflict = state.kind === "conflict";
 
@@ -86,7 +94,7 @@ export function SyncStalledBar() {
           </Link>
           <button
             type="button"
-            onClick={() => setDismissed(true)}
+            onClick={() => setDismissedKey(key)}
             aria-label="この案内を閉じる"
             className="rounded-md border border-accent-line px-2.5 py-1 text-[11.5px] text-accent"
           >

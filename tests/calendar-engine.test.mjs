@@ -19,7 +19,13 @@ process.env.TZ = "UTC";
 
 import assert from "node:assert/strict";
 import { addDays } from "../src/lib/date.ts";
-import { DELETE_BRAKE, fromRfc3339, runSync } from "../src/lib/calendar/engine.ts";
+import {
+  DELETE_BRAKE,
+  foldEndToSameDay,
+  fromRfc3339,
+  runSync,
+  toRfc3339,
+} from "../src/lib/calendar/engine.ts";
 
 let passed = 0;
 let failed = 0;
@@ -272,6 +278,82 @@ await at("#8 googleEventIdを持つ枠が全件取得の結果に見つからな
   assert.equal(r.ok, true);
   assert.deepEqual(r.result.deletes, ["box8"]);
   assert.equal(calls.insert.length, 0, "消された予定を復活させてはいけない（createEventが呼ばれてはいけない）");
+});
+
+t("#R3a 24:00 は翌日の00:00として送る（RFC3339に24時は無い）", () => {
+  // そのまま送ると Google に弾かれるか、翌日0時へ正規化されて
+  // 内容一致が永久に成立せず、枠が長さ0分に潰れていた
+  assert.equal(toRfc3339("2026-09-07", "24:00"), "2026-09-08T00:00:00+09:00");
+  assert.equal(toRfc3339("2026-09-30", "24:00"), "2026-10-01T00:00:00+09:00");
+  assert.equal(toRfc3339("2026-12-31", "24:00"), "2027-01-01T00:00:00+09:00");
+});
+
+t("#R3b 通常の時刻はそのまま送る", () => {
+  assert.equal(toRfc3339("2026-09-07", "10:00"), "2026-09-07T10:00:00+09:00");
+  assert.equal(toRfc3339("2026-09-07", "00:00"), "2026-09-07T00:00:00+09:00");
+});
+
+t("#R3c 読み戻すとき、翌日0時は同じ日の24:00へ畳む", () => {
+  const start = { date: "2026-09-07", time: "23:30" };
+  assert.deepEqual(
+    foldEndToSameDay(start, { date: "2026-09-08", time: "00:00" }),
+    { date: "2026-09-07", time: "24:00" },
+  );
+});
+
+t("#R3d 本当に日をまたぐ予定は畳まない", () => {
+  const start = { date: "2026-09-07", time: "22:00" };
+  // 翌日2時に終わる予定。24:00 ではないので触らない
+  assert.deepEqual(
+    foldEndToSameDay(start, { date: "2026-09-08", time: "02:00" }),
+    { date: "2026-09-08", time: "02:00" },
+  );
+  // 2日後の0時も畳まない
+  assert.deepEqual(
+    foldEndToSameDay(start, { date: "2026-09-09", time: "00:00" }),
+    { date: "2026-09-09", time: "00:00" },
+  );
+});
+
+t("#R3e 同じ日に閉じる予定はそのまま", () => {
+  const start = { date: "2026-09-07", time: "10:00" };
+  assert.deepEqual(
+    foldEndToSameDay(start, { date: "2026-09-07", time: "11:00" }),
+    { date: "2026-09-07", time: "11:00" },
+  );
+});
+
+await at("#R3f 23:30〜24:00 の枠が、同期のたびに書き換わらない", async () => {
+  // 内容が一致していれば patch も upsert も起きないこと。
+  // 以前はここで毎回 updateBox が走り、end に 00:00 が入って長さ0分に潰れた
+  const day = addDays(3);
+  const nextDay = addDays(4);
+  const event = {
+    id: "ev-late",
+    status: "confirmed",
+    summary: "夜の最後の枠",
+    updated: "2026-09-01T00:00:00Z",
+    start: { dateTime: `${day}T23:30:00+09:00` },
+    end: { dateTime: `${nextDay}T00:00:00+09:00` },
+    extendedProperties: { private: { timeboxId: "box-late" } },
+  };
+  const box = {
+    id: "box-late",
+    date: day,
+    start: "23:30",
+    end: "24:00",
+    title: "夜の最後の枠",
+    googleEventId: "ev-late",
+    updatedAt: "2026-09-01T00:00:00Z",
+    hasNotes: false,
+  };
+  const { deps, calls } = makeDeps([event]);
+  const r = await runSync([box], false, deps);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.result.upserts, [], "枠を書き換えている（長さ0分に潰れる経路）");
+  assert.equal(calls.patch.length, 0, "カレンダー側も書き換えている");
+  assert.equal(calls.insert.length, 0);
+  assert.deepEqual(r.result.deletes, []);
 });
 
 console.log(`${passed} passed, ${failed} failed`);

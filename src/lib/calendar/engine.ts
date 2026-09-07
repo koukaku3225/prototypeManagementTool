@@ -54,8 +54,21 @@ export interface SyncResult {
 
 const isGhostId = (id: string) => id.startsWith("habit-");
 
-/** "2026-09-05" + "10:00" → RFC3339（JST固定） */
+/**
+ * "2026-09-05" + "10:00" → RFC3339（JST固定）
+ *
+ * このアプリでは `end: "24:00"` が正規の値である（`toTime(1440)` が作り、
+ * 一日の最後のマス 23:30–24:00 を押せば普通にできる）。
+ * ところが RFC3339 は `time-hour = 2DIGIT ; 00-23` で、**24時を表現できない**。
+ * そのまま送ると Google に弾かれるか、翌日0時へ正規化されて
+ * 「終わりの日付が翌日」になり、内容一致の判定が永久に成立しなくなる。
+ * 同期のたびに枠が書き換わり、最後は 23:30〜00:00 という
+ * 長さ0分の枠に潰れていた。
+ *
+ * こちらで明示的に「翌日の 00:00」へ直しておく。
+ */
 export function toRfc3339(date: string, time: string): string {
+  if (time === "24:00") return `${addDays(1, new Date(`${date}T00:00:00`))}T00:00:00+09:00`;
   return `${date}T${time}:00+09:00`;
 }
 
@@ -93,6 +106,28 @@ export function fromRfc3339(
     date: `${parts.year}-${parts.month}-${parts.day}`,
     time: `${hour}:${parts.minute}`,
   };
+}
+
+/**
+ * 終わりが「翌日の 00:00」なら、開始と同じ日の "24:00" に畳み直す。
+ *
+ * toRfc3339 が 24:00 を翌日0時として送るので、読み戻すと日付が翌日になる。
+ * そのままだと「終わりの日付が開始と違う」ため内容一致の判定が永久に
+ * 成立せず、同期のたびに枠が書き換わって最後は長さ0分に潰れていた。
+ * 送るときと読むときで同じ約束にしておく。
+ *
+ * 本当に日をまたぐ予定（22:00〜翌02:00 など）はここでは畳まない。
+ * このアプリの枠は1日で閉じる決まりなので、扱えないものは扱えないまま返す。
+ */
+export function foldEndToSameDay(
+  start: { date: string; time: string } | null,
+  end: { date: string; time: string } | null,
+): { date: string; time: string } | null {
+  if (!start || !end) return end;
+  if (end.time !== "00:00") return end;
+  const nextOfStart = addDays(1, new Date(`${start.date}T00:00:00`));
+  if (end.date !== nextOfStart) return end;
+  return { date: start.date, time: "24:00" };
 }
 
 const markOf = (e: GoogleEvent): string | null =>
@@ -146,10 +181,16 @@ function ownedEvent(
  * 枠に対応するイベントの状態を判定する。
  *
  * 差分取得（syncToken）をやめて毎回この期間を全件取得するようにしたので、
- * 「一度送った googleEventId が、今回の全件取得結果に一件も無い」こと自体が
- * 「カレンダー側で削除された」証拠として使える。差分取得のままだと
- * 変更の無いイベントがそもそも結果に含まれないため、この判定はできなかった
- * （消えたのか単に変更が無かっただけなのか区別できない）。
+ * 「一度送った googleEventId が、今回の全件取得結果に一件も無い」ことを
+ * 「カレンダー側で削除された」証拠として使える。
+ *
+ * ただしこれが成り立つのは **googleEventId が今つないでいるカレンダーの
+ * ものである限り**。別のカレンダーへ再連携すると、新しいカレンダーには
+ * どのIDも無いので、全部の枠が「削除された」と判定されてしまう。
+ * その切り分けはここではできない（どのカレンダーのIDかを知らない）ので、
+ * 再連携を検知して googleEventId を落とす役目は呼び出し側に持たせている
+ * （`clearEventIdsIfCalendarChanged` / CalendarSyncBoot）。
+ * ここへ来る時点で、IDは現在のカレンダーのものだけになっている前提。
  *
  * b.googleEventId が null（まだ一度もカレンダーに送っていない枠）は、
  * 単に「これから作る」だけなので missing のまま。
@@ -254,7 +295,8 @@ export async function runSync(
     const e = ownedEvent(byId, byMark, b);
     if (e) handledEventIds.add(e.id);
     const evStart = e ? fromRfc3339(e.start) : null;
-    const evEnd = e ? fromRfc3339(e.end) : null;
+    // 送るときに 24:00 を翌日0時へ直しているので、読むときは畳み直す
+    const evEnd = foldEndToSameDay(evStart, e ? fromRfc3339(e.end) : null);
     const contentEqual = Boolean(
       e &&
         (e.summary ?? "") === b.title &&
@@ -291,7 +333,16 @@ export async function runSync(
           endIso: toRfc3339(b.date, b.end),
           timeboxId: b.id,
         });
-      } else if (action === "updateBox" && e && evStart && evEnd) {
+      } else if (
+        action === "updateBox" &&
+        e &&
+        evStart &&
+        evEnd &&
+        // 日をまたぐ予定は、このアプリの枠（1日で閉じる）に収まらない。
+        // 取り込むと開始だけ書き換わって長さが壊れるので、触らずに残す。
+        // 第2ループ（取り込み側）には既に同じガードがある
+        evStart.date === evEnd.date
+      ) {
         // カレンダーが持つのは title/start/end だけ。それ以外は絶対に触らない
         result.upserts.push({
           id: b.id,
@@ -331,7 +382,10 @@ export async function runSync(
         await deps.deleteEvent(token, link.calendarId, e.id);
       } else if (action === "importBox") {
         const s = fromRfc3339(e.start);
-        const en = fromRfc3339(e.end);
+        // 送るときと同じ約束で畳む。畳まないと、Googleで作った
+        // 23:00〜翌0:00 の予定が「日をまたぐ」と見なされ、
+        // 無言で取り込まれないまま消える（送信側だけ直すと非対称になる）
+        const en = foldEndToSameDay(s, fromRfc3339(e.end));
         if (!s || !en) continue; // 終日予定は時間割に載らない
         if (s.date !== en.date) continue; // TimeBoxは日をまたぐ枠を表現できない
         result.imports.push({
