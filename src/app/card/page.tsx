@@ -16,6 +16,7 @@ import {
   upsertCard,
   upsertTimeBox,
 } from "@/lib/storage";
+import { firstStepMeta } from "@/lib/goal-card";
 import { normalizeTime, tomorrow as tomorrowDate } from "@/lib/date";
 import { DEFAULT_DURATION, toMinutes, toTime } from "@/lib/timebox";
 import type { GoalCard, Session } from "@/types/goal";
@@ -200,6 +201,16 @@ export default function CardPage() {
       const start = normalizeTime(t.startTime) ?? "21:00";
       const startMin = toMinutes(start) ?? 1260;
       /*
+       * 障害と If-Then だけでなく、対話で詰めた「どこでやるか」も枠に残す。
+       * 以前は障害があると where が捨てられていた（goal-card.ts の firstStepMeta 参照）。
+       */
+      const meta = firstStepMeta({
+        rationale,
+        vision,
+        obstacle: firstObstacle,
+        where: t.where,
+      });
+      /*
        * `t.estimateMin || 30` は estimateMin===0 を「未設定」と誤認し、
        * 15分下限を無視して30分の枠を作る（habit-plan.ts で見つかったのと
        * 同じ形の不具合）。AIの出力なので undefined/NaN の余地もあるため、
@@ -214,13 +225,7 @@ export default function CardPage() {
         end,
         title: t.title,
         cardId: built.id,
-        meta: {
-          why: rationale || vision,
-          obstacle: firstObstacle?.text ?? "",
-          counter: firstObstacle?.plan.if
-            ? `もし${firstObstacle.plan.if} → ${firstObstacle.plan.then}`
-            : (t.where ? `場所: ${t.where}` : ""),
-        },
+        meta,
         completedAt: null,
         review: null,
         createdAt: now,

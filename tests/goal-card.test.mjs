@@ -36,6 +36,7 @@ const {
   stashPendingCard,
   peekPendingCard,
   clearPendingCard,
+  firstStepMeta,
 } = await import("../src/lib/goal-card.ts");
 
 let passed = 0;
@@ -225,6 +226,75 @@ t("他のパラメータが混ざっていても読める", () => {
 
 t("目標が1件も無ければ null", () => {
   assert.equal(presetCardIdFrom("?card=a", []), null);
+});
+
+// ---------------------------------------------------------- firstStepMeta
+
+const OBSTACLE = {
+  text: "動画を見た流れで別のことを始めてしまう",
+  plan: { if: "動画を見終わったら", then: "すぐタイマーをかける" },
+};
+
+t("障害と場所の両方があれば、どちらも counter に残す", () => {
+  const meta = firstStepMeta({
+    rationale: "月5万円の副業",
+    vision: "",
+    obstacle: OBSTACLE,
+    where: "自室の机",
+  });
+  assert.equal(meta.why, "月5万円の副業");
+  assert.equal(meta.obstacle, OBSTACLE.text);
+  assert.equal(
+    meta.counter,
+    "もし動画を見終わったら → すぐタイマーをかける\n場所: 自室の机",
+  );
+});
+
+t("障害があっても場所が捨てられない（これが直したかった不具合）", () => {
+  const meta = firstStepMeta({
+    rationale: "r",
+    vision: "v",
+    obstacle: OBSTACLE,
+    where: "近所の体育館",
+  });
+  assert.ok(meta.counter.includes("近所の体育館"), "場所が counter から消えている");
+});
+
+t("場所が無いときの出力は従来どおり（If-Then だけ）", () => {
+  const meta = firstStepMeta({
+    rationale: "r",
+    vision: "v",
+    obstacle: OBSTACLE,
+    where: null,
+  });
+  assert.equal(meta.counter, "もし動画を見終わったら → すぐタイマーをかける");
+});
+
+t("障害が無く場所だけあるときは「場所: …」だけ", () => {
+  const meta = firstStepMeta({
+    rationale: "",
+    vision: "理想の姿",
+    obstacle: undefined,
+    where: "図書館",
+  });
+  assert.equal(meta.why, "理想の姿");
+  assert.equal(meta.obstacle, "");
+  assert.equal(meta.counter, "場所: 図書館");
+});
+
+t("障害も場所も無ければ counter は空文字", () => {
+  const meta = firstStepMeta({ rationale: "r", vision: "v", obstacle: undefined, where: null });
+  assert.equal(meta.counter, "");
+});
+
+t("空白だけの場所は書かない", () => {
+  const meta = firstStepMeta({ rationale: "r", vision: "v", obstacle: undefined, where: "   " });
+  assert.equal(meta.counter, "");
+});
+
+t("rationale が空なら why は vision で埋める", () => {
+  const meta = firstStepMeta({ rationale: "", vision: "なりたい姿", obstacle: undefined, where: null });
+  assert.equal(meta.why, "なりたい姿");
 });
 
 console.log(`${passed} passed, ${failed} failed`);

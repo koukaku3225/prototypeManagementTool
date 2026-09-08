@@ -1,4 +1,5 @@
 import type { GoalCard } from "@/types/goal";
+import type { TimeBoxMeta } from "@/types/timebox";
 
 /**
  * 目標カードの短い表示名。
@@ -17,6 +18,43 @@ export function goalCardLabel(card: GoalCard): string {
 
   const MAX = 14;
   return text.length > MAX ? `${text.slice(0, MAX)}…` : text;
+}
+
+// -------------------------------------- 対話の結果を「明日の一歩」の枠に落とす
+/**
+ * 対話で決まった明日の1件を、時間割の枠のメタ認知欄（why / obstacle / counter）に
+ * 整える。
+ *
+ * これまで card/page.tsx がこの3項目をその場で組み立てていて、
+ * **WOOP の障害と If-Then があるときは「どこでやるか」(where) が
+ * counter に入らず捨てられていた**（`firstObstacle?.plan.if ? …If-Then… :
+ * (t.where ? 場所 : "")` という二者択一になっていたため）。
+ *
+ * woop_wbs フェーズは「『家で』なら『家のどこですか』まで具体にする」と
+ * 明記して場所を問い直す設計（prompts/phases.ts）で、当日に「どこでやるんだっけ」を
+ * もう一度考えなくて済むようにするのが狙い。その成果を枠が捨てていた。
+ *
+ * 障害と場所は両立するので、両方を counter に残す（改行で区切る）。
+ * where が無いときの出力は従来と変わらない。
+ */
+export function firstStepMeta(args: {
+  /** rationale（大きな物語との関係）。空なら vision で代替する */
+  rationale: string;
+  vision: string;
+  /** WOOP の先頭の障害。無ければ undefined */
+  obstacle?: { text: string; plan: { if: string; then: string } };
+  /** 本人が決めた場所。未取得なら null */
+  where: string | null;
+}): TimeBoxMeta {
+  const ifThen = args.obstacle?.plan.if
+    ? `もし${args.obstacle.plan.if} → ${args.obstacle.plan.then}`
+    : "";
+  const place = args.where?.trim() ? `場所: ${args.where.trim()}` : "";
+  return {
+    why: args.rationale || args.vision,
+    obstacle: args.obstacle?.text ?? "",
+    counter: [ifThen, place].filter(Boolean).join("\n"),
+  };
 }
 
 // -------------------------------------------------------------- 未保存の下書き
