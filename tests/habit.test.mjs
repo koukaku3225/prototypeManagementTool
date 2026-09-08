@@ -5,16 +5,26 @@
  * しかもユーザーから見ると「続いているのに途切れたと言われた」という、
  * いちばん腹の立つ壊れ方をする。ここで数え方を固定しておく。
  */
+/*
+ * 日付の境界を試すので、タイムゾーンを固定する。import より前に置かないと
+ * 効かない（date.ts が読み込み時に Date を触るため）。
+ * JST を選ぶのは、このアプリが JST 前提で、かつ UTC との差
+ * （朝9時までが前日）が実際の不具合として出た側だから。
+ */
+process.env.TZ = "Asia/Tokyo";
+
 import assert from "node:assert/strict";
 import {
   computeRate,
   computeStats,
   computeStreak,
+  habitStartDate,
   heatmap,
   isScheduled,
   scheduleLabel,
   timesPerWeek,
 } from "../src/lib/habit.ts";
+import { daysSinceStart, isWarmingUp } from "../src/lib/habit.ts";
 
 let passed = 0;
 let failed = 0;
@@ -265,6 +275,49 @@ t("繰り返しの表示", () => {
     "毎日",
   );
   assert.equal(scheduleLabel(habit({ schedule: { kind: "weekdays", days: [] } })), "予定なし");
+});
+
+// ---------------------------------------------- 作成日の扱い（UTC/JST）
+
+/*
+ * 2026-09-09 の修正の回帰。
+ *
+ * createdAt は `toISOString()` の**UTC**文字列。先頭10文字を切り出すと、
+ * JST の 00:00〜08:59 に作った習慣は「前日に作った」ことになる。
+ * 結果、作った時刻しだいで
+ *   - 「はじめて0日目」と「はじめて1日目」がぶれる
+ *   - 作成日そのものがストリークと達成率の対象に入ったり入らなかったりする
+ * という食い違いが出ていた。瞬間を暦の日に直してから比べる。
+ */
+t("【回帰】JSTの早朝に作った習慣でも、作成日はその日になる", () => {
+  // 2026-08-27 07:00 JST = 2026-08-26T22:00Z。切り出しだと前日になる
+  const h = habit({ createdAt: "2026-08-26T22:00:00.000Z" });
+  assert.equal(habitStartDate(h), "2026-08-27");
+});
+
+t("【回帰】作った当日は0日目（1日目にしない）", () => {
+  const h = habit({ createdAt: "2026-08-26T22:00:00.000Z" });
+  assert.equal(daysSinceStart(h, TODAY), 0, "作った瞬間に1日目が始まっている");
+});
+
+t("作って翌日から1日目", () => {
+  const h = habit({ createdAt: "2026-08-25T22:00:00.000Z" }); // 8/26 07:00 JST
+  assert.equal(daysSinceStart(h, TODAY), 1);
+});
+
+t("【回帰】早朝に作った習慣の作成日を、ストリークに数え込まない", () => {
+  // 作成日そのものは数えない、というのが computeStreak の意図。
+  // 切り出しのままだと start が前日になり、作成日が数えられてしまう
+  const h = habit({ createdAt: "2026-08-26T22:00:00.000Z" }); // 8/27 07:00 JST
+  const logs = [{ habitId: h.id, date: TODAY, state: "done", at: "", note: null, mood: null }];
+  assert.equal(computeStreak(h, logs, TODAY).streak, 0);
+});
+
+t("2週間たつまでは warming up のまま", () => {
+  const h = habit({ createdAt: `${ago(13)}T00:00:00.000Z` });
+  assert.equal(isWarmingUp(h, TODAY), true);
+  const old = habit({ createdAt: `${ago(14)}T00:00:00.000Z` });
+  assert.equal(isWarmingUp(old, TODAY), false);
 });
 
 console.log(`${passed} passed, ${failed} failed`);

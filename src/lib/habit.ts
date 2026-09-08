@@ -1,4 +1,4 @@
-import { addDays, diffDays, today as todayStr } from "@/lib/date";
+import { addDays, diffDays, toLocalDate, today as todayStr } from "@/lib/date";
 import type {
   Habit,
   HabitLog,
@@ -24,6 +24,24 @@ const RATE_WINDOW = 30;
  * 始めた翌日に「達成率 0%」を見せるのは、続ける気を削ぐだけで情報がない。
  */
 export const WARMUP_DAYS = 14;
+
+/**
+ * その習慣を作った日（この端末のローカル日付、YYYY-MM-DD）。
+ *
+ * `createdAt` は `new Date().toISOString()` の**UTC**文字列なので、
+ * 先頭10文字を切り出すと JST の朝9時までが前日になる。
+ * 実際に次の2つの形で表に出ていた。
+ *
+ *   - 深夜〜朝に作った習慣が「はじめて1日目」から始まる（作った瞬間に1日目）
+ *   - 同じ習慣でも、作った時刻しだいで作成日そのものが
+ *     ストリークと達成率の対象に入ったり入らなかったりする
+ *     （「作成日そのものも数えない」という下の意図と食い違う）
+ *
+ * AGENTS.md の「日付は date.ts のヘルパーを通す」はここにも掛かる。
+ * 瞬間（UTC）を、この端末の暦の日に直してから比べる。
+ */
+export const habitStartDate = (habit: Habit): string =>
+  toLocalDate(new Date(habit.createdAt));
 
 /** その日が予定日か。timesPerWeek は「曜日を問わない」ので常に予定日扱い */
 export function isScheduled(habit: Habit, date: string): boolean {
@@ -64,7 +82,7 @@ export function computeStreak(
 ): { streak: number; freezeUsed: boolean } {
   let streak = 0;
   let freezeUsed = false;
-  const start = habit.createdAt.slice(0, 10);
+  const start = habitStartDate(habit);
   // 今日はまだやっていないだけかもしれないので、今日の未記録は途切れにしない
   for (let i = 0; i < 400; i++) {
     const date = addDays(-i, new Date(`${today}T00:00:00`));
@@ -100,7 +118,7 @@ export function computeRate(
   today = todayStr(),
 ): { rate: number; scheduled: number } {
   const base = new Date(`${today}T00:00:00`);
-  const start = habit.createdAt.slice(0, 10);
+  const start = habitStartDate(habit);
   let scheduled = 0;
   let achieved = 0;
   for (let i = 0; i < RATE_WINDOW; i++) {
@@ -141,7 +159,7 @@ export function computeStats(
 
 /** 始めてから何日経ったか。率を出してよいかの判断に使う */
 export const daysSinceStart = (habit: Habit, today = todayStr()): number =>
-  diffDays(habit.createdAt.slice(0, 10), today);
+  diffDays(habitStartDate(habit), today);
 
 export const isWarmingUp = (habit: Habit, today = todayStr()): boolean =>
   daysSinceStart(habit, today) < WARMUP_DAYS;
