@@ -173,6 +173,17 @@ export const CalendarSyncRequestSchema = z.object({
 });
 
 /**
+ * 重ね表示（`GET /api/calendar/overlay`）のクエリ。
+ *
+ * GET なので parseBody は通らないが、「入力は zod を通す」という規約は
+ * ボディに限った話ではない。ここを正規表現のインラインで持っていると、
+ * 入力検証がルートごとに散らばって、抜けても誰も気づけなくなる。
+ */
+export const CalendarOverlayQuerySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+/**
  * ボディを読んでサイズを見てから parse する。
  *
  * req.json() を先に呼ぶと、巨大なボディでも一旦メモリに展開されてしまう。

@@ -9,7 +9,16 @@
  *   - 読み取りは calendar.readonly（本人の全カレンダー）
  *
  * 「本人の予定を読めるが、絶対に書き換えられない」という形にしてある。
- * 万一トークンが漏れても、本人のカレンダーが壊されることはない。
+ *
+ * ■ トークンが漏れたときに何が起きるか（2026-09-08 指摘3で更新）
+ *
+ * `calendar.readonly` を足す前は「漏れてもアプリの専用カレンダーしか
+ * 見えない」と言えた。**いまは違う。** 保管している refresh_token は
+ * **本人のすべてのカレンダーの全予定を読める鍵**である。
+ * 書き換えられないのは今も正しいが、読まれないとは言えない。
+ *
+ * この前提でしか設計判断をしてはいけない（保管場所・RLS・ログ出力）。
+ * スコープを増減したときは、この記述も必ず書き換えること。
  */
 
 /**
@@ -36,6 +45,41 @@ export const CALENDAR_SCOPE = `${CALENDAR_WRITE_SCOPE} ${CALENDAR_READ_SCOPE}`;
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const API = "https://www.googleapis.com/calendar/v3";
+
+/**
+ * Google が返したHTTPステータスを持ったまま投げるための例外。
+ *
+ * 素の Error だと、呼び出し側は「失敗した」しか分からない。
+ * 401/403（＝権限が足りない・連携が切れた）と、通信障害や5xxを
+ * 区別できないので、**再連携すれば直る失敗が「読めませんでした」に
+ * 丸められて、本人が何をすればいいか分からなくなる**
+ * （2026-09-08 指摘2の握りつぶし）。
+ */
+export class GoogleApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "GoogleApiError";
+    this.status = status;
+  }
+}
+
+/**
+ * 「連携し直せば直る」失敗か。
+ *
+ * - 401 … トークンが無効（本人がGoogle側で権限を取り消した等）
+ * - 403 … 権限が足りない（insufficientPermissions）。
+ *   OAuthで許可された権限は**同意した時点で refresh_token に固定される**ので、
+ *   アプリ側の定数にスコープを足しても、既に連携済みの人には遡って付かない。
+ *   本人がもう一度同意し直すまで、その機能は永久に動かない。
+ *
+ * どちらも本人の操作（再連携）でしか解けないので、必ず画面まで届ける。
+ */
+export function needsReconnect(err: unknown): boolean {
+  return (
+    err instanceof GoogleApiError && (err.status === 401 || err.status === 403)
+  );
+}
 
 function creds() {
   const id = process.env.GOOGLE_OAUTH_CLIENT_ID;
@@ -88,7 +132,12 @@ export async function refreshAccessToken(refreshToken: string): Promise<string> 
       grant_type: "refresh_token",
     }),
   });
-  if (!res.ok) throw new Error(`アクセストークンを更新できませんでした (${res.status})`);
+  if (!res.ok) {
+    throw new GoogleApiError(
+      res.status,
+      `アクセストークンを更新できませんでした (${res.status})`,
+    );
+  }
   const j = (await res.json()) as { access_token?: string };
   if (!j.access_token) throw new Error("access_token が返りませんでした");
   return j.access_token;
@@ -162,7 +211,9 @@ export async function listEvents(
     );
     // 410 = syncToken が古すぎる。Googleの想定動作なので全件取り直しへ倒す
     if (res.status === 410) return { ok: false, needsFullSync: true };
-    if (!res.ok) throw new Error(`予定を取得できませんでした (${res.status})`);
+    if (!res.ok) {
+      throw new GoogleApiError(res.status, `予定を取得できませんでした (${res.status})`);
+    }
 
     const j = (await res.json()) as {
       items?: GoogleEvent[];
@@ -263,7 +314,12 @@ export async function listCalendars(
     const q = new URLSearchParams({ maxResults: "250", showHidden: "false" });
     if (pageToken) q.set("pageToken", pageToken);
     const res = await call(token, `/users/me/calendarList?${q}`);
-    if (!res.ok) throw new Error(`カレンダー一覧を取得できませんでした (${res.status})`);
+    if (!res.ok) {
+      throw new GoogleApiError(
+        res.status,
+        `カレンダー一覧を取得できませんでした (${res.status})`,
+      );
+    }
     const j = (await res.json()) as {
       items?: { id?: string; summary?: string; selected?: boolean }[];
       nextPageToken?: string;

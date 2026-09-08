@@ -85,6 +85,13 @@ export default function PlanPage() {
    * 次の同期で消える。混ぜないことが前提の設計。
    */
   const [overlay, setOverlay] = useState<OverlayEvent[]>([]);
+  /**
+   * 重ね表示が「権限不足」で読めていないか。
+   *
+   * 連携し直さないと直らない状態なので、黙って0件にしない。
+   * 出しっぱなしにならないよう、読めた時点で必ず下ろす。
+   */
+  const [needsReconnect, setNeedsReconnect] = useState(false);
   /** 直前の操作。取り消しに使う */
   const [undo, setUndo] = useState<{ message: string; revert: () => void } | null>(
     null,
@@ -144,7 +151,26 @@ export default function PlanPage() {
     fetch(`/api/calendar/overlay?date=${date}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (alive && d?.ok) setOverlay(d.events ?? []);
+        if (!alive) return;
+        if (d?.ok) {
+          setOverlay(d.events ?? []);
+          // 読めたということは権限は足りている。古い印は消す
+          setNeedsReconnect(false);
+          writeDeviceFlag(DEVICE_KEY.calendarNeedsReconnect, "0");
+          return;
+        }
+        /*
+         * 「連携し直せば直る」失敗だけは黙って捨てない。
+         *
+         * 読み取りの権限を後から足しても、既に連携済みの人の
+         * refresh_token には遡って付かない。本人が同意し直すまで
+         * 重ね表示は永久に0件のままで、しかも理由がどこにも出ない
+         * （2026-09-08 指摘2）。設定画面でも出せるよう印を残す。
+         */
+        if (d?.reason === "reconnect_required") {
+          setNeedsReconnect(true);
+          writeDeviceFlag(DEVICE_KEY.calendarNeedsReconnect, "1");
+        }
       })
       .catch(() => {
         /* 連携していない・通信できない。重ねないだけ */
@@ -291,6 +317,23 @@ export default function PlanPage() {
       <AppHeader title="時間割" />
       <CalendarSyncBoot onApplied={() => reload(date)} />
       <main className="phone flex min-h-0 flex-1 flex-col px-4 pb-3 pt-3">
+        {/*
+          重ね表示が権限不足で読めていないときだけ出す。
+          黙って0件にすると「実装したのに動かない、理由も出ない」になる。
+          押す先は設定画面。ここから直接 /api/calendar/connect へ送らないのは、
+          連携し直すと何が起きるかを読んでから決めてほしいため。
+        */}
+        {needsReconnect && (
+          <p
+            role="status"
+            className="mb-3 rounded-xl border border-accent-line bg-accent-soft px-4 py-3 text-[12.5px] leading-relaxed text-accent"
+          >
+            Googleカレンダーを読む許可が足りないので、ほかの予定を重ねて表示できていません。
+            <Link href="/settings" className="ml-1 underline">
+              設定から連携し直す
+            </Link>
+          </p>
+        )}
         {/*
           初めて使う人への案内。
           何も持っていない人が空のグリッドに置き去りになるのを防ぐ。

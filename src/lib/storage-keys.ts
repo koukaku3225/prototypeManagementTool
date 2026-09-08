@@ -54,6 +54,15 @@ export const DEVICE_KEY = {
   introDismissed: "gc.introDismissed",
   /** 前回この端末が同期したGoogleカレンダー。再連携の検知に使う */
   lastCalendarId: "gc.lastCalendarId",
+  /**
+   * カレンダーの読み取り権限が足りず、連携し直さないと直らない状態か。
+   *
+   * 重ね表示のAPIが403を返したことを、時間割の画面から設定画面へ
+   * 持ち越すためだけの印。時間割は常に開くとは限らず、設定画面は
+   * Googleを叩かない（叩くと開くたびに往復が増える）ので、
+   * 気づいた側が置いていく形にしてある。
+   */
+  calendarNeedsReconnect: "gc.calendarNeedsReconnect",
 } as const;
 
 /**

@@ -11,6 +11,8 @@ process.env.TZ = "UTC";
 import assert from "node:assert/strict";
 import { buildOverlay } from "../src/lib/calendar/overlay.ts";
 import { fromRfc3339 } from "../src/lib/calendar/engine.ts";
+import { GoogleApiError, needsReconnect } from "../src/lib/calendar/google.ts";
+import { CalendarOverlayQuerySchema } from "../src/lib/api-schema.ts";
 
 let passed = 0;
 let failed = 0;
@@ -135,6 +137,55 @@ t("カレンダー名を持ち回る", () => {
 
 t("空の入力でも落ちない", () => {
   assert.deepEqual(build([]), []);
+});
+
+// ------------------------------------------------ 権限不足の伝わり方
+
+/*
+ * 2026-09-08 指摘2の回帰。
+ *
+ * 読み取りスコープ（calendar.readonly）を後から足しても、OAuthで許可された
+ * 権限は同意時点の refresh_token に固定される。既に連携済みの人には遡って
+ * 付かないので、Google は403を返し続ける。これを他の失敗と一緒くたに
+ * 「読めませんでした」へ丸めていたため、**重ね表示が永久に0件のまま、
+ * 理由がどこにも出なかった**。再連携でしか直らない失敗は必ず区別する。
+ */
+t("【回帰】403は『連携し直せば直る』失敗として区別する", () => {
+  assert.equal(needsReconnect(new GoogleApiError(403, "権限不足")), true);
+});
+
+t("【回帰】401も同じ（本人がGoogle側で許可を取り消した）", () => {
+  assert.equal(needsReconnect(new GoogleApiError(401, "無効")), true);
+});
+
+t("通信障害や5xxは再連携では直らないので、区別しない", () => {
+  assert.equal(needsReconnect(new GoogleApiError(500, "サーバー障害")), false);
+  assert.equal(needsReconnect(new GoogleApiError(429, "レート制限")), false);
+  assert.equal(needsReconnect(new Error("ネットワークに繋がらない")), false);
+  assert.equal(needsReconnect(undefined), false);
+});
+
+t("GoogleApiError はステータスを持ったまま投げられる", () => {
+  const e = new GoogleApiError(403, "権限不足");
+  assert.equal(e.status, 403);
+  assert.ok(e instanceof Error, "catch で拾えなければ意味が無い");
+});
+
+// ------------------------------------------------ 入力の検証
+
+/*
+ * 日付以外の文字列で Google を叩かせない。
+ * AGENTS.md の「入力は必ず api-schema.ts の zod を通す」に揃えた箇所。
+ */
+t("日付は YYYY-MM-DD だけ通す", () => {
+  assert.equal(CalendarOverlayQuerySchema.safeParse({ date: DAY }).success, true);
+  for (const bad of ["", "2026-9-7", "2026-09-07T00:00", "../../etc", "primary"]) {
+    assert.equal(
+      CalendarOverlayQuerySchema.safeParse({ date: bad }).success,
+      false,
+      `通してはいけない入力を通した: ${JSON.stringify(bad)}`,
+    );
+  }
 });
 
 console.log(`${passed} passed, ${failed} failed`);

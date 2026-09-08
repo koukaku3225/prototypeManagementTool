@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { readDeviceFlag } from "@/lib/storage";
+import { DEVICE_KEY } from "@/lib/storage-keys";
 
 interface CalendarStatus {
   connected: boolean;
@@ -33,6 +35,21 @@ export function CalendarLink() {
    * 押した結果は必ず画面に出す。
    */
   const [startError, setStartError] = useState<string | null>(null);
+  /**
+   * 読み取りの許可が足りず、連携し直さないと直らない状態か。
+   *
+   * この画面ではGoogleを叩かない（開くたびに往復が増える）ので、
+   * 実際に403を踏んだ時間割の画面が置いていった印を読む。
+   * 読み取りスコープを後から足したので、**既に連携済みの人だけ**が
+   * この状態になる（2026-09-08 指摘2）。
+   */
+  const [needsReconnect, setNeedsReconnect] = useState(false);
+
+  useEffect(() => {
+    setNeedsReconnect(
+      readDeviceFlag(DEVICE_KEY.calendarNeedsReconnect) === "1",
+    );
+  }, []);
 
   useEffect(() => {
     const reason = new URLSearchParams(location.search).get("calendar");
@@ -116,6 +133,30 @@ export function CalendarLink() {
         {state.lastSyncedAt &&
           `（最終同期 ${new Date(state.lastSyncedAt).toLocaleString("ja-JP")}）`}
       </p>
+      {/*
+        連携済みでも、許可の範囲が足りていないことがある。
+        「連携しています」だけを出すと、重ね表示が永久に出ない理由が
+        どこにも無いまま放置される。やることを1つだけ示す。
+      */}
+      {needsReconnect && (
+        <div
+          role="alert"
+          className="mt-2 rounded-lg border border-accent-line bg-accent-soft px-3 py-2.5 text-[12px] leading-relaxed text-accent"
+        >
+          <p>
+            <strong className="font-medium">読み取りの許可が足りません。</strong>
+            ほかのカレンダーの予定を時間割に重ねて表示できていません。
+            あとから読み取りの許可を追加したため、それより前に連携した場合は
+            もう一度同意し直す必要があります。
+          </p>
+          <a
+            href="/api/calendar/connect"
+            className="mt-2 flex min-h-11 items-center justify-center rounded-lg bg-indigo px-3 text-[13.5px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            連携し直す
+          </a>
+        </div>
+      )}
       {state.lastError && (
         <p className="mt-2 text-[11.5px] leading-relaxed text-accent">
           直近のエラー: {state.lastError}
