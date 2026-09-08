@@ -17,6 +17,26 @@ import { DEVICE_KEY } from "@/lib/storage-keys";
  * エンジン側では区別がつかない（IDがどのカレンダーのものか知らない）。
  * カレンダーが変わったことを知っているのは、状態を持てるこちら側だけなので、
  * ここで古いIDを落としてから送る。落とせば「まだ無い」＝作り直す、になる。
+ *
+ * ■ 落とす対象は「送るデータ」ではなく localStorage 本体
+ *
+ * 以前は送信用に組み立てた配列の中だけでIDを落としていた。
+ * これだと次の2つの穴が残る（2026-09-08 のレビュー指摘1）。
+ *
+ *   1. 送信範囲（-14〜+90日）の外にある枠は、そもそも配列に入らないので
+ *      古いIDを持ったまま localStorage に残る
+ *   2. 作り直しに失敗した枠（Googleのレート制限など）は新しいIDが返らず、
+ *      localStorage 側は古いIDのまま残る
+ *
+ * どちらも「繋ぎ直し済み」の目印だけが新しくなるので、次回以降は
+ * 「変わっていない」と判断されて二度と落とされない。残った古いIDが
+ * サーバーの処理窓（-7〜+60日）に入った瞬間に「削除された」と誤判定され、
+ * **繋ぎ直しの数十日後に、時間割の枠が一言もなく消える**。
+ *
+ * なので落とす操作は localStorage 本体に対して行い、**落とし終えてから**
+ * 目印を書く。目印が意味するのは「この端末の localStorage に、別カレンダーの
+ * IDはもう残っていない」であって、送信の成否ではない。
+ * 送信が失敗しても、IDが空なら次回は「作り直す」方向にしか倒れない。
  */
 
 /*
@@ -26,22 +46,8 @@ import { DEVICE_KEY } from "@/lib/storage-keys";
  */
 export const LAST_CALENDAR_KEY = DEVICE_KEY.lastCalendarId;
 
-export interface ReconnectInput<T> {
-  boxes: T[];
-  /** 前回この端末が同期したカレンダー。初回は null */
-  previousCalendarId: string | null;
-  /** いま連携しているカレンダー。連携状態を取れなければ null */
-  currentCalendarId: string | null;
-}
-
-export interface ReconnectResult<T> {
-  boxes: T[];
-  /** 実際に落としたか。呼び出し側が覚え書きの更新とログに使う */
-  cleared: boolean;
-}
-
 /**
- * カレンダーが変わっていれば、全ての枠から googleEventId を落とす。
+ * 繋ぎ直したと言い切れるか。
  *
  * 落とさないのは次の場合。いずれも「変わっていない」か「判断できない」。
  *   - 現在のカレンダーが分からない（連携していない・状態取得に失敗）
@@ -50,18 +56,70 @@ export interface ReconnectResult<T> {
  *     ものだからで、ここで落とすと毎回作り直して重複させてしまう
  *   - 前回と同じ
  */
-export function clearEventIdsIfCalendarChanged<
-  T extends { googleEventId?: string | null },
->(i: ReconnectInput<T>): ReconnectResult<T> {
-  const { boxes, previousCalendarId, currentCalendarId } = i;
-  if (!currentCalendarId) return { boxes, cleared: false };
-  if (previousCalendarId === null) return { boxes, cleared: false };
-  if (previousCalendarId === currentCalendarId) return { boxes, cleared: false };
+export function calendarChanged(i: {
+  previousCalendarId: string | null;
+  currentCalendarId: string | null;
+}): boolean {
+  if (!i.currentCalendarId) return false;
+  if (i.previousCalendarId === null) return false;
+  return i.previousCalendarId !== i.currentCalendarId;
+}
 
-  return {
-    boxes: boxes.map((b) =>
-      b.googleEventId ? { ...b, googleEventId: null } : b,
-    ),
-    cleared: true,
-  };
+/** 枠の読み書きと目印の読み書き。テストから差し替えられるようにしてある */
+export interface ReconnectStorage<T extends { googleEventId?: string | null }> {
+  /** **全期間の**枠。期間で絞ったものを渡してはいけない */
+  loadAll: () => T[];
+  save: (box: T) => void;
+  readFlag: () => string | null;
+  writeFlag: (value: string) => void;
+}
+
+export interface ReconnectOutcome {
+  /** 繋ぎ直しを検知したか */
+  changed: boolean;
+  /** 実際にIDを落とした枠の数。ログ用 */
+  cleared: number;
+}
+
+/**
+ * 繋ぎ直しを検知して localStorage 上の古い予定IDを落とし、目印を更新する。
+ *
+ * 呼ぶのは同期の**送信より前**。ここを通ったあとの `loadAll()` は
+ * 「現在のカレンダーのIDしか持っていない」状態になっている。
+ *
+ * 連携状態が分からない（`currentCalendarId` が null）ときは何もしない。
+ * 目印も書かない —— 分からないまま上書きすると、次回の判定材料が消える。
+ */
+export function applyCalendarReconnect<
+  T extends { googleEventId?: string | null },
+>(i: {
+  currentCalendarId: string | null;
+  storage: ReconnectStorage<T>;
+}): ReconnectOutcome {
+  const { currentCalendarId, storage } = i;
+  if (!currentCalendarId) return { changed: false, cleared: 0 };
+
+  const previousCalendarId = storage.readFlag();
+  const changed = calendarChanged({ previousCalendarId, currentCalendarId });
+
+  let cleared = 0;
+  if (changed) {
+    for (const b of storage.loadAll()) {
+      if (!b.googleEventId) continue;
+      storage.save({ ...b, googleEventId: null });
+      cleared++;
+    }
+  }
+
+  /*
+   * 目印は最後に書く。順序が逆だと、書いた直後に落とす処理が失敗したときに
+   * 「片付いた」という嘘だけが残る。
+   *
+   * 繋ぎ直していないとき（初回を含む）にも書くのは、ここを通らないと
+   * 目印が永久に null のままになり、**次に繋ぎ直しても検知できない**ため。
+   * 以前は同期の成功後にだけ書いていたので、一度でも同期に失敗した端末は
+   * 検知不能なまま放置されていた。
+   */
+  storage.writeFlag(currentCalendarId);
+  return { changed, cleared };
 }

@@ -10,7 +10,7 @@ import {
   writeDeviceFlag,
 } from "@/lib/storage";
 import {
-  clearEventIdsIfCalendarChanged,
+  applyCalendarReconnect,
   LAST_CALENDAR_KEY,
 } from "@/lib/calendar/reconnect";
 import { getSyncState } from "@/lib/supabase/sync";
@@ -54,11 +54,33 @@ export function CalendarSyncBoot({ onApplied }: { onApplied: () => void }) {
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null);
     const currentCalendarId: string | null = status?.calendarId ?? null;
-    const previousCalendarId = readDeviceFlag(LAST_CALENDAR_KEY);
+
+    /*
+     * 繋ぎ直しの後始末は、送信データではなく localStorage 本体に対して
+     * 行う。送信は期間で絞るので、送るデータの中だけで落としても
+     * 「+60日より先の枠」と「作り直しに失敗した枠」に古いIDが残り、
+     * それが処理窓に入った日に一言もなく消える（2026-09-08 指摘1）。
+     * 目印の更新もこの中で済む。
+     */
+    const { changed: reconnected, cleared } = applyCalendarReconnect({
+      currentCalendarId,
+      storage: {
+        loadAll: loadTimeBoxes,
+        save: upsertTimeBox,
+        readFlag: () => readDeviceFlag(LAST_CALENDAR_KEY),
+        writeFlag: (v) => writeDeviceFlag(LAST_CALENDAR_KEY, v),
+      },
+    });
+    if (reconnected) {
+      console.warn(
+        `[calendar] 連携先のカレンダーが変わったので、古い予定IDを${cleared}件落として作り直します`,
+      );
+    }
 
     const from = addDays(SEND_FROM_DAYS);
     const to = addDays(SEND_TO_DAYS);
-    const rawBoxes = loadTimeBoxes()
+    // 上でIDを落としてあるので、ここで読み直せば「現在のカレンダーのIDだけ」になる
+    const boxes = loadTimeBoxes()
       // 全件送るとAPIスキーマの上限（500件）を超えて弾かれ、以後同期が
       // 恒久的に止まる（レビューで指摘）。期間で絞って送信する
       .filter((b) => b.date >= from && b.date <= to)
@@ -75,16 +97,6 @@ export function CalendarSyncBoot({ onApplied }: { onApplied: () => void }) {
         ),
       }));
 
-    const { boxes, cleared } = clearEventIdsIfCalendarChanged({
-      boxes: rawBoxes,
-      previousCalendarId,
-      currentCalendarId,
-    });
-    if (cleared) {
-      console.warn(
-        "[calendar] 連携先のカレンダーが変わったので、古い予定IDを落として作り直します",
-      );
-    }
     const res = await fetch("/api/calendar/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -102,16 +114,13 @@ export function CalendarSyncBoot({ onApplied }: { onApplied: () => void }) {
     setPending(0);
 
     /*
-     * ここまで来て初めて「このカレンダーで同期できた」と言える。
+     * 目印はもう applyCalendarReconnect が書いている。ここでは書かない。
      *
-     * 目印を送信前に書くと、送信が失敗したときに取り返しがつかない。
-     * 落としたIDは送るデータの中だけの話で localStorage には古いIDが
-     * 残るのに、目印だけが新しいカレンダーになる。次回は「変わっていない」
-     * と判断して落とさず、古いIDが「削除された」と誤判定されて
-     * 時間割が消える。まさにこの修正が防ぎたかった事故そのものなので、
-     * 必ず成功を確かめてから書く。
+     * 以前はここ（送信成功後）で書いていたが、それだと同期に一度も
+     * 成功していない端末で目印が null のままになり、次に繋ぎ直しても
+     * 検知できなかった。落とす対象が localStorage 本体になったので、
+     * 「送信の成否」と「目印を書いてよいか」は無関係になっている。
      */
-    if (currentCalendarId) writeDeviceFlag(LAST_CALENDAR_KEY, currentCalendarId);
 
     // カレンダーは title/start/end/googleEventId しか持たない。
     // meta・review・cardId・color はサーバーから来ないので、元の枠を
