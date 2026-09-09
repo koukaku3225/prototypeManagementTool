@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   canPlace,
   habitBoxId,
+  habitBoxMeta,
   habitBoxesOn,
   habitsOfActiveCards,
   isGhost,
@@ -121,6 +122,46 @@ t("実体があるのが別の日なら、その日には出す", () => {
 t("手で作った枠（habitId なし）は重複判定に影響しない", () => {
   const existing = [box({ id: "manual", date: "2026-08-31", habitId: null })];
   assert.equal(habitBoxesOn("2026-08-31", [habit()], existing).length, 1);
+});
+
+// ------------------------------------------------ 習慣の「どこで」を枠に載せる
+
+t("場所が未設定なら、メタ認知欄は空のまま", () => {
+  assert.deepEqual(habitBoxMeta({ where: null }), {
+    why: "",
+    obstacle: "",
+    counter: "",
+  });
+  assert.deepEqual(habitBoxMeta({ where: "   " }), {
+    why: "",
+    obstacle: "",
+    counter: "",
+  });
+});
+
+t("場所があれば、対策欄に「場所: …」として載る（前後の空白は落とす）", () => {
+  assert.deepEqual(habitBoxMeta({ where: "  自室の机 " }), {
+    why: "",
+    obstacle: "",
+    counter: "場所: 自室の机",
+  });
+});
+
+t("起こした枠に、習慣の場所が入っている", () => {
+  const r = habitBoxesOn("2026-08-31", [habit({ where: "体育館" })], []);
+  assert.equal(r[0].meta.counter, "場所: 体育館");
+  assert.equal(r[0].meta.why, "", "他の欄は勝手に埋めない");
+  assert.equal(r[0].meta.obstacle, "");
+});
+
+t("場所の無い習慣の枠は、これまでどおり空のメタ認知", () => {
+  const r = habitBoxesOn("2026-08-31", [habit()], []);
+  assert.deepEqual(r[0].meta, { why: "", obstacle: "", counter: "" });
+});
+
+t("実体化しても場所は残る", () => {
+  const ghost = habitBoxesOn("2026-08-31", [habit({ where: "体育館" })], [])[0];
+  assert.equal(materializeHabitBox(ghost, "real-1").meta.counter, "場所: 体育館");
 });
 
 t("日をまたがせない。24時で止める", () => {

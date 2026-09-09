@@ -171,3 +171,41 @@ export function presetCardIdFrom(
   if (!found || (found.status ?? "active") === "done") return null;
   return found.id;
 }
+
+// ------------------------------------------- 目標を消したときの巻き添えを言う
+/**
+ * 削除の確認文で「何が一緒に消えるか」を言う1文を作る。
+ *
+ * `deleteCard()` は目標だけでなく、紐づく予定・習慣・習慣の実施記録まで
+ * 連鎖で消す。件数を出すようにはしてあったが、その習慣の数え方が
+ * `habitsOfCard()`（＝畳んでいないものだけ）だったため、
+ * **「やめた」習慣とその記録が数に入っていなかった**（レビューで指摘）。
+ *
+ * 畳んだ習慣は、このアプリが他の場所ではわざわざ守っているものである
+ * （`archiveHabit` は消さずに畳む。「続かなかった」も記録で、消すと
+ * 同じ失敗を繰り返したことに気づけない、という理由が storage.ts に書いてある）。
+ * それが黙って巻き添えになるのは、確認文を出している意味を損なう。
+ *
+ * 数えるのは「実際に消える数」。そのうえで、畳んだぶんが含まれることを
+ * 明示する（同じ数でも、消える中身の重みが違う）。
+ */
+export function deleteImpactText(args: {
+  /** 紐づく予定の件数（完了済みも含む、実際に消える数） */
+  boxes: number;
+  /** 紐づく習慣の件数。やめた習慣も含めた、実際に消える数 */
+  habits: number;
+  /** そのうち「やめた」習慣の件数 */
+  archivedHabits: number;
+}): string | null {
+  const parts: string[] = [];
+  if (args.boxes > 0) parts.push(`予定${args.boxes}件`);
+  if (args.habits > 0) {
+    const note =
+      args.archivedHabits > 0
+        ? `やめた${args.archivedHabits}件と記録ごと`
+        : "記録ごと";
+    parts.push(`習慣${args.habits}件（${note}）`);
+  }
+  if (parts.length === 0) return null;
+  return `紐づく${parts.join("・")}も一緒に消えます。`;
+}

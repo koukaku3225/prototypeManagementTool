@@ -37,6 +37,7 @@ const {
   peekPendingCard,
   clearPendingCard,
   firstStepMeta,
+  deleteImpactText,
 } = await import("../src/lib/goal-card.ts");
 
 let passed = 0;
@@ -295,6 +296,50 @@ t("空白だけの場所は書かない", () => {
 t("rationale が空なら why は vision で埋める", () => {
   const meta = firstStepMeta({ rationale: "", vision: "なりたい姿", obstacle: undefined, where: null });
   assert.equal(meta.why, "なりたい姿");
+});
+
+// ------------------------------------- 目標を消したときの巻き添えを言う1文
+
+t("何も紐づいていなければ、余計なことは言わない", () => {
+  assert.equal(
+    deleteImpactText({ boxes: 0, habits: 0, archivedHabits: 0 }),
+    null,
+  );
+});
+
+t("予定だけなら、予定だけを言う", () => {
+  assert.equal(
+    deleteImpactText({ boxes: 3, habits: 0, archivedHabits: 0 }),
+    "紐づく予定3件も一緒に消えます。",
+  );
+});
+
+t("習慣だけなら、記録ごと消えることを言う", () => {
+  assert.equal(
+    deleteImpactText({ boxes: 0, habits: 2, archivedHabits: 0 }),
+    "紐づく習慣2件（記録ごと）も一緒に消えます。",
+  );
+});
+
+t("両方あれば中黒でつなぐ", () => {
+  assert.equal(
+    deleteImpactText({ boxes: 3, habits: 2, archivedHabits: 0 }),
+    "紐づく予定3件・習慣2件（記録ごと）も一緒に消えます。",
+  );
+});
+
+t("やめた習慣が混ざっているときは、その数まで言う", () => {
+  assert.equal(
+    deleteImpactText({ boxes: 0, habits: 2, archivedHabits: 1 }),
+    "紐づく習慣2件（やめた1件と記録ごと）も一緒に消えます。",
+  );
+});
+
+t("やめた習慣しか無くても、件数に数える（黙って消さない）", () => {
+  assert.equal(
+    deleteImpactText({ boxes: 0, habits: 1, archivedHabits: 1 }),
+    "紐づく習慣1件（やめた1件と記録ごと）も一緒に消えます。",
+  );
 });
 
 console.log(`${passed} passed, ${failed} failed`);

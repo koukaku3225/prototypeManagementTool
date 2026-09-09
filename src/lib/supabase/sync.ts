@@ -19,6 +19,7 @@ import {
   setSyncHook,
   writeDeviceFlag,
 } from "@/lib/storage";
+import { createPushQueue } from "./push-queue";
 import { decideSyncDirection, isForeignKeyViolation } from "./sync-decision";
 import { isValidUuid } from "@/lib/uuid";
 import { supabaseBrowser } from "./client";
@@ -106,13 +107,47 @@ function setState(s: SyncState): void {
  */
 let pushEnabled = false;
 
+/**
+ * 1文字ごとの全件送信をまとめる待ち行列。
+ *
+ * まとめるのは、保存ボタンを押させない画面が書くキーだけ。
+ * 予定シートは1キーストロークごとに `gc.timeboxes` の全行を、
+ * 習慣の編集（「どこで」「きっかけ」）は `gc.habits` の全行を送っていた。
+ * 他のキーは編集の確定時にしか書かれないので素通しする。
+ *
+ * 外部キーの順序（timeboxes → cards / habits）は気にしなくてよい。
+ * 参照先が未同期で弾かれたときは healIfDanglingReference() が
+ * 依存順に送り直す（既存の自己修復）。
+ */
+const pushQueue = createPushQueue({
+  debounced: [KEY.timeboxes, KEY.habits],
+  send: (key, value) => void pushKey(key, value),
+});
+
+/**
+ * 待っているぶんを、いますぐ送る。
+ * タブを閉じる・隠す瞬間に SyncBoot が呼ぶ。
+ */
+export function flushPendingPushes(): void {
+  pushQueue.flush();
+}
+
+/** いま送るのを待っているキー（診断用） */
+export const pendingPushKeys = (): string[] => pushQueue.pendingKeys();
+
 function enablePush(): void {
   pushEnabled = true;
-  setSyncHook(currentUserId ? (key, value) => void pushKey(key, value) : null);
+  setSyncHook(currentUserId ? (key, value) => pushQueue.push(key, value) : null);
 }
 
 function disablePush(): void {
   pushEnabled = false;
+  /*
+   * 送らずに捨てる。ログアウト後や、向きが決まる前に送ると
+   * 「別のユーザーの端末から古い値を押し込む」ことになる。
+   * localStorage 側は残っているので、繋ぎ直せば backfill で追いつく。
+   */
+  pushQueue.cancel();
   setSyncHook(null);
 }
 
@@ -568,10 +603,16 @@ export async function pullAll(): Promise<boolean> {
     data[KEY.archive] = JSON.stringify(archiveRows.map(sessionFromRow));
 
     setSyncHook(null);
+    /*
+     * 待ち行列に残っているのは「取り込み前のローカルの値」である。
+     * 取り込みはクラウドを正とみなす操作なので、それを後から
+     * 押し戻すと取り込んだ意味が消える。送らずに捨てる。
+     */
+    pushQueue.cancel();
     const ok = restoreState(data);
     // 取り込み前に push が繋がっていたときだけ繋ぎ直す。
     // まだ向きが決まっていない段階で勝手に繋がないようにする
-    if (pushEnabled) setSyncHook((key, value) => void pushKey(key, value));
+    if (pushEnabled) setSyncHook((key, value) => pushQueue.push(key, value));
     return ok;
   } catch (err) {
     noteFailure("クラウドからの取り込みに失敗しました", err);

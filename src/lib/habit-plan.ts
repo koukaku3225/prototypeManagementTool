@@ -1,6 +1,6 @@
 import type { Habit } from "@/types/behavior";
 import type { GoalCard } from "@/types/goal";
-import { emptyMeta, type TimeBox } from "@/types/timebox";
+import { emptyMeta, type TimeBoxMeta, type TimeBox } from "@/types/timebox";
 import { DAY_MINUTES, DEFAULT_DURATION, toMinutes, toTime } from "@/lib/timebox";
 
 /**
@@ -76,6 +76,24 @@ export const habitBoxId = (habitId: string, date: string): string =>
 export const isGhost = (box: TimeBox): boolean => box.id.startsWith("habit-");
 
 /**
+ * 習慣の「どこでやるか」を、枠のメタ認知欄に載せる。
+ *
+ * 習慣は `where`（実行意図の「どこで」）を持ち、クラウドにも同期している。
+ * それなのに、実際に行動する時間割の枠には一切出ていなかった。
+ * 対話由来の「明日の一歩」では `firstStepMeta()` が同じことをしているので、
+ * くり返し回数のいちばん多い習慣由来の枠にも同じ書式で載せる。
+ *
+ * `counter`（対策）に入れるのは、If-Then と場所を同じ欄で読む
+ * `firstStepMeta()` に揃えるため。欄を増やすと、実体化したあとで
+ * 両者の枠の形が変わってしまう。
+ */
+export function habitBoxMeta(habit: Pick<Habit, "where">): TimeBoxMeta {
+  const place = habit.where?.trim();
+  if (!place) return emptyMeta();
+  return { ...emptyMeta(), counter: `場所: ${place}` };
+}
+
+/**
  * その日に並べる、習慣由来の枠。
  *
  * すでに実体のある枠（手で触って保存されたもの）とは重複させない。
@@ -118,7 +136,7 @@ export function habitBoxesOn(
         cardId: h.cardId,
         color: null,
         habitId: h.id,
-        meta: emptyMeta(),
+        meta: habitBoxMeta(h),
         completedAt: null,
         review: null,
         createdAt: h.createdAt,

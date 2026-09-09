@@ -529,6 +529,17 @@ export const activeHabits = (): Habit[] =>
 export const habitsOfCard = (cardId: string): Habit[] =>
   activeHabits().filter((h) => h.cardId === cardId);
 
+/**
+ * 畳んだものも含めた、その目標の習慣ぜんぶ。
+ *
+ * 画面に並べるのは habitsOfCard（進行中だけ）でよいが、
+ * 削除の確認文で「何件消えるか」を言うときにこちらが要る。
+ * deleteHabitsOfCard() は cardId 一致を畳んだものごと消すので、
+ * 進行中だけを数えると実際より少ない件数を見せることになる。
+ */
+export const allHabitsOfCard = (cardId: string): Habit[] =>
+  loadHabits().filter((h) => h.cardId === cardId);
+
 export function upsertHabit(h: Habit): void {
   const all = loadHabits();
   const i = all.findIndex((x) => x.id === h.id);

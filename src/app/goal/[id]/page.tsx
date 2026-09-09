@@ -11,6 +11,7 @@ import { COACHES } from "@/lib/prompts/coaches";
 import { download, toMarkdown } from "@/lib/export";
 import {
   deleteCard,
+  allHabitsOfCard,
   habitsOfCard,
   timeBoxesOfCard,
   loadBigStory,
@@ -18,7 +19,7 @@ import {
   upsertCard,
 } from "@/lib/storage";
 import { normalizeTime } from "@/lib/date";
-import { clearPendingCard, peekPendingCard } from "@/lib/goal-card";
+import { clearPendingCard, deleteImpactText, peekPendingCard } from "@/lib/goal-card";
 import type { BigStory, GoalCard, Obstacle } from "@/types/goal";
 import type { Habit } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
@@ -41,6 +42,11 @@ export default function GoalDetailPage({
   const [ready, setReady] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [habits, setHabits] = useState<Habit[]>([]);
+  /*
+   * 削除の確認文で数えるのは「実際に消える数」なので、畳んだ習慣も入る。
+   * 画面に並べる habits（進行中だけ）とは別に持つ。
+   */
+  const [doomedHabits, setDoomedHabits] = useState<Habit[]>([]);
   const [boxes, setBoxes] = useState<TimeBox[]>([]);
 
   useEffect(() => {
@@ -52,6 +58,7 @@ export default function GoalDetailPage({
     setCard(loadCardById(id) ?? peekPendingCard(id));
     setBig(loadBigStory());
     setHabits(habitsOfCard(id));
+    setDoomedHabits(allHabitsOfCard(id));
     setBoxes(
       timeBoxesOfCard(id).sort(
         (a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start),
@@ -491,6 +498,7 @@ export default function GoalDetailPage({
                  */
                 persistDraft();
                 setHabits(habitsOfCard(card.id));
+                setDoomedHabits(allHabitsOfCard(card.id));
               }}
             />
           </Block>
@@ -547,17 +555,18 @@ export default function GoalDetailPage({
                 連鎖で消す（storage.ts の deleteCard 参照）。それを言わずに
                 「戻せません」とだけ出すと、消してから初めて巻き添えに気づく
                 ことになる（実際にレビューで指摘された）。件数まで出す。
+
+                数えるのは doomedHabits（やめた習慣も含む＝実際に消える数）。
+                画面に並ぶ habits（進行中だけ）で数えると、
+                畳んだ習慣とその記録が黙って巻き添えになる。
               */}
               <p className="text-[13px] leading-relaxed">
                 この目標を消します。
-                {(boxes.length > 0 || habits.length > 0) && (
-                  <>
-                    紐づく予定{boxes.length > 0 && `${boxes.length}件`}
-                    {boxes.length > 0 && habits.length > 0 && "・"}
-                    {habits.length > 0 && `習慣${habits.length}件（記録ごと）`}
-                    も一緒に消えます。
-                  </>
-                )}
+                {deleteImpactText({
+                  boxes: boxes.length,
+                  habits: doomedHabits.length,
+                  archivedHabits: doomedHabits.filter((h) => h.archivedAt).length,
+                })}
                 戻せません。
               </p>
               <div className="mt-2.5 flex gap-2">
