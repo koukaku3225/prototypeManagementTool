@@ -10,6 +10,7 @@ import { Snackbar } from "@/components/Snackbar";
 import { TimeBoxSheet } from "@/components/TimeBoxSheet";
 import {
   activeHabits,
+  clearHabitLogFromBox,
   deleteTimeBox,
   loadBigStory,
   readDeviceFlag,
@@ -224,6 +225,10 @@ export default function PlanPage() {
         note: null,
         mood: null,
       });
+    }
+    // 逆に、完了を取り消したら、この枠が付けた記録も取り消す（setHabitLog と対称）
+    if (real.habitId && !real.completedAt && before?.completedAt) {
+      clearHabitLogFromBox(real.habitId, real.date, before.completedAt);
     }
     reload(date);
     setIsNew(false);

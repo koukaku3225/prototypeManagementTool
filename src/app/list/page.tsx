@@ -10,6 +10,7 @@ import { TimeBoxSheet } from "@/components/TimeBoxSheet";
 import {
   activeHabits,
   cancelRunning,
+  clearHabitLogFromBox,
   deleteTimeBox,
   loadCards,
   loadHabitLogs,
@@ -134,6 +135,10 @@ export default function TodayPage() {
         note: null,
         mood: null,
       });
+    }
+    // 逆に、完了を取り消したら、この枠が付けた記録も取り消す（setHabitLog と対称）
+    if (real.habitId && !real.completedAt && before?.completedAt) {
+      clearHabitLogFromBox(real.habitId, real.date, before.completedAt);
     }
     reload();
     setIsNew(false);

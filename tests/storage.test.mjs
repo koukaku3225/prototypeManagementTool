@@ -540,5 +540,118 @@ t("upsertTimeBox は呼ぶたびに updatedAt を更新する", () => {
   assert.notEqual(saved.updatedAt, "2026-09-01T00:00:00.000Z", "更新されていない");
 });
 
+// ---------------------------------------------------------------- 習慣の記録
+
+/** テスト用の最小 HabitLog */
+const hlog = (over = {}) => ({
+  habitId: "h1",
+  date: "2026-09-10",
+  state: "done",
+  at: "2026-09-10T06:05:00.000Z",
+  note: null,
+  mood: null,
+  ...over,
+});
+
+t("clearHabitLogFromBox は、時刻の一致する done の記録を消す", () => {
+  reset({ "gc.habitlogs": JSON.stringify([hlog()]) });
+  S.clearHabitLogFromBox("h1", "2026-09-10", "2026-09-10T06:05:00.000Z");
+  assert.deepEqual(S.loadHabitLogs(), []);
+});
+
+t("clearHabitLogFromBox は、時刻が違う記録には触れない（手で付けた記録を守る）", () => {
+  reset({
+    "gc.habitlogs": JSON.stringify([hlog({ at: "2026-09-10T21:00:00.000Z" })]),
+  });
+  S.clearHabitLogFromBox("h1", "2026-09-10", "2026-09-10T06:05:00.000Z");
+  assert.equal(S.loadHabitLogs().length, 1);
+});
+
+t("clearHabitLogFromBox は、done 以外（skipped/partial/missed）には触れない", () => {
+  for (const state of ["skipped", "partial", "missed"]) {
+    reset({ "gc.habitlogs": JSON.stringify([hlog({ state })]) });
+    S.clearHabitLogFromBox("h1", "2026-09-10", "2026-09-10T06:05:00.000Z");
+    assert.equal(S.loadHabitLogs().length, 1, `${state} が消えた`);
+  }
+});
+
+t("clearHabitLogFromBox は、記録が無くても落ちない", () => {
+  reset({ "gc.habitlogs": JSON.stringify([]) });
+  S.clearHabitLogFromBox("h1", "2026-09-10", "2026-09-10T06:05:00.000Z");
+  assert.deepEqual(S.loadHabitLogs(), []);
+});
+
+t("deleteTimeBox は、完了済みの習慣枠を消すと、その枠が付けた記録も取り消す", () => {
+  reset({
+    "gc.schemaVersion": String(S.SCHEMA_VERSION),
+    "gc.habitlogs": JSON.stringify([hlog({ at: "2026-09-10T06:05:00.000Z" })]),
+    "gc.timeboxes": JSON.stringify([
+      {
+        id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+        date: "2026-09-10",
+        start: "06:00",
+        end: "06:30",
+        title: "腕立て",
+        cardId: "c1",
+        habitId: "h1",
+        meta: { why: "", obstacle: "", counter: "" },
+        completedAt: "2026-09-10T06:05:00.000Z",
+        review: null,
+        createdAt: "2026-09-10T00:00:00.000Z",
+      },
+    ]),
+  });
+  S.deleteTimeBox("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11");
+  assert.deepEqual(S.loadHabitLogs(), [], "記録が残っている");
+  assert.deepEqual(S.loadTimeBoxes(), [], "枠が残っている");
+});
+
+t("deleteTimeBox は、未完了の習慣枠を消しても記録に触れない", () => {
+  reset({
+    "gc.schemaVersion": String(S.SCHEMA_VERSION),
+    "gc.habitlogs": JSON.stringify([hlog()]),
+    "gc.timeboxes": JSON.stringify([
+      {
+        id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12",
+        date: "2026-09-10",
+        start: "06:00",
+        end: "06:30",
+        title: "腕立て",
+        cardId: "c1",
+        habitId: "h1",
+        meta: { why: "", obstacle: "", counter: "" },
+        completedAt: null,
+        review: null,
+        createdAt: "2026-09-10T00:00:00.000Z",
+      },
+    ]),
+  });
+  S.deleteTimeBox("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12");
+  assert.equal(S.loadHabitLogs().length, 1);
+});
+
+t("deleteTimeBox は、習慣に紐づかない完了済みの枠では記録を触らない", () => {
+  reset({
+    "gc.schemaVersion": String(S.SCHEMA_VERSION),
+    "gc.habitlogs": JSON.stringify([hlog()]),
+    "gc.timeboxes": JSON.stringify([
+      {
+        id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a13",
+        date: "2026-09-10",
+        start: "10:00",
+        end: "10:30",
+        title: "単発",
+        cardId: null,
+        meta: { why: "", obstacle: "", counter: "" },
+        completedAt: "2026-09-10T10:05:00.000Z",
+        review: null,
+        createdAt: "2026-09-10T00:00:00.000Z",
+      },
+    ]),
+  });
+  S.deleteTimeBox("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a13");
+  assert.equal(S.loadHabitLogs().length, 1);
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

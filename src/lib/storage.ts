@@ -583,6 +583,34 @@ export function setHabitLog(log: HabitLog): void {
   write(KEY.habitLogs, all);
 }
 
+/**
+ * 時間割の枠の完了を取り消した／完了済みの枠を消したときに、
+ * その枠が自動で付けた習慣の記録だけを取り消す。
+ *
+ * 完了ボタンは枠から習慣へ "done" を書く（list/plan の saveBox）。
+ * その逆（完了を外す・枠を消す）だけ記録が残り続けると、
+ * 押し間違えた一回が連続日数と達成率に乗ったまま外せなくなる
+ * （時刻を持つ習慣は「今日の習慣」チェックリストに出ないので、
+ * 他に取り消す手立てがない）。
+ *
+ * ただし「completedAt を null に戻すと記録ごと消える」という Task 側の
+ * 壊れ方は繰り返さない。消すのは「この枠がさっき付けた done」に厳しく絞る:
+ * 実際に押した時刻（at）が枠の completedAt と一致するものだけが対象で、
+ * 手で付けた記録・別の状態（partial / skipped / missed）には触れない。
+ */
+export function clearHabitLogFromBox(
+  habitId: string,
+  date: string,
+  at: string,
+): void {
+  const all = loadHabitLogs();
+  const i = all.findIndex((l) => l.habitId === habitId && l.date === date);
+  if (i < 0) return;
+  if (all[i].state !== "done" || all[i].at !== at) return;
+  all.splice(i, 1);
+  write(KEY.habitLogs, all);
+}
+
 // ---------------------------------------------------------------- タイムボックス
 
 export function loadTimeBoxes(): TimeBox[] {
@@ -620,9 +648,15 @@ export function upsertTimeBox(b: TimeBox): boolean {
 }
 
 export function deleteTimeBox(id: string): void {
+  const boxes = loadTimeBoxes();
+  const gone = boxes.find((b) => b.id === id);
+  // 完了済みの習慣枠を消すときは、その枠が自動で付けた記録も取り消す
+  if (gone?.habitId && gone.completedAt) {
+    clearHabitLogFromBox(gone.habitId, gone.date, gone.completedAt);
+  }
   write(
     KEY.timeboxes,
-    loadTimeBoxes().filter((b) => b.id !== id),
+    boxes.filter((b) => b.id !== id),
   );
 }
 
