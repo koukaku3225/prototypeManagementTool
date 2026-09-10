@@ -214,5 +214,82 @@ t("【回帰】2回目の同期では、もう落とさない", () => {
   assert.equal(s.state.writes, writesAfterFirst);
 });
 
+// --- 保存に失敗したとき ---------------------------------------------------
+
+/*
+ * 2026-09-10 レビュー指摘2の回帰。
+ *
+ * `write()`（localStorage）は容量超過を握りつぶして false を返すだけで、
+ * 例外を投げない。落とすループが1件でも黙って失敗したまま目印を書くと、
+ * 「この端末に古いIDはもう無い」という**嘘の目印**が残る。
+ * 目印が新カレンダーになった以上、次回以降は changed=false で二度と
+ * やり直されず、残った古いIDがサーバーの処理窓に入った日に
+ * 「カレンダー側で削除された」と誤判定されて枠が消える。
+ * この関数が塞いだはずの穴と、まったく同じ形。
+ */
+
+/** 一部の枠だけ保存に失敗する localStorage */
+function flakyStorage(boxes, flag, failIds) {
+  const s = fakeStorage(boxes, flag);
+  const inner = s.save;
+  s.save = (box) => {
+    if (failIds.includes(box.id)) return false;
+    inner(box);
+    return true;
+  };
+  return s;
+}
+
+t("【回帰】落とせなかった枠が1件でもあれば、目印を書かない", () => {
+  const s = flakyStorage(boxes(), "old-cal", ["b2"]);
+  const r = applyCalendarReconnect({ currentCalendarId: "new-cal", storage: s });
+
+  assert.equal(r.changed, true);
+  assert.equal(r.cleared, 1, "落とせたのは b1 だけ");
+  assert.equal(r.failed, 1, "b2 は落とせていない");
+  assert.equal(
+    s.state.flag,
+    "old-cal",
+    "目印を書いてしまうと、次回 changed=false になってやり直せない",
+  );
+});
+
+t("落とせなかった枠は、次回もう一度やり直せる", () => {
+  const s = flakyStorage(boxes(), "old-cal", ["b2"]);
+  applyCalendarReconnect({ currentCalendarId: "new-cal", storage: s });
+  // 容量が空いた（＝失敗しなくなった）ていで、もう一度通す
+  s.save = (box) => {
+    const i = s.state.boxes.findIndex((b) => b.id === box.id);
+    if (i >= 0) s.state.boxes[i] = { ...box };
+    return true;
+  };
+  const r2 = applyCalendarReconnect({ currentCalendarId: "new-cal", storage: s });
+
+  assert.equal(r2.changed, true, "目印が古いままなので、もう一度検知される");
+  assert.equal(r2.failed, 0);
+  assert.equal(
+    s.state.boxes.every((b) => !b.googleEventId),
+    true,
+    "残っていた古いIDも落ち切ること",
+  );
+  assert.equal(s.state.flag, "new-cal", "落とし切れたので今度は目印を書く");
+});
+
+t("全部落とせたときは、これまでどおり目印を書く", () => {
+  const s = flakyStorage(boxes(), "old-cal", []);
+  const r = applyCalendarReconnect({ currentCalendarId: "new-cal", storage: s });
+  assert.equal(r.failed, 0);
+  assert.equal(s.state.flag, "new-cal");
+});
+
+t("save が値を返さない実装（void）は、これまでどおり成功扱い", () => {
+  // 画面から渡している実装が boolean を返さなくても壊れないこと
+  const s = fakeStorage(boxes(), "old-cal");
+  const r = applyCalendarReconnect({ currentCalendarId: "new-cal", storage: s });
+  assert.equal(r.cleared, 2);
+  assert.equal(r.failed, 0);
+  assert.equal(s.state.flag, "new-cal");
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

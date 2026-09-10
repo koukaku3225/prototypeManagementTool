@@ -69,7 +69,11 @@ export function calendarChanged(i: {
 export interface ReconnectStorage<T extends { googleEventId?: string | null }> {
   /** **全期間の**枠。期間で絞ったものを渡してはいけない */
   loadAll: () => T[];
-  save: (box: T) => void;
+  /**
+   * 1件保存する。**保存できなかったときは false を返すこと。**
+   * 戻り値を返さない実装（void）は成功扱いにする。
+   */
+  save: (box: T) => boolean | void;
   readFlag: () => string | null;
   writeFlag: (value: string) => void;
 }
@@ -79,6 +83,8 @@ export interface ReconnectOutcome {
   changed: boolean;
   /** 実際にIDを落とした枠の数。ログ用 */
   cleared: number;
+  /** 落とそうとしたが保存に失敗した枠の数。1件でもあれば目印は書かない */
+  failed: number;
 }
 
 /**
@@ -97,17 +103,19 @@ export function applyCalendarReconnect<
   storage: ReconnectStorage<T>;
 }): ReconnectOutcome {
   const { currentCalendarId, storage } = i;
-  if (!currentCalendarId) return { changed: false, cleared: 0 };
+  if (!currentCalendarId) return { changed: false, cleared: 0, failed: 0 };
 
   const previousCalendarId = storage.readFlag();
   const changed = calendarChanged({ previousCalendarId, currentCalendarId });
 
   let cleared = 0;
+  let failed = 0;
   if (changed) {
     for (const b of storage.loadAll()) {
       if (!b.googleEventId) continue;
-      storage.save({ ...b, googleEventId: null });
-      cleared++;
+      // 戻り値を返さない実装（void）は成功扱い。false のときだけ失敗と数える
+      if (storage.save({ ...b, googleEventId: null }) === false) failed++;
+      else cleared++;
     }
   }
 
@@ -119,7 +127,14 @@ export function applyCalendarReconnect<
    * 目印が永久に null のままになり、**次に繋ぎ直しても検知できない**ため。
    * 以前は同期の成功後にだけ書いていたので、一度でも同期に失敗した端末は
    * 検知不能なまま放置されていた。
+   *
+   * ただし**1件でも保存に失敗したら書かない**（2026-09-10 レビュー指摘2）。
+   * localStorage が逼迫していると `write()` は false を返すだけで例外を
+   * 投げないので、順序を守っていても「一部の枠に古いIDが残ったまま、
+   * 目印だけ新しい」状態を作れてしまう。これは目印が二度と `changed` に
+   * ならない＝**残った古いIDが処理窓に入った日に、枠が一言もなく消える**
+   * という、この関数が塞いだはずの穴そのもの。書かなければ次回やり直せる。
    */
-  storage.writeFlag(currentCalendarId);
-  return { changed, cleared };
+  if (failed === 0) storage.writeFlag(currentCalendarId);
+  return { changed, cleared, failed };
 }

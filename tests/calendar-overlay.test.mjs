@@ -11,7 +11,11 @@ process.env.TZ = "UTC";
 import assert from "node:assert/strict";
 import { buildOverlay } from "../src/lib/calendar/overlay.ts";
 import { fromRfc3339 } from "../src/lib/calendar/engine.ts";
-import { GoogleApiError, needsReconnect } from "../src/lib/calendar/google.ts";
+import {
+  GoogleApiError,
+  needsReconnect,
+  refreshAccessToken,
+} from "../src/lib/calendar/google.ts";
 import { CalendarOverlayQuerySchema } from "../src/lib/api-schema.ts";
 
 let passed = 0;
@@ -23,6 +27,18 @@ function t(name, fn) {
   } catch (e) {
     failed++;
     console.error(`✗ ${name}\n  ${e.message}`);
+  }
+}
+
+/** 非同期のテスト。実レスポンスの読み取りを確かめるのに要る */
+async function at(name, fn) {
+  try {
+    await fn();
+    passed++;
+  } catch (e) {
+    failed++;
+    console.error(`✗ ${name}`);
+    console.error(`  ${e.message}`);
   }
 }
 
@@ -168,7 +184,119 @@ t("通信障害や5xxは再連携では直らないので、区別しない", ()
 t("GoogleApiError はステータスを持ったまま投げられる", () => {
   const e = new GoogleApiError(403, "権限不足");
   assert.equal(e.status, 403);
+  assert.equal(e.reason, null, "理由が取れなくても status だけで判断できること");
   assert.ok(e instanceof Error, "catch で拾えなければ意味が無い");
+});
+
+/*
+ * 2026-09-10 レビュー指摘1の回帰。
+ *
+ * 判定が「401 か 403 か」だけだったので、次の2つを両方とも取り違えていた。
+ *
+ *   1. Google Calendar API は**レート制限を 403 で返す**
+ *      （`rateLimitExceeded` / `userRateLimitExceeded`。429 ではない）。
+ *      重ね表示は日付をめくるたびに最大9往復するので、素早くめくれば踏む。
+ *      これを再連携扱いにすると `gc.calendarNeedsReconnect` が localStorage に
+ *      焼き付き、**再連携しても直らない案内**が時間割と設定画面に居座る。
+ *   2. 逆に、再連携がいちばん要る `invalid_grant`（本人が Google 側で
+ *      アクセスを取り消した／refresh_token の期限切れ）は OAuth の規約どおり
+ *      **400** で来るので、ステータスだけの判定では拾えない。
+ */
+t("【回帰】403のレート制限は再連携では直らないので、案内を出さない", () => {
+  for (const reason of [
+    "rateLimitExceeded",
+    "userRateLimitExceeded",
+    "quotaExceeded",
+    "dailyLimitExceeded",
+    "RESOURCE_EXHAUSTED",
+  ]) {
+    assert.equal(
+      needsReconnect(new GoogleApiError(403, "混んでいます", reason)),
+      false,
+      `${reason} を再連携扱いにしてはいけない`,
+    );
+  }
+});
+
+t("【回帰】403の権限不足は、これまでどおり再連携扱い", () => {
+  for (const reason of [
+    "insufficientPermissions",
+    "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+    "PERMISSION_DENIED",
+    "forbidden",
+    null,
+  ]) {
+    assert.equal(
+      needsReconnect(new GoogleApiError(403, "権限不足", reason)),
+      true,
+      `${reason} は再連携で直る側に倒すこと`,
+    );
+  }
+});
+
+t("【回帰】invalid_grant は 400 でも再連携扱い", () => {
+  assert.equal(
+    needsReconnect(new GoogleApiError(400, "更新できません", "invalid_grant")),
+    true,
+  );
+});
+
+t("400 でも invalid_grant 以外は再連携扱いにしない", () => {
+  assert.equal(
+    needsReconnect(new GoogleApiError(400, "リクエストが不正", "invalid_request")),
+    false,
+  );
+  assert.equal(needsReconnect(new GoogleApiError(400, "不正")), false);
+});
+
+// ------------------------------------------------ 失敗レスポンスの読み取り
+
+/*
+ * 「理由を本文から拾えていること」まで確かめないと意味が無い。
+ * 判定関数だけ直しても、投げる側が理由を載せなければ全部 null に潰れて
+ * 元の「ステータスだけ」に戻る。
+ */
+const REAL_FETCH = globalThis.fetch;
+function stubFetch(status, body) {
+  globalThis.fetch = async () =>
+    new Response(typeof body === "string" ? body : JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+}
+process.env.GOOGLE_OAUTH_CLIENT_ID ??= "test-client-id";
+process.env.GOOGLE_OAUTH_CLIENT_SECRET ??= "test-client-secret";
+
+await at("トークン更新の invalid_grant を本文から拾う", async () => {
+  stubFetch(400, {
+    error: "invalid_grant",
+    error_description: "Token has been expired or revoked.",
+  });
+  try {
+    await refreshAccessToken("dead-refresh-token");
+    assert.fail("失効したトークンで成功してはいけない");
+  } catch (err) {
+    assert.ok(err instanceof GoogleApiError, "GoogleApiError で投げること");
+    assert.equal(err.status, 400);
+    assert.equal(err.reason, "invalid_grant");
+    assert.equal(needsReconnect(err), true, "再連携の案内まで届くこと");
+  } finally {
+    globalThis.fetch = REAL_FETCH;
+  }
+});
+
+await at("本文がJSONでなくても落ちず、理由は null になる", async () => {
+  stubFetch(500, "<html>502 Bad Gateway</html>");
+  try {
+    await refreshAccessToken("token");
+    assert.fail("500 で成功してはいけない");
+  } catch (err) {
+    assert.ok(err instanceof GoogleApiError, "GoogleApiError で投げること");
+    assert.equal(err.reason, null);
+    assert.equal(needsReconnect(err), false);
+  } finally {
+    globalThis.fetch = REAL_FETCH;
+  }
 });
 
 // ------------------------------------------------ 入力の検証

@@ -599,7 +599,16 @@ export const timeBoxesOn = (date: string): TimeBox[] =>
 export const timeBoxesOfCard = (cardId: string): TimeBox[] =>
   loadTimeBoxes().filter((b) => b.cardId === cardId);
 
-export function upsertTimeBox(b: TimeBox): void {
+/**
+ * 枠を1件保存する。**保存できたかを返す**。
+ *
+ * 戻り値を足したのは、容量超過で `write()` が false を返したときに
+ * 「保存できていない」ことを呼び出し側が知る手段が無かったため
+ * （2026-09-10 レビュー指摘2）。画面からの保存は今までどおり戻り値を
+ * 無視してよい（失敗は画面上部の帯に出る）が、**まとめて書き換える処理は
+ * 部分失敗を検知しないと、片付いた目印だけが残る**。
+ */
+export function upsertTimeBox(b: TimeBox): boolean {
   const all = loadTimeBoxes();
   // 保存のたびに更新時刻を刻む。書き込みが必ずここを通るので、
   // 呼び出し側で付け忘れることがない（カレンダー同期の突き合わせに使う）
@@ -607,7 +616,7 @@ export function upsertTimeBox(b: TimeBox): void {
   const i = all.findIndex((x) => x.id === b.id);
   if (i >= 0) all[i] = stamped;
   else all.push(stamped);
-  write(KEY.timeboxes, all);
+  return write(KEY.timeboxes, all);
 }
 
 export function deleteTimeBox(id: string): void {

@@ -62,7 +62,11 @@ export function CalendarSyncBoot({ onApplied }: { onApplied: () => void }) {
      * それが処理窓に入った日に一言もなく消える（2026-09-08 指摘1）。
      * 目印の更新もこの中で済む。
      */
-    const { changed: reconnected, cleared } = applyCalendarReconnect({
+    const {
+      changed: reconnected,
+      cleared,
+      failed: clearFailed,
+    } = applyCalendarReconnect({
       currentCalendarId,
       storage: {
         loadAll: loadTimeBoxes,
@@ -74,6 +78,16 @@ export function CalendarSyncBoot({ onApplied }: { onApplied: () => void }) {
     if (reconnected) {
       console.warn(
         `[calendar] 連携先のカレンダーが変わったので、古い予定IDを${cleared}件落として作り直します`,
+      );
+    }
+    /*
+     * 容量超過などで落とし切れなかったぶん。目印は書かれていないので、
+     * 次に時間割を開いたときにもう一度やり直す。送信は続けてよい
+     * （古いIDが残った枠は作り直されず、次回の再試行に回るだけ）。
+     */
+    if (clearFailed > 0) {
+      console.warn(
+        `[calendar] 古い予定IDを${clearFailed}件落とせませんでした（保存に失敗）。次回やり直します`,
       );
     }
 

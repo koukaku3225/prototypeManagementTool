@@ -57,28 +57,111 @@ const API = "https://www.googleapis.com/calendar/v3";
  */
 export class GoogleApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  /**
+   * Google が本文で返した失敗の理由。取れなければ null。
+   *
+   * ステータスだけでは足りない。Google Calendar API は**レート制限も 403 で
+   * 返す**（`rateLimitExceeded` / `userRateLimitExceeded`。429 に統一されて
+   * いない）ので、403 を一律「権限不足」と読むと、混んだだけの一時的な失敗に
+   * 「連携し直してください」という**再連携しても直らない案内**を出してしまう。
+   * 逆に、再連携が本当に要る `invalid_grant` は OAuth の規約どおり **400** で
+   * 来るので、ステータスだけ見ていると取りこぼす（RFC 6749 §5.2）。
+   */
+  readonly reason: string | null;
+  constructor(status: number, message: string, reason: string | null = null) {
     super(message);
     this.name = "GoogleApiError";
     this.status = status;
+    this.reason = reason;
   }
 }
 
 /**
+ * 失敗レスポンスの本文から「理由」を取り出す。取れなければ null。
+ *
+ * 2つの形が来る。
+ *   - Calendar API … `{"error":{"errors":[{"reason":"rateLimitExceeded"}],"status":"PERMISSION_DENIED"}}`
+ *   - OAuth トークンendpoint … `{"error":"invalid_grant"}`
+ *
+ * 本文を読むのは `res.ok` が false のときだけ。読むとボディを消費するので、
+ * 成功パスでは絶対に呼ばないこと。
+ */
+async function readErrorReason(res: Response): Promise<string | null> {
+  try {
+    const text = await res.text();
+    if (!text) return null;
+    const j = JSON.parse(text) as {
+      error?:
+        | string
+        | { errors?: { reason?: string }[]; status?: string };
+    };
+    if (typeof j.error === "string") return j.error;
+    const reason = j.error?.errors?.[0]?.reason;
+    if (typeof reason === "string") return reason;
+    if (typeof j.error?.status === "string") return j.error.status;
+    return null;
+  } catch {
+    // JSON でない・途中で切れた。理由が分からないだけなので握って進む
+    return null;
+  }
+}
+
+/**
+ * 403 で来るが、**再連携では直らない**理由。混雑・クォータ・一時的な不調。
+ *
+ * ここに載っているものだけを除外する（載っていない 403 は権限不足側に倒す）
+ * のは、Google が権限不足を返すときの理由文字列が
+ * `insufficientPermissions` / `ACCESS_TOKEN_SCOPE_INSUFFICIENT` /
+ * `forbidden` と揺れており、許可リスト方式だと**本当に再連携が要る 403 を
+ * 取りこぼす**ため。取りこぼしは「案内が出ない（従来と同じ）」で済むが、
+ * 誤検知は「消えない嘘の案内が端末に焼き付く」ので、害の大きいほうを塞ぐ。
+ */
+const RETRYABLE_403_REASONS = new Set([
+  "rateLimitExceeded",
+  "userRateLimitExceeded",
+  "quotaExceeded",
+  "dailyLimitExceeded",
+  "variableTermExpiredDailyExceeded",
+  "backendError",
+  "RESOURCE_EXHAUSTED",
+  "UNAVAILABLE",
+  "INTERNAL",
+]);
+
+/**
+ * ステータスに関係なく「本人が連携し直すまで直らない」ことを示す OAuth のエラー。
+ *
+ * `invalid_grant` は refresh_token が失効したとき（本人が Google 側で
+ * アクセスを取り消した／長期間未使用で期限切れ）に返る。**再連携が要る
+ * いちばんありふれた原因**でありながら、HTTP は 400 なので
+ * ステータスだけの判定では拾えない。
+ */
+const RECONNECT_OAUTH_ERRORS = new Set(["invalid_grant"]);
+
+/**
  * 「連携し直せば直る」失敗か。
  *
+ * - `invalid_grant` … refresh_token が失効した。**HTTP は 400** で来る
  * - 401 … トークンが無効（本人がGoogle側で権限を取り消した等）
- * - 403 … 権限が足りない（insufficientPermissions）。
- *   OAuthで許可された権限は**同意した時点で refresh_token に固定される**ので、
- *   アプリ側の定数にスコープを足しても、既に連携済みの人には遡って付かない。
- *   本人がもう一度同意し直すまで、その機能は永久に動かない。
+ * - 403 で、理由がレート制限・一時的な不調でないもの … 権限が足りない
+ *   （insufficientPermissions）。OAuthで許可された権限は**同意した時点で
+ *   refresh_token に固定される**ので、アプリ側の定数にスコープを足しても、
+ *   既に連携済みの人には遡って付かない。本人がもう一度同意し直すまで、
+ *   その機能は永久に動かない。
  *
- * どちらも本人の操作（再連携）でしか解けないので、必ず画面まで届ける。
+ * いずれも本人の操作（再連携）でしか解けないので、必ず画面まで届ける。
+ *
+ * **逆に、ここで true にしてはいけないもの**がある。案内を受け取った画面は
+ * `gc.calendarNeedsReconnect` を localStorage に書き、次に重ね表示が成功する
+ * まで消さない。混雑による 403 を再連携扱いにすると、**再連携しても直らない
+ * 案内が端末に居座る**（2026-09-10 レビュー指摘1）。
  */
 export function needsReconnect(err: unknown): boolean {
-  return (
-    err instanceof GoogleApiError && (err.status === 401 || err.status === 403)
-  );
+  if (!(err instanceof GoogleApiError)) return false;
+  if (err.reason && RECONNECT_OAUTH_ERRORS.has(err.reason)) return true;
+  if (err.status === 401) return true;
+  if (err.status !== 403) return false;
+  return !(err.reason !== null && RETRYABLE_403_REASONS.has(err.reason));
 }
 
 function creds() {
@@ -133,9 +216,16 @@ export async function refreshAccessToken(refreshToken: string): Promise<string> 
     }),
   });
   if (!res.ok) {
+    /*
+     * 本文の `error` を必ず拾う。失効した refresh_token は
+     * `{"error":"invalid_grant"}` を **400** で返すので、ステータスだけでは
+     * 「再連携が要る」といういちばんありふれた原因を取りこぼす。
+     */
+    const reason = await readErrorReason(res);
     throw new GoogleApiError(
       res.status,
       `アクセストークンを更新できませんでした (${res.status})`,
+      reason,
     );
   }
   const j = (await res.json()) as { access_token?: string };
@@ -212,7 +302,11 @@ export async function listEvents(
     // 410 = syncToken が古すぎる。Googleの想定動作なので全件取り直しへ倒す
     if (res.status === 410) return { ok: false, needsFullSync: true };
     if (!res.ok) {
-      throw new GoogleApiError(res.status, `予定を取得できませんでした (${res.status})`);
+      throw new GoogleApiError(
+        res.status,
+        `予定を取得できませんでした (${res.status})`,
+        await readErrorReason(res),
+      );
     }
 
     const j = (await res.json()) as {
@@ -318,6 +412,7 @@ export async function listCalendars(
       throw new GoogleApiError(
         res.status,
         `カレンダー一覧を取得できませんでした (${res.status})`,
+        await readErrorReason(res),
       );
     }
     const j = (await res.json()) as {
