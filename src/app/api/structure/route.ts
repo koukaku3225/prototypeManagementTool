@@ -93,7 +93,7 @@ export async function POST(req: Request) {
         system: BIG_STRUCTURE_EXTRACTION_PROMPT,
         messages: [{ role: "user", content: transcript }],
         output_config: { format: zodOutputFormat(BigStorySchema) },
-      });
+      }, { signal: req.signal });
 
       if (!bigRes.parsed_output) {
         return Response.json(
@@ -132,7 +132,7 @@ ${USER_DATA_END}`
         : STRUCTURE_EXTRACTION_PROMPT,
       messages: [{ role: "user", content: transcript }],
       output_config: { format: zodOutputFormat(GoalCardSchema) },
-    });
+    }, { signal: req.signal });
 
     if (!cardRes.parsed_output) {
       return Response.json(

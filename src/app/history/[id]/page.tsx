@@ -10,6 +10,7 @@ import { COACHES } from "@/lib/prompts/coaches";
 import { PHASE_META } from "@/lib/prompts/phases";
 import { download } from "@/lib/export";
 import {
+  archiveIfAbandoned,
   loadArchivedSession,
   loadSession,
   outcomeOfSession,
@@ -45,6 +46,12 @@ export default function HistoryDetailPage({
   }
 
   function doResume() {
+    /*
+     * 「そちらは記録に残したうえで置き換わります」と案内している以上、
+     * 実際に退避してから上書きする。以前はここが無く、案内文どおりには
+     * 動いていなかった（進行中セッションは消えるだけだった）
+     */
+    archiveIfAbandoned(loadSession(), id);
     if (!resumeArchivedSession(id)) return;
     router.push("/session");
   }

@@ -799,6 +799,21 @@ export function archiveSession(s: Session): void {
   write(KEY.archive, all);
 }
 
+/**
+ * gc.session をこれから上書き・削除する直前に呼ぶ。
+ *
+ * 「新しい対話を始める」「別の対話を続きから話す」は、進行中の対話を
+ * 問答無用で消していた（完了済みは archiveSession 済みで gc.session から
+ * 消えているので、ここに残っているのは常に未完了のもの）。
+ * excludeId は「続きから話す対象そのもの」を指す。それ自身は
+ * 退避ではなく resumeArchivedSession 側でそのまま引き継がれる。
+ */
+export function archiveIfAbandoned(session: Session | null, excludeId?: string): void {
+  if (!session || session.id === excludeId) return;
+  if (session.completedAt || session.messages.length === 0) return;
+  archiveSession(session);
+}
+
 export function loadArchive(): Session[] {
   ensureMigrated();
   return read<Session[]>(KEY.archive) ?? [];

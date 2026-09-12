@@ -7,8 +7,10 @@ import { AppHeader } from "@/components/AppHeader";
 import { CoachPicker } from "@/components/CoachPicker";
 import { TechniqueBrief } from "@/components/TechniqueBrief";
 import {
+  archiveIfAbandoned,
   clearSession,
   loadBigStory,
+  loadSession,
   newSession,
   saveBigStory,
   saveSession,
@@ -33,6 +35,8 @@ export default function NewStoryPage() {
   }, []);
 
   function startDialogue() {
+    // 進行中の対話があれば、上書きで消す前に退避する（確認は挟まない）
+    archiveIfAbandoned(loadSession());
     clearSession();
     saveSession(newSession(coach, "big"));
     router.push("/session");

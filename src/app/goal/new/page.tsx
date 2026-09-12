@@ -8,9 +8,11 @@ import { CoachPicker } from "@/components/CoachPicker";
 import { TechniqueBrief } from "@/components/TechniqueBrief";
 import {
   activeCards,
+  archiveIfAbandoned,
   clearSession,
   emptyCard,
   loadBigStory,
+  loadSession,
   newSession,
   saveSession,
   upsertCard,
@@ -35,6 +37,8 @@ export default function NewGoalPage() {
   }, []);
 
   function startDialogue() {
+    // 進行中の対話があれば、上書きで消す前に退避する（確認は挟まない）
+    archiveIfAbandoned(loadSession());
     clearSession();
     saveSession(newSession(coach, "small"));
     router.push("/session");

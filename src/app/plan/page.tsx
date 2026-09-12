@@ -244,11 +244,23 @@ export default function PlanPage() {
     if (next.start === box.start && next.end === box.end) return;
     const before = box;
     const resized = durationMin(next) !== durationMin(box);
-    save({ ...box, ...next });
+    const real = save({ ...box, ...next });
     setUndo({
       message: `${next.start}〜${next.end} に${resized ? "変えました" : "移しました"}`,
       revert: () => {
-        upsertTimeBox(before);
+        /*
+         * 習慣から起こしただけの枠（ghost）を戻すときは、ghostのidのまま
+         * upsertTimeBox すると「habit- で始まる実体」が新規に増える。
+         * isGhost() は id のプレフィックスで判定するため、それは以後
+         * 永遠にghost扱いのまま消せなくなる（削除ボタンが出ない・
+         * カレンダー同期からも除外される）。ghostだったなら、動かして
+         * できた実体を削除するだけで元のghost表示に戻る
+         */
+        if (isGhost(before)) {
+          deleteTimeBox(real.id);
+        } else {
+          upsertTimeBox(before);
+        }
         reload(date);
       },
     });

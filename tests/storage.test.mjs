@@ -437,6 +437,43 @@ t("再開すると現在フェーズのターン数が0に戻る", () => {
   assert.ok(r.resumedAt);
 });
 
+t("archiveIfAbandoned: 未完了かつ発言のある対話は退避する", () => {
+  reset();
+  S.archiveIfAbandoned(session("s1", { messages: [{ role: "user" }] }));
+  assert.equal(S.loadArchive().length, 1, "上書きの直前に呼んでも退避されていない");
+  assert.equal(S.loadArchive()[0].id, "s1");
+});
+
+t("archiveIfAbandoned: セッションが無ければ何もしない", () => {
+  reset();
+  S.archiveIfAbandoned(null);
+  assert.equal(S.loadArchive().length, 0);
+});
+
+t("archiveIfAbandoned: 一言も話していない対話は退避しない", () => {
+  reset();
+  S.archiveIfAbandoned(session("s1", { messages: [] }));
+  assert.equal(S.loadArchive().length, 0, "空の対話まで一覧に残ると記録が荒れる");
+});
+
+t("archiveIfAbandoned: 完了済みは退避しない（archiveSession/clearSession が既に済んでいる前提）", () => {
+  reset();
+  S.archiveIfAbandoned(
+    session("s1", {
+      messages: [{ role: "user" }],
+      completedAt: "2026-08-02T00:00:00.000Z",
+    }),
+  );
+  assert.equal(S.loadArchive().length, 0);
+});
+
+t("archiveIfAbandoned: excludeId と一致する対話は、その場で退避しない", () => {
+  reset();
+  // history/[id] の「続きから話す」対象そのもの。resumeArchivedSession 側が引き継ぐ
+  S.archiveIfAbandoned(session("s1", { messages: [{ role: "user" }] }), "s1");
+  assert.equal(S.loadArchive().length, 0);
+});
+
 t("outcomeOfSession は対話から生まれた成果物を引く", () => {
   reset();
   S.upsertCard(card("c1", { sessionId: "s1" }));
