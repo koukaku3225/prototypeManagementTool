@@ -653,5 +653,137 @@ t("deleteTimeBox は、習慣に紐づかない完了済みの枠では記録を
   assert.equal(S.loadHabitLogs().length, 1);
 });
 
+// ---------------------------------------------------------------- 消したものを待たせない
+
+/*
+ * 目標を消すと、書き込みは3本走る。
+ *   gc.cards      … 素通し（すぐ送る）
+ *   gc.habits     … まとめる対象（1.5秒待つ）
+ *   gc.timeboxes  … まとめる対象（1.5秒待つ）
+ *
+ * クラウド側の外部キーは `timeboxes.card_id` を SET NULL にするだけで
+ * 行は残すので、待っている間にタブが閉じると「目標に紐づかない枠」が
+ * クラウドに残り、次の取り込みで復活する（2026-09-11 レビュー指摘1）。
+ * storage 側から待ちを解かせていることを、実物の待ち行列で確かめる。
+ */
+const { createPushQueue } = await import("../src/lib/supabase/push-queue.ts");
+
+/** 同期側の繋ぎ込みを、実物の待ち行列で再現する。タイマーは進めない */
+function wireSync() {
+  const sent = [];
+  const timers = new Map();
+  let next = 1;
+  const q = createPushQueue({
+    debounced: ["gc.timeboxes", "gc.habits"],
+    send: (key, value) => sent.push(key),
+    setTimer: (fn, ms) => {
+      const id = next++;
+      timers.set(id, fn);
+      return id;
+    },
+    clearTimer: (id) => timers.delete(id),
+  });
+  S.setSyncHook((key, value) => q.push(key, value));
+  S.setSyncFlushHook(() => q.flush());
+  return {
+    sent,
+    pending: () => q.pendingKeys(),
+    unwire: () => {
+      S.setSyncHook(null);
+      S.setSyncFlushHook(null);
+    },
+  };
+}
+
+t("deleteCard は、まとめ待ちを残さずに送り切る", () => {
+  reset();
+  S.upsertCard(card("a"));
+  S.upsertCard(card("b"));
+  S.upsertHabit({
+    id: "00000000-0000-4000-8000-000000009101",
+    cardId: "a",
+    title: "毎朝30分",
+    minimalTitle: "",
+    estimateMin: 30,
+    schedule: { kind: "daily" },
+    startTime: null,
+    where: null,
+    cue: null,
+    createdAt: "2026-09-13T00:00:00.000Z",
+    archivedAt: null,
+  });
+  const sync = wireSync();
+  try {
+    S.deleteCard("a");
+    assert.deepEqual(
+      sync.pending(),
+      [],
+      "待ちが残っていると、閉じた瞬間にクラウドへ孤児の枠が残る",
+    );
+    // 消した4本すべてが送られている（cards と habitlogs は素通し、
+    // habits / timeboxes は待ち行列を解いた flush 経由）
+    assert.deepEqual(
+      [...sync.sent].sort(),
+      ["gc.cards", "gc.habitlogs", "gc.habits", "gc.timeboxes"],
+    );
+  } finally {
+    sync.unwire();
+  }
+});
+
+t("deleteCard の送り切りは、関係ない編集の待ちも道連れにする（捨てはしない）", () => {
+  reset();
+  S.upsertCard(card("a"));
+  const sync = wireSync();
+  try {
+    // 予定シートを打っている途中（まとめ待ちに乗っている状態）
+    S.upsertTimeBox({
+      id: "00000000-0000-4000-8000-000000009001",
+      date: "2026-09-13",
+      start: "10:00",
+      end: "10:30",
+      title: "編集中",
+      cardId: null,
+      meta: { why: "", obstacle: "", counter: "" },
+      completedAt: null,
+      review: null,
+      createdAt: "2026-09-13T00:00:00.000Z",
+    });
+    assert.deepEqual(sync.pending(), ["gc.timeboxes"], "前提：待ちに乗っている");
+    S.deleteCard("a");
+    assert.deepEqual(sync.pending(), []);
+    // 待っていた編集は捨てられず、送られている
+    assert.ok(sync.sent.includes("gc.timeboxes"));
+  } finally {
+    sync.unwire();
+  }
+});
+
+t("ふつうの保存は、いままでどおりまとめ待ちに乗る", () => {
+  reset();
+  const sync = wireSync();
+  try {
+    S.upsertTimeBox({
+      id: "00000000-0000-4000-8000-000000009002",
+      date: "2026-09-13",
+      start: "11:00",
+      end: "11:30",
+      title: "あ",
+      cardId: null,
+      meta: { why: "", obstacle: "", counter: "" },
+      completedAt: null,
+      review: null,
+      createdAt: "2026-09-13T00:00:00.000Z",
+    });
+    assert.deepEqual(
+      sync.pending(),
+      ["gc.timeboxes"],
+      "ここが空になったら、1文字ごとの全件送信が戻っている",
+    );
+  } finally {
+    sync.unwire();
+  }
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

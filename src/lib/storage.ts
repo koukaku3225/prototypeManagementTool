@@ -122,6 +122,28 @@ export function setSyncHook(fn: ((key: string, value: unknown) => void) | null):
 }
 
 /**
+ * 「いま待っているぶんを、待たずに送り切ってほしい」と同期側へ頼む口。
+ *
+ * onWriteHook で受けた書き込みを、同期側は一部のキー（時間割・習慣）だけ
+ * 1.5秒の末尾デバウンスでまとめている。1文字ごとの全件送信を防ぐための
+ * 仕組みだが、**消す操作だけはまとめてはいけない**。
+ *
+ * 目標を消すと、クラウド側の外部キーは `timeboxes.card_id` を
+ * SET NULL にするだけで行は残す。手元から枠を消した書き込みが
+ * 1.5秒待っている間にタブが閉じると、クラウドに「目標に紐づかない枠」が
+ * 残り、次の取り込みでそれが戻ってくる。ユーザーには
+ * 「目標ごと消したはずの予定が復活した」に見える
+ * （2026-09-11 のコードレビュー指摘1）。
+ *
+ * 消す操作は数が出ないので、まとめる利点がそもそも無い。
+ * storage.ts は同期の中身を知らないままでいたいので、関数で受け取る。
+ */
+let onSyncFlushHook: (() => void) | null = null;
+export function setSyncFlushHook(fn: (() => void) | null): void {
+  onSyncFlushHook = fn;
+}
+
+/**
  * localStorage が丸ごと消えた実例（原因は特定できていないが、実際に起きた）が
  * あったため、ログイン状態に関係なく常時効くフックを別に持つ。
  * ブラウザの外（ローカルディスク）へバックアップするためのもので、
@@ -477,6 +499,12 @@ export function deleteCard(id: string): void {
   // 「どの目標のためだったか」が二度と分からなくなる
   deleteHabitsOfCard(id);
   deleteTimeBoxesOfCard(id);
+  /*
+   * 習慣と時間割の書き込みは同期側でまとめられる（1.5秒待つ）。
+   * 消した直後にタブを閉じるのはごく普通の流れなので、ここだけは待たせない。
+   * setSyncFlushHook の説明を参照。
+   */
+  onSyncFlushHook?.();
 }
 
 /** 空のカード。手入力で最初から埋めるときの土台にする */

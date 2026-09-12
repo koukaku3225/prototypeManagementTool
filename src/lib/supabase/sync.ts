@@ -16,6 +16,7 @@ import {
   KEY,
   readDeviceFlag,
   restoreState,
+  setSyncFlushHook,
   setSyncHook,
   writeDeviceFlag,
 } from "@/lib/storage";
@@ -131,6 +132,13 @@ const pushQueue = createPushQueue({
 export function flushPendingPushes(): void {
   pushQueue.flush();
 }
+
+/*
+ * 消す操作（いまは deleteCard）が、待たずに送り切るために使う。
+ * push が繋がっていなければ待ち行列は空なので、呼ばれても何も起きない。
+ * このモジュールが読み込まれた時点で繋ぐ（enablePush を待つ必要がない）。
+ */
+setSyncFlushHook(() => pushQueue.flush());
 
 /** いま送るのを待っているキー（診断用） */
 export const pendingPushKeys = (): string[] => pushQueue.pendingKeys();

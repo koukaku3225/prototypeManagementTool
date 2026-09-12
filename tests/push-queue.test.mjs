@@ -207,5 +207,21 @@ t("SyncBoot は、閉じる・隠す瞬間に送り切っている", () => {
   assert.ok(src.includes('"pagehide"'), "iOS Safari は unload が来ない");
 });
 
+t("消す操作は、まとめ待ちを解いてから閉じられる", () => {
+  const sync = read("src/lib/supabase/sync.ts");
+  assert.ok(
+    sync.includes("setSyncFlushHook("),
+    "storage 側から待ちを解く口が繋がっていない",
+  );
+  const storage = read("src/lib/storage.ts");
+  const from = storage.indexOf("export function deleteCard(");
+  assert.ok(from > 0, "deleteCard が見つからない");
+  const body = storage.slice(from, storage.indexOf("\n}", from));
+  assert.ok(
+    body.includes("onSyncFlushHook?.()"),
+    "deleteCard が送り切っていない。1.5秒以内に閉じるとクラウドに孤児の枠が残る",
+  );
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
