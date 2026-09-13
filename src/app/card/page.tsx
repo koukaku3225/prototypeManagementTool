@@ -16,6 +16,7 @@ import {
   upsertCard,
   upsertTimeBox,
 } from "@/lib/storage";
+import { readApiResponse } from "@/lib/api-response";
 import { firstStepMeta } from "@/lib/goal-card";
 import { normalizeTime, tomorrow as tomorrowDate } from "@/lib/date";
 import { DEFAULT_DURATION, toMinutes, toTime } from "@/lib/timebox";
@@ -46,6 +47,9 @@ interface Draft {
     valuesAccumulated: string[];
   };
 }
+
+// card はAIの出力。この画面で1項目ずつ ?? で受け止めているので形は緩いまま
+type StructureResponse = { card: any; profile: Draft["profile"]; usage?: Parameters<typeof appendUsage>[0] };
 
 interface RawObstacle {
   text: string;
@@ -95,8 +99,13 @@ export default function CardPage() {
             : null,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.message ?? "整理に失敗しました。");
+      const result = await readApiResponse<StructureResponse>(res);
+      if (!result.ok) {
+        if (result.retryable && !isRetry) return generate(session, true);
+        setError(result.message);
+        return;
+      }
+      const data = result.data;
 
       // M8: 整理は sonnet で出力も長い。1セッションで最も高い1回なので必ず記録する
       if (data.usage) setTranscript(appendUsage(data.usage) ?? session);
@@ -127,9 +136,10 @@ export default function CardPage() {
       setSpecific(d.specificOptions[0] ?? "");
       setMeasurable(d.measurableOptions[0] ?? "");
       setRationale(d.rationaleOptions[0] ?? "");
-    } catch (err) {
+    } catch {
+      // ここに来るのは通信そのものが切れたとき（圏外など）。サーバーには届いていない可能性が高いので1回だけやり直す
       if (!isRetry) return generate(session, true);
-      setError(err instanceof Error ? err.message : "整理に失敗しました。");
+      setError("接続できませんでした。対話は保存されているので、電波の良いところでもう一度試せます。");
     }
   }, []);
 

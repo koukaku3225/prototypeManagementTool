@@ -25,7 +25,12 @@ import { checkRateLimit, getCallerId } from "@/lib/rate-limit";
 import type { CoachId, ChatMessage, StoryMode } from "@/types/goal";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+/*
+ * 整理は応答を最後まで生成してから返すので、生成時間がそのまま待ち時間になる。
+ * 2026-09-14 に実データ（39発言）で測ると75秒（出力6681トークン、うち思考4725）で、
+ * 60秒では Vercel に打ち切られて失敗していた。Pro プランの上限内で余裕を持たせる。
+ */
+export const maxDuration = 300;
 
 /**
  * 対話ログを、整理役に渡す1本の文字列に組み立てる。

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { OptionPicker } from "@/components/OptionPicker";
+import { readApiResponse } from "@/lib/api-response";
 import {
   appendUsage,
   archiveSession,
@@ -15,6 +16,9 @@ import {
   saveProfile,
 } from "@/lib/storage";
 import type { BigStory, Session } from "@/types/goal";
+
+// bigStory はAIの出力。この画面で1項目ずつ ?? で受け止めているので形は緩いまま
+type StructureResponse = { bigStory: any; profile: Draft["profile"]; usage?: Parameters<typeof appendUsage>[0] };
 
 interface Draft {
   horizonYears: number;
@@ -60,8 +64,13 @@ export default function BigStoryGenPage() {
           coachId: session.coachId,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.message ?? "整理に失敗しました。");
+      const result = await readApiResponse<StructureResponse>(res);
+      if (!result.ok) {
+        if (result.retryable && !isRetry) return generate(session, true);
+        setError(result.message);
+        return;
+      }
+      const data = result.data;
 
       // M8: 整理は sonnet で出力も長い。1セッションで最も高い1回なので必ず記録する
       if (data.usage) setTranscript(appendUsage(data.usage) ?? session);
@@ -81,9 +90,10 @@ export default function BigStoryGenPage() {
       setVision(d.visionOptions[0] ?? "");
       setValues(d.valuesOptions[0] ?? "");
       setPosition(d.currentPositionOptions[0] ?? "");
-    } catch (err) {
+    } catch {
+      // ここに来るのは通信そのものが切れたとき（圏外など）。サーバーには届いていない可能性が高いので1回だけやり直す
       if (!isRetry) return generate(session, true);
-      setError(err instanceof Error ? err.message : "整理に失敗しました。");
+      setError("接続できませんでした。対話は保存されているので、電波の良いところでもう一度試せます。");
     }
   }, []);
 
