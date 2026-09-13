@@ -1,10 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { CheckpointEvaluationPanel } from "@/components/CheckpointEvaluationPanel";
 import { EditableField } from "@/components/EditableField";
-import { defaultPeriod, daysLeft, elapsedRatio, isPeriodOver } from "@/lib/checkpoint";
+import {
+  defaultPeriod,
+  daysLeft,
+  elapsedRatio,
+  evaluationSummary,
+  isEvaluated,
+  isPeriodOver,
+} from "@/lib/checkpoint";
 import { deleteCheckpoint, upsertCheckpoint } from "@/lib/storage";
-import type { Checkpoint, CheckpointPeriodKind } from "@/types/goal";
+import type { Checkpoint, CheckpointEvaluation, CheckpointPeriodKind } from "@/types/goal";
 
 /**
  * 目標にぶら下がる中間目標（週/月）の編集。
@@ -17,10 +25,13 @@ import type { Checkpoint, CheckpointPeriodKind } from "@/types/goal";
 export function CheckpointEditor({
   cardId,
   checkpoints,
+  bigStoryValues = [],
   onChange,
 }: {
   cardId: string;
   checkpoints: Checkpoint[];
+  /** 建て方の評価パネルで、価値観チップの選択元にする */
+  bigStoryValues?: string[];
   onChange: () => void;
 }) {
   const [draft, setDraft] = useState<Checkpoint | null>(null);
@@ -176,6 +187,34 @@ export function CheckpointEditor({
                   </button>
                 )}
               </div>
+            )}
+
+            {/*
+              建て方の評価。既定は畳む（更新を専用の儀式にしない、という
+              このエディタ全体の方針を評価パネルにも適用する）。
+              下書きには出さない。評価する対象がまだ保存されていない
+            */}
+            {!isDraft && (
+              <details className="mt-2.5 rounded-lg border border-line-soft bg-surface px-3 py-1.5">
+                <summary className="flex min-h-9 cursor-pointer items-center gap-1.5 text-[11.5px] text-muted">
+                  <span>たて方を評価する</span>
+                  {isEvaluated(c.evaluation) && (
+                    <span className="font-mono text-[10.5px] text-accent">
+                      {evaluationSummary(c.evaluation)}
+                    </span>
+                  )}
+                  {!isEvaluated(c.evaluation) && (
+                    <span className="text-[10.5px]">（任意）</span>
+                  )}
+                </summary>
+                <div className="pb-2.5 pt-1">
+                  <CheckpointEvaluationPanel
+                    evaluation={c.evaluation}
+                    bigStoryValues={bigStoryValues}
+                    onChange={(evaluation: CheckpointEvaluation) => patch(c, { evaluation })}
+                  />
+                </div>
+              </details>
             )}
           </div>
         );

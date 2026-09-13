@@ -12,10 +12,15 @@ import {
   defaultPeriod,
   elapsedRatio,
   emptyCheckpoint,
+  evaluationSummary,
+  isEvaluated,
   isPeriodOver,
   nearestActive,
+  scoreTone,
+  selfConcordanceScore,
   totalDays,
 } from "../src/lib/checkpoint.ts";
+import { emptyCheckpointEvaluation } from "../src/types/goal.ts";
 
 let passed = 0;
 let failed = 0;
@@ -94,6 +99,71 @@ t("emptyCheckpoint は指定した種類の既定期間を持つ", () => {
   assert.equal(c.period.kind, "month");
   assert.equal(c.status, "active");
   assert.equal(c.title, "");
+});
+
+// ------------------------------------- 建て方の評価（セルフコンコーダンス）
+
+const motives = (over = {}) => ({
+  identified: 5,
+  intrinsic: 5,
+  introjected: 5,
+  external: 5,
+  ...over,
+});
+
+t("未評価（すべて中立5）ならスコアは0", () => {
+  assert.equal(selfConcordanceScore(motives()), 0);
+});
+
+t("同一化・内的が高いほどスコアはプラスになる", () => {
+  const m = motives({ identified: 10, intrinsic: 9, introjected: 2, external: 1 });
+  assert.equal(selfConcordanceScore(m), 10 + 9 - (2 + 1));
+});
+
+t("取入的・外的が高いほどスコアはマイナスになる", () => {
+  const m = motives({ identified: 2, intrinsic: 1, introjected: 9, external: 10 });
+  assert.equal(selfConcordanceScore(m), 2 + 1 - (9 + 10));
+});
+
+t("スコアの言い方は±6を境に切り替わる", () => {
+  assert.equal(scoreTone(6).tone, "good");
+  assert.equal(scoreTone(5).tone, "neutral");
+  assert.equal(scoreTone(-5).tone, "neutral");
+  assert.equal(scoreTone(-6).tone, "warn");
+});
+
+t("emptyCheckpointEvaluation は未評価（isEvaluated=false）から始まる", () => {
+  const e = emptyCheckpointEvaluation();
+  assert.equal(isEvaluated(e), false);
+  assert.equal(isEvaluated(null), false);
+  assert.equal(isEvaluated(undefined), false);
+});
+
+t("動機を1つでも中立から動かせば評価済みになる", () => {
+  const e = emptyCheckpointEvaluation();
+  e.motives.intrinsic = 8;
+  assert.equal(isEvaluated(e), true);
+});
+
+t("価値観・仲間・一言のどれかがあれば、動機が中立のままでも評価済みになる", () => {
+  assert.equal(isEvaluated({ ...emptyCheckpointEvaluation(), linkedValues: ["成長"] }), true);
+  assert.equal(isEvaluated({ ...emptyCheckpointEvaluation(), hasBuddy: true }), true);
+  assert.equal(isEvaluated({ ...emptyCheckpointEvaluation(), whyItMatters: "副業の柱にしたい" }), true);
+});
+
+t("要約は触った項目だけを言う", () => {
+  assert.equal(evaluationSummary(emptyCheckpointEvaluation()), "");
+  assert.equal(
+    evaluationSummary({ ...emptyCheckpointEvaluation(), hasBuddy: true }),
+    "仲間あり",
+  );
+  const e = {
+    ...emptyCheckpointEvaluation(),
+    motives: motives({ identified: 8, intrinsic: 8 }),
+    linkedValues: ["成長", "自由"],
+    hasBuddy: true,
+  };
+  assert.equal(evaluationSummary(e), "動機+6・価値観2件・仲間あり");
 });
 
 console.log(`${passed} passed, ${failed} failed`);

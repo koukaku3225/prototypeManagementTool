@@ -1,5 +1,5 @@
 import { addDays, diffDays, startOfWeek, today, toLocalDate } from "@/lib/date";
-import type { Checkpoint, CheckpointPeriodKind } from "@/types/goal";
+import type { Checkpoint, CheckpointEvaluation, CheckpointPeriodKind } from "@/types/goal";
 
 /**
  * 中間目標（週/月）の計算。
@@ -73,4 +73,50 @@ export function emptyCheckpoint(cardId: string, kind: CheckpointPeriodKind = "we
     createdAt: now,
     updatedAt: now,
   };
+}
+
+// ---------------------------------------------------------------- 建て方の評価
+
+/**
+ * セルフコンコーダンススコア。プラスが多いほど、外部の理由より
+ * 自分の内側から来ている目標だと言える（Sheldon & Elliotのモデルに基づく）。
+ */
+export function selfConcordanceScore(m: CheckpointEvaluation["motives"]): number {
+  return m.identified + m.intrinsic - (m.introjected + m.external);
+}
+
+export type ScoreTone = "good" | "neutral" | "warn";
+
+/**
+ * スコアの言い方。責めない文言にする（達成率を追い詰めない、という既存方針）。
+ * ±6 を境目にしているのは、4問中2問が中立(5)から2段階（±2）動けば
+ * 届く値で、「なんとなく偏っている」を拾うにはこのくらいがちょうどよいため。
+ */
+export function scoreTone(score: number): { text: string; tone: ScoreTone } {
+  if (score >= 6) return { text: "自分の内側から来ている目標", tone: "good" };
+  if (score <= -6) return { text: "外側の理由が強めの目標", tone: "warn" };
+  return { text: "半々くらいの目標", tone: "neutral" };
+}
+
+/** 動機の4問のうち、どれか1つでも中立(5)から動いているか */
+function motivesTouched(m: CheckpointEvaluation["motives"]): boolean {
+  return m.identified !== 5 || m.intrinsic !== 5 || m.introjected !== 5 || m.external !== 5;
+}
+
+/** 評価パネルを一度でも触ったか。要約を出すかどうかの判定に使う */
+export function isEvaluated(e: CheckpointEvaluation | null | undefined): e is CheckpointEvaluation {
+  if (!e) return false;
+  return motivesTouched(e.motives) || e.linkedValues.length > 0 || e.hasBuddy || Boolean(e.whyItMatters);
+}
+
+/** 畳んだ見出しに出す1行要約。触っていない項目は言わない */
+export function evaluationSummary(e: CheckpointEvaluation): string {
+  const parts: string[] = [];
+  if (motivesTouched(e.motives)) {
+    const score = selfConcordanceScore(e.motives);
+    parts.push(`動機${score >= 0 ? "+" : ""}${score}`);
+  }
+  if (e.linkedValues.length > 0) parts.push(`価値観${e.linkedValues.length}件`);
+  if (e.hasBuddy) parts.push("仲間あり");
+  return parts.join("・");
 }

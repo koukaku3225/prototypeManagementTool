@@ -444,6 +444,7 @@ export default function GoalDetailPage({
             <CheckpointEditor
               cardId={card.id}
               checkpoints={checkpoints}
+              bigStoryValues={big?.values ?? []}
               onChange={() => {
                 persistDraft();
                 setCheckpoints(checkpointsOfCard(card.id));

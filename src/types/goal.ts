@@ -147,6 +147,51 @@ export interface CheckpointPeriod {
  */
 export type CheckpointStatus = "active" | "done" | "abandoned";
 
+/**
+ * 中期目標の建て方の自己評価。
+ *
+ * 3軸（動機・価値観・人との関わり）は性質が違うので1つの点数に
+ * 合算しない。合算すると「何が良くて何が悪いか」が分からなくなる
+ * （2026-09-13 の知識収集・設計を踏まえた判断）。
+ *
+ * TimeBox.review と同じく、埋め込みにしてある。頻繁に書き換わる
+ * ログではなく、その中期目標のライフサイクルに1つ紐づく自己評価のため。
+ * 任意項目なので、既存のCheckpointにはこのフィールド自体が無い。
+ */
+export interface CheckpointEvaluation {
+  /**
+   * セルフコンコーダンスモデル（Sheldon & Elliot）の4動機。各1〜10。
+   * 未評価は4つとも5（中立）から始めるので、スコアは常に計算できる。
+   */
+  motives: {
+    /** 同一化動機:自分で選んだと言えるか */
+    identified: number;
+    /** 内的動機:やっている最中が楽しいか */
+    intrinsic: number;
+    /** 取入的動機:やらないと落ち着かない、という焦りからではないか */
+    introjected: number;
+    /** 外的動機:誰かの目や見返りが理由になっていないか */
+    external: number;
+  };
+  /** 大きな物語の価値観のうち、この目標が効くと感じるもの */
+  linkedValues: string[];
+  /** なぜそれが大事か。一言でよい */
+  whyItMatters: string;
+  /** 一緒にやる人・報告する相手がいるか */
+  hasBuddy: boolean;
+  buddyNote: string;
+  updatedAt: string;
+}
+
+export const emptyCheckpointEvaluation = (): CheckpointEvaluation => ({
+  motives: { identified: 5, intrinsic: 5, introjected: 5, external: 5 },
+  linkedValues: [],
+  whyItMatters: "",
+  hasBuddy: false,
+  buddyNote: "",
+  updatedAt: new Date().toISOString(),
+});
+
 export interface Checkpoint {
   id: string;
   /** GoalCard.id 必須。孤児の中間目標は作らない（Habit.cardIdと同じ思想） */
@@ -154,6 +199,8 @@ export interface Checkpoint {
   title: string;
   period: CheckpointPeriod;
   status: CheckpointStatus;
+  /** 任意。建て方を評価したときだけ入る */
+  evaluation?: CheckpointEvaluation | null;
   createdAt: string;
   updatedAt: string;
 }
