@@ -4,6 +4,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
+import { CheckpointEditor } from "@/components/CheckpointEditor";
 import { CoachAvatar } from "@/components/CoachAvatar";
 import { EditableField } from "@/components/EditableField";
 import { HabitEditor } from "@/components/HabitEditor";
@@ -12,6 +13,7 @@ import { download, toMarkdown } from "@/lib/export";
 import {
   deleteCard,
   allHabitsOfCard,
+  checkpointsOfCard,
   habitsOfCard,
   timeBoxesOfCard,
   loadBigStory,
@@ -20,7 +22,7 @@ import {
 } from "@/lib/storage";
 import { normalizeTime } from "@/lib/date";
 import { clearPendingCard, deleteImpactText, peekPendingCard } from "@/lib/goal-card";
-import type { BigStory, GoalCard, Obstacle } from "@/types/goal";
+import type { BigStory, Checkpoint, GoalCard, Obstacle } from "@/types/goal";
 import type { Habit } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
 
@@ -48,6 +50,7 @@ export default function GoalDetailPage({
    */
   const [doomedHabits, setDoomedHabits] = useState<Habit[]>([]);
   const [boxes, setBoxes] = useState<TimeBox[]>([]);
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
 
   useEffect(() => {
     /*
@@ -64,6 +67,7 @@ export default function GoalDetailPage({
         (a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start),
       ),
     );
+    setCheckpoints(checkpointsOfCard(id));
     setReady(true);
   }, [id]);
 
@@ -430,6 +434,23 @@ export default function GoalDetailPage({
             </button>
           </Block>
 
+          {/*
+            中間目標（週/月）。仮実装。
+            大きな物語（年単位）と、日々の時間割の間に段が無かった。
+            対話フェーズには組み込まず、ここで手動CRUDだけにしてある
+            （2026-09-13 調査: 対話ターンを増やす変更は過去の反省に逆行するため）。
+          */}
+          <Block title="中間目標（週・月）">
+            <CheckpointEditor
+              cardId={card.id}
+              checkpoints={checkpoints}
+              onChange={() => {
+                persistDraft();
+                setCheckpoints(checkpointsOfCard(card.id));
+              }}
+            />
+          </Block>
+
           {/* 次の一歩 ─ 空でも自分で足せる */}
           {/*
             「次の一歩」（単発タスク）はタイムボックスへ統合した。
@@ -566,6 +587,7 @@ export default function GoalDetailPage({
                   boxes: boxes.length,
                   habits: doomedHabits.length,
                   archivedHabits: doomedHabits.filter((h) => h.archivedAt).length,
+                  checkpoints: checkpoints.length,
                 })}
                 戻せません。
               </p>

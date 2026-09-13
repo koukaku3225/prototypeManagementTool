@@ -3,6 +3,7 @@
 import {
   emptyPhaseCounts,
   type BigStory,
+  type Checkpoint,
   type CoachId,
   type ExperimentVariant,
   type GoalCard,
@@ -499,6 +500,7 @@ export function deleteCard(id: string): void {
   // 「どの目標のためだったか」が二度と分からなくなる
   deleteHabitsOfCard(id);
   deleteTimeBoxesOfCard(id);
+  deleteCheckpointsOfCard(id);
   /*
    * 習慣と時間割の書き込みは同期側でまとめられる（1.5秒待つ）。
    * 消した直後にタブを閉じるのはごく普通の流れなので、ここだけは待たせない。
@@ -779,6 +781,41 @@ export function deleteHabitsOfCard(cardId: string): void {
   write(KEY.habitLogs, loadHabitLogs().filter((l) => !gone.has(l.habitId)));
 }
 
+// ---------------------------------------------------------------- 中間目標（週/月）
+
+export function loadCheckpoints(): Checkpoint[] {
+  ensureMigrated();
+  return read<Checkpoint[]>(KEY.checkpoints) ?? [];
+}
+
+export const checkpointsOfCard = (cardId: string): Checkpoint[] =>
+  loadCheckpoints().filter((c) => c.cardId === cardId);
+
+export function upsertCheckpoint(c: Checkpoint): void {
+  const all = loadCheckpoints();
+  const i = all.findIndex((x) => x.id === c.id);
+  if (i >= 0) all[i] = c;
+  else all.push(c);
+  write(KEY.checkpoints, all);
+}
+
+export function deleteCheckpoint(id: string): void {
+  write(
+    KEY.checkpoints,
+    loadCheckpoints().filter((c) => c.id !== id),
+  );
+}
+
+/** 目標ごと消えるときに、ぶら下がる中間目標も一緒に消す */
+export function deleteCheckpointsOfCard(cardId: string): void {
+  const all = loadCheckpoints();
+  if (!all.some((c) => c.cardId === cardId)) return;
+  write(
+    KEY.checkpoints,
+    all.filter((c) => c.cardId !== cardId),
+  );
+}
+
 export function loadProfile(): UserProfile | null {
   ensureMigrated();
   return read<UserProfile>(KEY.profile);
@@ -897,6 +934,7 @@ const SNAPSHOT_TARGETS = [
   KEY.habits,
   KEY.habitLogs,
   KEY.timeboxes,
+  KEY.checkpoints,
   KEY.running,
   // 版番号も一緒に取る。古いスナップショットを戻したとき、
   // その版から現在の版へ移行をやり直せるようにするため

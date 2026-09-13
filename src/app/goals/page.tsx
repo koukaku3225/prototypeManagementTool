@@ -8,13 +8,16 @@ import { CoachAvatar } from "@/components/CoachAvatar";
 import { WeekShareBar } from "@/components/WeekShareBar";
 import { COACHES } from "@/lib/prompts/coaches";
 import {
+  checkpointsOfCard,
   habitsOfCard,
   loadBigStory,
   loadCards,
   loadTimeBoxes,
   timeBoxesOfCard,
 } from "@/lib/storage";
+import { daysLeft, nearestActive } from "@/lib/checkpoint";
 import { scheduleLabel } from "@/lib/habit";
+import type { Checkpoint } from "@/types/goal";
 import { isThisWeek, today } from "@/lib/date";
 import { humanDuration, shareByCard, totalMinutes, type CardShare } from "@/lib/timebox";
 import { MAX_SMALL_STORIES, type BigStory, type GoalCard } from "@/types/goal";
@@ -64,6 +67,7 @@ function GoalsInner() {
   const [big, setBig] = useState<BigStory | null>(null);
   const [cards, setCards] = useState<GoalCard[]>([]);
   const [habits, setHabits] = useState<Record<string, Habit[]>>({});
+  const [checkpoints, setCheckpoints] = useState<Record<string, Checkpoint[]>>({});
   const [boxes, setBoxes] = useState<Record<string, TimeBox[]>>({});
   const [times, setTimes] = useState<Record<string, CardTime>>({});
   const [shares, setShares] = useState<CardShare[]>([]);
@@ -75,6 +79,7 @@ function GoalsInner() {
     setBig(loadBigStory());
     setCards(cs);
     setHabits(Object.fromEntries(cs.map((c) => [c.id, habitsOfCard(c.id)])));
+    setCheckpoints(Object.fromEntries(cs.map((c) => [c.id, checkpointsOfCard(c.id)])));
     /*
      * これから来る予定を先に。過ぎたものを「次の予定」と呼ばない。
      * toISOString() は UTC なので、JST では朝9時までが前日になり
@@ -230,7 +235,14 @@ function GoalsInner() {
 
             <div className="mt-3">
               {view === "tree" ? (
-                <TreeView cards={active} big={big} habits={habits} boxes={boxes} times={times} />
+                <TreeView
+                  cards={active}
+                  big={big}
+                  habits={habits}
+                  boxes={boxes}
+                  times={times}
+                  checkpoints={checkpoints}
+                />
               ) : (
                 <div className="flex flex-col gap-2">
                   {active.map((c) => (
@@ -240,6 +252,7 @@ function GoalsInner() {
                       habits={habits[c.id] ?? []}
                       boxes={boxes[c.id] ?? []}
                       time={times[c.id]}
+                      checkpoints={checkpoints[c.id] ?? []}
                     />
                   ))}
                 </div>
@@ -309,12 +322,14 @@ function TreeView({
   habits,
   boxes,
   times,
+  checkpoints,
 }: {
   cards: GoalCard[];
   big: BigStory | null;
   habits: Record<string, Habit[]>;
   boxes: Record<string, TimeBox[]>;
   times: Record<string, CardTime>;
+  checkpoints: Record<string, Checkpoint[]>;
 }) {
   const linked = cards.filter((c) => c.bigStoryId && c.bigStoryId === big?.id);
   const orphans = cards.filter((c) => !c.bigStoryId || c.bigStoryId !== big?.id);
@@ -331,6 +346,7 @@ function TreeView({
               habits={habits[c.id] ?? []}
               boxes={boxes[c.id] ?? []}
               time={times[c.id]}
+              checkpoints={checkpoints[c.id] ?? []}
               showRationale
             />
           </div>
@@ -358,6 +374,7 @@ function TreeView({
                 habits={habits[c.id] ?? []}
                 boxes={boxes[c.id] ?? []}
                 time={times[c.id]}
+                checkpoints={checkpoints[c.id] ?? []}
               />
             ))}
           </div>
@@ -372,6 +389,7 @@ function GoalRow({
   habits,
   boxes,
   time,
+  checkpoints = [],
   muted,
   showRationale,
 }: {
@@ -380,12 +398,14 @@ function GoalRow({
   boxes: TimeBox[];
   /** 投下時間。完了済みの一覧では渡さない */
   time?: CardTime;
+  checkpoints?: Checkpoint[];
   muted?: boolean;
   showRationale?: boolean;
 }) {
   const coach = COACHES[card.coachId];
   const title = card.vision.refined || card.vision.raw || "（未記入の目標）";
   const nextBox = boxes[0];
+  const checkpoint = nearestActive(checkpoints);
 
   return (
     <Link
@@ -435,8 +455,19 @@ function GoalRow({
           </p>
         ))}
 
-      {(habits.length > 0 || nextBox) && (
+      {(habits.length > 0 || nextBox || checkpoint) && (
         <dl className="mt-2.5 flex flex-col gap-1 font-mono text-[11px] text-muted">
+          {checkpoint && (
+            <div className="flex gap-1.5">
+              <dt className="shrink-0">
+                {checkpoint.period.kind === "week" ? "今週" : "今月"}
+              </dt>
+              <dd className="min-w-0 flex-1 truncate">
+                {checkpoint.title || "（未記入）"}
+                <span className="ml-1.5 text-accent">残り{daysLeft(checkpoint)}日</span>
+              </dd>
+            </div>
+          )}
           {nextBox && (
             <div className="flex gap-1.5">
               <dt className="shrink-0">次の予定</dt>

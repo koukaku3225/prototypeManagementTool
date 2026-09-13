@@ -196,6 +196,8 @@ export function deleteImpactText(args: {
   habits: number;
   /** そのうち「やめた」習慣の件数 */
   archivedHabits: number;
+  /** 紐づく中間目標（週/月）の件数。省略時は0 */
+  checkpoints?: number;
 }): string | null {
   const parts: string[] = [];
   if (args.boxes > 0) parts.push(`予定${args.boxes}件`);
@@ -206,6 +208,7 @@ export function deleteImpactText(args: {
         : "記録ごと";
     parts.push(`習慣${args.habits}件（${note}）`);
   }
+  if (args.checkpoints) parts.push(`中間目標${args.checkpoints}件`);
   if (parts.length === 0) return null;
   return `紐づく${parts.join("・")}も一緒に消えます。`;
 }

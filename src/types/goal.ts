@@ -118,6 +118,46 @@ export interface BigStory {
   sessionId?: string | null;
 }
 
+/**
+ * 週・月単位の中間目標。
+ *
+ * 大きな物語（1〜10年）とSmall目標（GoalCard、締切は1点のみ）の間に、
+ * 期間を持つ段が無かった。GoalCardに配列で埋め込まないのは、
+ * upsertCard がカード全体を置換するため（AGENTS.md「GoalCardに日々ログを
+ * 埋め込まない」）。BigStory.milestones（物語の中の見出し的な節目、
+ * {label, state}）とは別物なので、名前を分けてある。
+ *
+ * ライフサイクルがGoalCard確定時の一回性の対話と異なり、週〜月ごとに
+ * 随時追加・更新するものなので、対話フェーズには組み込まず手動UIで完結させる。
+ */
+export type CheckpointPeriodKind = "week" | "month";
+
+export interface CheckpointPeriod {
+  kind: CheckpointPeriodKind;
+  /** ローカル日付（YYYY-MM-DD）。含む */
+  start: string;
+  /** ローカル日付（YYYY-MM-DD）。含む */
+  end: string;
+}
+
+/**
+ * 3値なのは、達成/未達成の二値評価がオール・オア・ナッシング思考を招き、
+ * 少しの停滞で放棄されやすいという知見（2026-09-13 調査）を踏まえたため。
+ * "abandoned" は失敗ではなく「今回は終わりにする」という通常の選択として扱う。
+ */
+export type CheckpointStatus = "active" | "done" | "abandoned";
+
+export interface Checkpoint {
+  id: string;
+  /** GoalCard.id 必須。孤児の中間目標は作らない（Habit.cardIdと同じ思想） */
+  cardId: string;
+  title: string;
+  period: CheckpointPeriod;
+  status: CheckpointStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Obstacle {
   id: string;
   text: string; // 「帰宅後に疲れて手が止まる」

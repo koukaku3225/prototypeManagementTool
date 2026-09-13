@@ -342,5 +342,20 @@ t("やめた習慣しか無くても、件数に数える（黙って消さな�
   );
 });
 
+t("中間目標も巻き添えとして言う（省略時は数えない）", () => {
+  assert.equal(
+    deleteImpactText({ boxes: 0, habits: 0, archivedHabits: 0 }),
+    null,
+  );
+  assert.equal(
+    deleteImpactText({ boxes: 0, habits: 0, archivedHabits: 0, checkpoints: 2 }),
+    "紐づく中間目標2件も一緒に消えます。",
+  );
+  assert.equal(
+    deleteImpactText({ boxes: 1, habits: 0, archivedHabits: 0, checkpoints: 2 }),
+    "紐づく予定1件・中間目標2件も一緒に消えます。",
+  );
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -19,6 +19,7 @@ export const KEY = {
   habits: "gc.habits",
   habitLogs: "gc.habitlogs",
   timeboxes: "gc.timeboxes",
+  checkpoints: "gc.checkpoints",
   running: "gc.running",
   schemaVersion: "gc.schemaVersion",
 } as const;
