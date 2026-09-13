@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { addDays } from "@/lib/date";
 import {
-  deleteTimeBox,
+  deleteTimeBoxes,
   loadTimeBoxes,
   readDeviceFlag,
   upsertTimeBox,
@@ -167,7 +167,8 @@ export function CalendarSyncBoot({ onApplied }: { onApplied: () => void }) {
         createdAt: new Date().toISOString(),
       });
     }
-    for (const id of data.deletes ?? []) deleteTimeBox(id);
+    // 1件ずつ消すと、件数ぶんクラウドへの全件送信が走る。まとめて1回にする
+    deleteTimeBoxes(data.deletes ?? []);
 
     const changed =
       (data.upserts?.length ?? 0) +

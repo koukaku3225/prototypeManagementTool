@@ -375,7 +375,7 @@ export default function GoalDetailPage({
               {card.woop.obstacles.map((o, i) => (
                 <div key={o.id} className="border-t border-line-soft pt-3 first:border-0 first:pt-0">
                   <EditableField
-                    label="つまずきそうなこと"
+                    label={`つまずきそうなこと${i + 1}`}
                     value={o.text}
                     multiline
                     onSave={(v) =>
@@ -399,7 +399,7 @@ export default function GoalDetailPage({
                       <div>
                         <p className="mb-1 text-[11.5px] text-muted">もし（きっかけ）</p>
                         <EditableField
-                          label="もし"
+                          label={`つまずき${i + 1}の「もし」`}
                           value={o.plan.if}
                           onSave={(v) =>
                             update(`woop.obstacles[${i}].plan.if`, (c) => ({
@@ -417,7 +417,7 @@ export default function GoalDetailPage({
                       <div>
                         <p className="mb-1 text-[11.5px] text-muted">→ こうする</p>
                         <EditableField
-                          label="こうする"
+                          label={`つまずき${i + 1}の「こうする」`}
                           value={o.plan.then}
                           onSave={(v) =>
                             update(`woop.obstacles[${i}].plan.then`, (c) => ({
@@ -448,6 +448,7 @@ export default function GoalDetailPage({
                         },
                       }))
                     }
+                    aria-label={`つまずきそうなこと${i + 1}を消す`}
                     className="mt-2 text-[11.5px] text-muted underline"
                   >
                     この項目を消す

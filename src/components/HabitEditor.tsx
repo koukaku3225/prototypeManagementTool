@@ -70,10 +70,16 @@ export function HabitEditor({
         </p>
       )}
 
-      {rows.map((h) => (
-        <div key={h.id} className="rounded-lg border border-line bg-paper px-3 py-3">
+      {rows.map((h, i) => (
+        // 2件以上並ぶと「編集」「やめる」が同じ名前になり、読み上げで区別できない
+        <div
+          key={h.id}
+          role="group"
+          aria-label={`習慣${i + 1}`}
+          className="rounded-lg border border-line bg-paper px-3 py-3"
+        >
           <EditableField
-            label="繰り返すこと"
+            label={`習慣${i + 1}の繰り返すこと`}
             value={h.title}
             onSave={(v) => patch(h, { title: v })}
           />
@@ -83,7 +89,7 @@ export function HabitEditor({
               これだけならできる（最小版）
             </p>
             <EditableField
-              label="最小版"
+              label={`習慣${i + 1}の最小版`}
               value={h.minimalTitle}
               onSave={(v) => patch(h, { minimalTitle: v })}
             />
@@ -170,7 +176,7 @@ export function HabitEditor({
                     })
                   }
                   className="w-14 rounded-md border border-line bg-surface px-2 py-1 text-right"
-                  aria-label="週あたりの回数"
+                  aria-label={`習慣${i + 1}の週あたりの回数`}
                 />
                 回
               </label>
@@ -184,7 +190,7 @@ export function HabitEditor({
               value={h.startTime ?? ""}
               onChange={(e) => patch(h, { startTime: normalizeTime(e.target.value) })}
               className="rounded-md border border-line bg-surface px-2 py-1 font-mono text-[12px]"
-              aria-label="開始時刻"
+              aria-label={`習慣${i + 1}の開始時刻`}
             />
             <input
               type="text"
@@ -193,7 +199,7 @@ export function HabitEditor({
               maxLength={100}
               onChange={(e) => patch(h, { where: e.target.value || null })}
               className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2.5 py-1 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
-              aria-label="やる場所"
+              aria-label={`習慣${i + 1}のやる場所`}
             />
             <label className="flex shrink-0 items-center gap-1 font-mono text-[11px] text-muted">
               <input
@@ -205,7 +211,7 @@ export function HabitEditor({
                   patch(h, { estimateMin: Math.max(1, Number(e.target.value) || 1) })
                 }
                 className="w-14 rounded-md border border-line bg-surface px-2 py-1 text-right"
-                aria-label="所要時間（分）"
+                aria-label={`習慣${i + 1}の所要時間（分）`}
               />
               分
             </label>
@@ -219,7 +225,7 @@ export function HabitEditor({
               maxLength={100}
               onChange={(e) => patch(h, { cue: e.target.value || null })}
               className="w-full rounded-md border border-line bg-surface px-2.5 py-1 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
-              aria-label="きっかけ"
+              aria-label={`習慣${i + 1}のきっかけ`}
             />
           </div>
 
@@ -239,6 +245,7 @@ export function HabitEditor({
                       setConfirmArchive(null);
                       onChange();
                     }}
+                    aria-label={`習慣${i + 1}をやめる`}
                     className="rounded-md border border-line px-2.5 py-1 text-[11.5px] text-muted"
                   >
                     やめる
@@ -256,6 +263,7 @@ export function HabitEditor({
               <button
                 type="button"
                 onClick={() => setConfirmArchive(h.id)}
+                aria-label={`習慣${i + 1}をやめる`}
                 className="text-[11.5px] text-muted underline"
               >
                 この習慣をやめる

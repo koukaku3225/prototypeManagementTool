@@ -115,5 +115,41 @@ t("関係のないエラーを外部キー違反と誤判定しない", () => {
   assert.equal(isForeignKeyViolation("23503"), false);
 });
 
+// ---- 取り込み（pull）で、クラウドに乗っていないキーを持ち越す ----
+//
+// gc.checkpoints（中間目標と建て方の評価）は Supabase にテーブルが無い。
+// restoreState() は対象キーを一度すべて消すので、持ち越さないと
+// 「置き換える」を押した瞬間に中間目標が黙って全部消えていた。
+
+const { carryOverOnPull } = await import("../src/lib/supabase/sync-decision.ts");
+
+const cp = (id, cardId) => ({ id, cardId, kind: "week", title: id });
+
+t("端末固有キー（打刻・A/B・版番号）はそのまま持ち越す", () => {
+  const out = carryOverOnPull(
+    { "gc.running": '{"startedAt":"x"}', "gc.variant": '"a"', "gc.schemaVersion": "3", "gc.cards": "[]" },
+    [],
+  );
+  assert.deepEqual(out, { "gc.running": '{"startedAt":"x"}', "gc.variant": '"a"', "gc.schemaVersion": "3" });
+});
+
+t("中間目標は、取り込んだ目標にぶら下がるものだけ持ち越す", () => {
+  const out = carryOverOnPull(
+    { "gc.checkpoints": JSON.stringify([cp("c1", "A"), cp("c2", "B"), cp("c3", "A")]) },
+    ["A"],
+  );
+  assert.deepEqual(JSON.parse(out["gc.checkpoints"]), [cp("c1", "A"), cp("c3", "A")]);
+});
+
+t("持ち越す中間目標が1件も無ければ、キーを置かない", () => {
+  assert.deepEqual(carryOverOnPull({ "gc.checkpoints": JSON.stringify([cp("c1", "B")]) }, ["A"]), {});
+  assert.deepEqual(carryOverOnPull({}, ["A"]), {});
+});
+
+t("中間目標のJSONが壊れていても落ちず、持ち越さない", () => {
+  assert.deepEqual(carryOverOnPull({ "gc.checkpoints": "{壊れた" }, ["A"]), {});
+  assert.deepEqual(carryOverOnPull({ "gc.checkpoints": '{"not":"array"}' }, ["A"]), {});
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

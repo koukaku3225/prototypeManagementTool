@@ -822,5 +822,113 @@ t("ふつうの保存は、いままでどおりまとめ待ちに乗る", () =>
   }
 });
 
+/*
+ * 予定を1件だけ消す（R14）。deleteCard と同じく、消した直後にタブを閉じると
+ * 待っていた枠の削除が届かず、別端末の取り込みでその枠が戻っていた。
+ * ただし Googleカレンダー同期の一括削除では、1件ごとに送り切ると
+ * 消した件数ぶん全件送信が走る。まとめて消す口では1回だけ送る。
+ */
+const box = (id, over = {}) => ({
+  id,
+  date: "2026-09-14",
+  start: "10:00",
+  end: "10:30",
+  title: id,
+  cardId: null,
+  meta: { why: "", obstacle: "", counter: "" },
+  completedAt: null,
+  review: null,
+  createdAt: "2026-09-14T00:00:00.000Z",
+  ...over,
+});
+const B1 = "00000000-0000-4000-8000-000000009301";
+const B2 = "00000000-0000-4000-8000-000000009302";
+const B3 = "00000000-0000-4000-8000-000000009303";
+
+t("deleteTimeBox は、まとめ待ちを残さずに送り切る", () => {
+  reset();
+  S.upsertTimeBox(box(B1));
+  S.upsertTimeBox(box(B2));
+  const sync = wireSync();
+  try {
+    S.deleteTimeBox(B1);
+    assert.deepEqual(sync.pending(), [], "待ちが残っていると、閉じた瞬間に消した枠がクラウドに残る");
+    assert.deepEqual(sync.sent, ["gc.timeboxes"]);
+    assert.deepEqual(S.loadTimeBoxes().map((b) => b.id), [B2]);
+  } finally {
+    sync.unwire();
+  }
+});
+
+t("deleteTimeBoxes は、何件消しても全件送信を1回にする", () => {
+  reset();
+  S.upsertTimeBox(box(B1));
+  S.upsertTimeBox(box(B2));
+  S.upsertTimeBox(box(B3));
+  const sync = wireSync();
+  try {
+    S.deleteTimeBoxes([B1, B3]);
+    assert.deepEqual(sync.pending(), []);
+    assert.equal(
+      sync.sent.filter((k) => k === "gc.timeboxes").length,
+      1,
+      "消した件数ぶん全件送信が走っている",
+    );
+    assert.deepEqual(S.loadTimeBoxes().map((b) => b.id), [B2]);
+  } finally {
+    sync.unwire();
+  }
+});
+
+t("deleteTimeBoxes に空配列を渡したら、何も書かず何も送らない", () => {
+  reset();
+  S.upsertTimeBox(box(B1));
+  const sync = wireSync();
+  try {
+    S.deleteTimeBoxes([]);
+    assert.deepEqual(sync.sent, []);
+    assert.deepEqual(S.loadTimeBoxes().map((b) => b.id), [B1]);
+  } finally {
+    sync.unwire();
+  }
+});
+
+t("deleteTimeBoxes でも、完了済みの習慣枠が付けた記録を取り消す", () => {
+  const at = "2026-09-10T06:05:00.000Z";
+  reset({
+    "gc.habitlogs": JSON.stringify([hlog()]),
+    "gc.timeboxes": JSON.stringify([
+      box(B1, { habitId: "h1", date: "2026-09-10", completedAt: at }),
+      box(B2),
+    ]),
+  });
+  S.deleteTimeBoxes([B1, B2]);
+  assert.deepEqual(S.loadTimeBoxes(), []);
+  assert.deepEqual(S.loadHabitLogs(), [], "枠が付けた「できた」が残って連続日数が水増しされる");
+});
+
+/*
+ * クラウドからの取り込み（pullAll）と同じ手順で、中間目標が残ることを確かめる。
+ * pullAll 本体は Supabase を呼ぶので、組み立て（carryOverOnPull）と
+ * 書き戻し（restoreState）を実物で繋いで再現する。
+ */
+const { carryOverOnPull } = await import("../src/lib/supabase/sync-decision.ts");
+
+t("取り込みで restoreState しても、取り込んだ目標の中間目標は消えない", () => {
+  const cpA = { id: "cpA", cardId: "a", title: "今週", period: { kind: "week", start: "2026-09-14", end: "2026-09-20" }, status: "active", evaluation: null, createdAt: "2026-09-14T00:00:00.000Z", updatedAt: "2026-09-14T00:00:00.000Z" };
+  const cpX = { ...cpA, id: "cpX", cardId: "x" };
+  reset({
+    "gc.cards": JSON.stringify([card("a"), card("x")]),
+    "gc.checkpoints": JSON.stringify([cpA, cpX]),
+  });
+  S.loadCards(); // 移行を済ませ、版番号を立てる
+  // クラウドには a だけがある
+  const data = carryOverOnPull(S.captureState(), ["a"]);
+  data["gc.cards"] = JSON.stringify([card("a")]);
+  assert.equal(S.restoreState(data), true);
+  assert.deepEqual(S.loadCheckpoints().map((c) => c.id), ["cpA"], "中間目標が取り込みで消えている");
+  assert.equal(parsed("gc.schemaVersion"), S.SCHEMA_VERSION);
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

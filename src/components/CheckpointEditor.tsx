@@ -70,14 +70,21 @@ export function CheckpointEditor({
         </p>
       )}
 
-      {sorted.map((c) => {
+      {sorted.map((c, i) => {
+        // 2件以上並ぶと「編集」「消す」が同じ名前になり、読み上げで区別できない
+        const name = `中間目標${i + 1}`;
         const over = isPeriodOver(c);
         const left = daysLeft(c);
         const ratio = Math.round(elapsedRatio(c) * 100);
         const isDraft = draft?.id === c.id;
 
         return (
-          <div key={c.id} className="rounded-lg border border-line bg-paper px-3 py-3">
+          <div
+            key={c.id}
+            role="group"
+            aria-label={name}
+            className="rounded-lg border border-line bg-paper px-3 py-3"
+          >
             <div className="flex items-center gap-1.5">
               <Kind on={c.period.kind === "week"} onClick={() => patch(c, { period: { kind: "week", ...defaultPeriod("week") } })}>
                 週
@@ -97,7 +104,7 @@ export function CheckpointEditor({
                 textareaが出て使いにくかった（2026-09-13 実機確認）。
               */}
               <EditableField
-                label="今週・今月やること"
+                label={`${name}の今週・今月やること`}
                 value={c.title}
                 onSave={(v) => patch(c, { title: v })}
               />
@@ -132,6 +139,7 @@ export function CheckpointEditor({
                     <button
                       type="button"
                       onClick={() => patch(c, { status: "done" })}
+                      aria-label={`${name}を完了にする`}
                       className="text-[11.5px] text-accent underline"
                     >
                       完了にする
@@ -139,6 +147,7 @@ export function CheckpointEditor({
                     <button
                       type="button"
                       onClick={() => patch(c, { status: "abandoned" })}
+                      aria-label={`${name}を今回は終わりにする`}
                       className="text-[11.5px] text-muted underline"
                     >
                       今回は終わりにする
@@ -149,6 +158,7 @@ export function CheckpointEditor({
                   <button
                     type="button"
                     onClick={() => patch(c, { status: "active" })}
+                    aria-label={`${name}を続きから戻す`}
                     className="text-[11.5px] text-muted underline"
                   >
                     続きから戻す
@@ -165,6 +175,7 @@ export function CheckpointEditor({
                         setConfirmDelete(null);
                         onChange();
                       }}
+                      aria-label={`${name}を消す`}
                       className="text-accent underline"
                     >
                       消す
@@ -181,6 +192,7 @@ export function CheckpointEditor({
                   <button
                     type="button"
                     onClick={() => setConfirmDelete(c.id)}
+                    aria-label={`${name}を消す`}
                     className="ml-auto text-[11.5px] text-muted underline"
                   >
                     消す

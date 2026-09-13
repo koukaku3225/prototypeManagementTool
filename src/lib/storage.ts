@@ -678,16 +678,34 @@ export function upsertTimeBox(b: TimeBox): boolean {
 }
 
 export function deleteTimeBox(id: string): void {
+  deleteTimeBoxes([id]);
+}
+
+/**
+ * 予定をまとめて消す。書き込みも送り切りも1回だけ。
+ *
+ * 消した直後にタブを閉じると、まとめ待ち（1.5秒）の削除が届かず、
+ * 別端末の取り込みでその枠が戻ってくる。deleteCard() と同じ理由で待ちを解く
+ * （setSyncFlushHook の説明を参照）。
+ * Googleカレンダー同期の一括削除を deleteTimeBox() の繰り返しにすると、
+ * 消した件数ぶん全件送信が走るので、そちらはこの関数を使う。
+ */
+export function deleteTimeBoxes(ids: readonly string[]): void {
+  if (ids.length === 0) return;
+  const targets = new Set(ids);
   const boxes = loadTimeBoxes();
-  const gone = boxes.find((b) => b.id === id);
-  // 完了済みの習慣枠を消すときは、その枠が自動で付けた記録も取り消す
-  if (gone?.habitId && gone.completedAt) {
-    clearHabitLogFromBox(gone.habitId, gone.date, gone.completedAt);
+  for (const gone of boxes) {
+    if (!targets.has(gone.id)) continue;
+    // 完了済みの習慣枠を消すときは、その枠が自動で付けた記録も取り消す
+    if (gone.habitId && gone.completedAt) {
+      clearHabitLogFromBox(gone.habitId, gone.date, gone.completedAt);
+    }
   }
   write(
     KEY.timeboxes,
-    boxes.filter((b) => b.id !== id),
+    boxes.filter((b) => !targets.has(b.id)),
   );
+  onSyncFlushHook?.();
 }
 
 /** 目標ごと消えるときは、その目標の枠も消す */

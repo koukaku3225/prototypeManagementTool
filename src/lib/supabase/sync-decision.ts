@@ -7,6 +7,8 @@
  * 純粋関数にしてあるので、tests/sync-decision.test.mjs が全通り総当たりできる。
  */
 
+import { DEVICE_LOCAL_KEYS, KEY } from "@/lib/storage-keys";
+
 export type SyncDirection =
   /** クラウドを正として、この端末を上書きする */
   | "pull"
@@ -91,4 +93,47 @@ export function isForeignKeyViolation(err: unknown): boolean {
     typeof e.message === "string" &&
     e.message.includes("foreign key constraint")
   );
+}
+
+/**
+ * クラウドから取り込む（pull）とき、クラウドに対応するテーブルが無いので
+ * この端末の値をそのまま持ち越すキーを選ぶ。
+ *
+ * restoreState() は対象キーを一度すべて消してから詰め直す。ここで拾わないと、
+ * 取り込んだ瞬間に次のものが無警告で消える。
+ * - 端末固有キー（走っている打刻・A/Bの割り当て・移行の版）
+ * - 中間目標 `gc.checkpoints`（建て方の評価を含む）。まだ Supabase 同期が無い。
+ *   「置き換える」を押すと、ログイン前に作った中間目標が全部消えていた
+ *
+ * 中間目標は、取り込んだ目標（pulledCardIds）にぶら下がるものだけ残す。
+ * 親の目標がクラウドに無ければ画面のどこからも辿れない孤児になるため
+ * （deleteCard() が中間目標も一緒に消すのと同じ考え）。
+ */
+export function carryOverOnPull(
+  local: Record<string, string | undefined>,
+  pulledCardIds: readonly string[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of DEVICE_LOCAL_KEYS) {
+    const v = local[k];
+    if (v !== undefined) out[k] = v;
+  }
+
+  const raw = local[KEY.checkpoints];
+  if (raw) {
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = null;
+    }
+    if (Array.isArray(parsed)) {
+      const ids = new Set(pulledCardIds);
+      const kept = parsed.filter(
+        (c) => !!c && typeof c === "object" && ids.has((c as { cardId?: unknown }).cardId as string),
+      );
+      if (kept.length > 0) out[KEY.checkpoints] = JSON.stringify(kept);
+    }
+  }
+  return out;
 }

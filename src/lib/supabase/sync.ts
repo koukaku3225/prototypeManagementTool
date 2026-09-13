@@ -21,7 +21,7 @@ import {
   writeDeviceFlag,
 } from "@/lib/storage";
 import { createPushQueue } from "./push-queue";
-import { decideSyncDirection, isForeignKeyViolation } from "./sync-decision";
+import { carryOverOnPull, decideSyncDirection, isForeignKeyViolation } from "./sync-decision";
 import { isValidUuid } from "@/lib/uuid";
 import { supabaseBrowser } from "./client";
 import {
@@ -563,6 +563,7 @@ export async function backfillAll(): Promise<{
  *
  * gc.running / gc.variant / gc.schemaVersion は Supabase に対応するテーブルを
  * 持たない、この端末だけの関心事（走っている打刻・A/Bの割り当て・移行の版）。
+ * gc.checkpoints（中間目標）もまだテーブルが無い。carryOverOnPull() を参照。
  * 何もしないと restoreState() の remove() だけが効いて、これらが
  * 無警告で消える（実際に「走行中の打刻が消える」形で見つかった不具合）。
  * クラウド由来のデータを詰める前に、いまの値をそのまま持ち越しておく。
@@ -595,15 +596,16 @@ export async function pullAll(): Promise<boolean> {
     const currentRow = sessionRows.find((r) => r.completed_at === null);
     const archiveRows = sessionRows.filter((r) => r !== currentRow);
 
-    // この端末だけの値を、クラウド由来のデータで上書きされる前に確保しておく
-    const local = captureState();
-    const data: Record<string, string> = {};
-    for (const k of [KEY.running, KEY.variant, KEY.schemaVersion]) {
-      if (local[k] !== undefined) data[k] = local[k];
-    }
+    // この端末だけの値（とクラウドに乗っていない中間目標）を、
+    // クラウド由来のデータで上書きされる前に確保しておく
+    const pulledCards: GoalCard[] = (cards.data ?? []).map(goalCardFromRow);
+    const data: Record<string, string> = carryOverOnPull(
+      captureState(),
+      pulledCards.map((c) => c.id),
+    );
     if (big.data) data[KEY.bigstory] = JSON.stringify(bigStoryFromRow(big.data));
     if (profile.data) data[KEY.profile] = JSON.stringify(profileFromRow(profile.data));
-    data[KEY.cards] = JSON.stringify((cards.data ?? []).map(goalCardFromRow));
+    data[KEY.cards] = JSON.stringify(pulledCards);
     data[KEY.habits] = JSON.stringify((habits.data ?? []).map(habitFromRow));
     data[KEY.habitLogs] = JSON.stringify((logs.data ?? []).map(habitLogFromRow));
     data[KEY.timeboxes] = JSON.stringify((boxes.data ?? []).map(timeBoxFromRow));
