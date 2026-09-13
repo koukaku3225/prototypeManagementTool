@@ -708,6 +708,28 @@ export function deleteTimeBoxes(ids: readonly string[]): void {
   onSyncFlushHook?.();
 }
 
+/**
+ * 消した枠を元に戻す（時間割の「取り消し」用）。deleteTimeBox(es) の逆。
+ *
+ * 完了済みの習慣枠を消すと、その枠が付けた記録（done）も一緒に消える
+ * （上の deleteTimeBoxes を参照）。ここを使わず upsertTimeBox() だけで
+ * 枠を戻すと、枠は完了済みに見えるのに記録は戻らないままになり、
+ * 連続日数と達成率に反映されない不整合が残る（2026-09-14 発見）。
+ */
+export function undoDeleteTimeBox(b: TimeBox): void {
+  upsertTimeBox(b);
+  if (b.habitId && b.completedAt) {
+    setHabitLog({
+      habitId: b.habitId,
+      date: b.date,
+      state: "done",
+      at: b.completedAt,
+      note: null,
+      mood: null,
+    });
+  }
+}
+
 /** 目標ごと消えるときは、その目標の枠も消す */
 export function deleteTimeBoxesOfCard(cardId: string): void {
   write(

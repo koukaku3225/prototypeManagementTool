@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { OptionPicker } from "@/components/OptionPicker";
+import { StructuringWait } from "@/components/StructuringWait";
 import { readApiResponse } from "@/lib/api-response";
 import {
   appendUsage,
@@ -172,25 +173,7 @@ export default function BigStoryGenPage() {
   }
 
   if (!draft) {
-    return (
-      <>
-        <AppHeader locked lockedNote="整理中は移動できません" />
-        <main className="phone flex flex-1 flex-col items-center justify-center gap-3 px-5">
-          <div className="flex gap-1.5" aria-hidden="true">
-            {[0, 1, 2].map((i) => (
-              <span
-                key={i}
-                className="h-2 w-2 animate-pulse rounded-full bg-accent"
-                style={{ animationDelay: `${i * 160}ms` }}
-              />
-            ))}
-          </div>
-          <p className="text-[13px] text-muted" aria-live="polite">
-            あなたの言葉を整理しています…
-          </p>
-        </main>
-      </>
-    );
+    return <StructuringWait />;
   }
 
   const ready = vision.trim() && values.trim() && position.trim();

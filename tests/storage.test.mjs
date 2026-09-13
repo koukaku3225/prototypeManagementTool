@@ -690,6 +690,77 @@ t("deleteTimeBox は、習慣に紐づかない完了済みの枠では記録を
   assert.equal(S.loadHabitLogs().length, 1);
 });
 
+const habitBox = (over = {}) => ({
+  id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a14",
+  date: "2026-09-10",
+  start: "06:00",
+  end: "06:30",
+  title: "腕立て",
+  cardId: "c1",
+  habitId: "h1",
+  meta: { why: "", obstacle: "", counter: "" },
+  completedAt: "2026-09-10T06:05:00.000Z",
+  review: null,
+  createdAt: "2026-09-10T00:00:00.000Z",
+  ...over,
+});
+
+t("undoDeleteTimeBox は、消した完了済み習慣枠を戻すと記録も戻す（時間割の取り消し）", () => {
+  const box = habitBox();
+  reset({
+    "gc.schemaVersion": String(S.SCHEMA_VERSION),
+    "gc.habitlogs": JSON.stringify([hlog({ at: box.completedAt })]),
+    "gc.timeboxes": JSON.stringify([box]),
+  });
+  S.deleteTimeBox(box.id);
+  assert.deepEqual(S.loadHabitLogs(), [], "消した時点で記録も消えていない");
+
+  S.undoDeleteTimeBox(box);
+  assert.deepEqual(S.loadTimeBoxes().map((b) => b.id), [box.id], "枠が戻っていない");
+  const logs = S.loadHabitLogs();
+  assert.equal(logs.length, 1, "記録が戻っていない");
+  assert.equal(logs[0].state, "done");
+  assert.equal(logs[0].at, box.completedAt);
+});
+
+t("undoDeleteTimeBox は、upsertTimeBox だけでは記録が戻らないことの対比（回帰確認）", () => {
+  const box = habitBox();
+  reset({
+    "gc.schemaVersion": String(S.SCHEMA_VERSION),
+    "gc.habitlogs": JSON.stringify([hlog({ at: box.completedAt })]),
+    "gc.timeboxes": JSON.stringify([box]),
+  });
+  S.deleteTimeBox(box.id);
+  S.upsertTimeBox(box);
+  assert.deepEqual(
+    S.loadHabitLogs(),
+    [],
+    "upsertTimeBox だけでは記録は戻らない（修正前の挙動）",
+  );
+});
+
+t("undoDeleteTimeBox は、未完了だった枠を戻しても記録に触れない", () => {
+  const box = habitBox({ completedAt: null });
+  reset({
+    "gc.schemaVersion": String(S.SCHEMA_VERSION),
+    "gc.habitlogs": JSON.stringify([]),
+    "gc.timeboxes": JSON.stringify([]),
+  });
+  S.undoDeleteTimeBox(box);
+  assert.deepEqual(S.loadHabitLogs(), []);
+});
+
+t("undoDeleteTimeBox は、習慣に紐づかない枠では記録に触れない", () => {
+  const box = habitBox({ habitId: undefined });
+  reset({
+    "gc.schemaVersion": String(S.SCHEMA_VERSION),
+    "gc.habitlogs": JSON.stringify([]),
+    "gc.timeboxes": JSON.stringify([]),
+  });
+  S.undoDeleteTimeBox(box);
+  assert.deepEqual(S.loadHabitLogs(), []);
+});
+
 // ---------------------------------------------------------------- 消したものを待たせない
 
 /*

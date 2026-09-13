@@ -19,6 +19,7 @@ import {
   loadTimeBoxes,
   setHabitLog,
   timeBoxesOn,
+  undoDeleteTimeBox,
   upsertTimeBox,
 } from "@/lib/storage";
 import { habitBoxesOn, habitsOfActiveCards, isGhost, materializeHabitBox } from "@/lib/habit-plan";
@@ -295,7 +296,10 @@ export default function PlanPage() {
       setUndo({
         message: `「${before.title || "（未記入）"}」を消しました`,
         revert: () => {
-          upsertTimeBox(before);
+          // 完了済みの習慣枠を消すと記録も一緒に消える（deleteTimeBox）。
+          // upsertTimeBox() だけで戻すと、枠は完了済みに見えるのに
+          // 記録が戻らない不整合が残るので、対になる関数を使う
+          undoDeleteTimeBox(before);
           reload(date);
         },
       });
