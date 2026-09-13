@@ -229,10 +229,10 @@ export default function StoryPage() {
               </ul>
             )}
             <Link
-              href="/goals?view=tree"
+              href="/goals?view=forest"
               className="mt-3 inline-block text-[12px] text-muted underline"
             >
-              ツリーで見る →
+              森で見る →
             </Link>
           </Block>
         </div>

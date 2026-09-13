@@ -141,3 +141,46 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * 目標の森（components/GoalForest.tsx）。
+ * 空と地面はアプリの藍と山吹から少し離して、自然物の色にしてある。
+ * 価値観の色だけは lib/forest-draw.ts の VALUE_COLORS で持つ（添字で引くため）。
+ */
+:root {
+  --tree-sky-top: #d6e6ec; --tree-sky-bot: #f4f1e1; --tree-sun: #fff0be; --tree-hill: #c9d9bd;
+  --tree-soil1: #6a5240; --tree-soil2: #3b2d23; --tree-soil-ink: #f2e7d8; --tree-grass: #5c8c45;
+  --tree-bark1: #4f3a2d; --tree-bark2: #80634f; --tree-barkhi: #b0937a; --tree-canopy: #4f7f3f;
+  --tree-halo: #f4f1e1; --tree-bud: #c4952e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --tree-sky-top: #0a1420; --tree-sky-bot: #1b251d; --tree-sun: #3b3a22; --tree-hill: #17251c;
+    --tree-soil1: #2e241c; --tree-soil2: #16110d; --tree-soil-ink: #e6d8c6; --tree-grass: #4e7b3b;
+    --tree-bark1: #453328; --tree-bark2: #6f5646; --tree-barkhi: #9d8069; --tree-canopy: #2f5a2a;
+    --tree-halo: #1b251d; --tree-bud: #e2b758;
+  }
+}
+.goal-forest .gf-hill { fill: var(--tree-hill); }
+.goal-forest .gf-groundline { fill: none; stroke: var(--tree-grass); stroke-width: 2.5; }
+.goal-forest .gf-grass { fill: none; stroke: var(--tree-grass); stroke-width: 1.2; stroke-linecap: round; }
+.goal-forest .gf-mycel { fill: none; stroke-width: 1.3; opacity: 0.45; }
+.goal-forest .gf-sap { fill: none; stroke-width: 2.3; stroke-linecap: round; stroke-dasharray: 3 7; animation: gf-flow 1.1s linear infinite; }
+.goal-forest .gf-node { stroke: var(--tree-soil2); stroke-width: 1.5; }
+.goal-forest .gf-node.gf-lit { stroke: var(--tree-soil-ink); stroke-width: 2; }
+.goal-forest .gf-rootlab { font-size: 10.5px; fill: var(--tree-soil-ink); opacity: 0.72; }
+.goal-forest .gf-rootlab.gf-lit { opacity: 1; font-weight: 700; }
+.goal-forest .gf-fallen { fill: #b8864a; }
+.goal-forest .gf-canopy { fill: var(--tree-canopy); opacity: 0.18; }
+.goal-forest .gf-barkhi { fill: none; stroke: var(--tree-barkhi); opacity: 0.4; stroke-linecap: round; stroke-linejoin: round; }
+.goal-forest .gf-bud { fill: var(--tree-halo); stroke: var(--tree-bud); }
+.goal-forest .gf-petal { fill: #e793a2; }
+.goal-forest .gf-pistil { fill: #f2c14e; }
+.goal-forest .gf-stem { stroke: #5b4334; stroke-width: 1.3; fill: none; }
+.goal-forest .gf-fruit { fill: #de7f37; }
+.goal-forest .gf-fruit-hi { fill: #ffffff; opacity: 0.55; }
+.goal-forest .gf-hit { cursor: pointer; outline: none; }
+.goal-forest .gf-treelab { font-size: 11px; fill: var(--tree-soil-ink); }
+.goal-forest .gf-treelab.gf-lit { font-weight: 700; fill: var(--tree-bud); }
+.goal-forest .gf-hit:focus-visible rect { stroke: var(--tree-bud); stroke-width: 2; stroke-dasharray: 4 3; }
+@keyframes gf-flow { to { stroke-dashoffset: -20; } }

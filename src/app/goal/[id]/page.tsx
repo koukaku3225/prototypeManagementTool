@@ -1,12 +1,13 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { CheckpointEditor } from "@/components/CheckpointEditor";
 import { CoachAvatar } from "@/components/CoachAvatar";
 import { EditableField } from "@/components/EditableField";
+import { GoalForest } from "@/components/GoalForest";
 import { HabitEditor } from "@/components/HabitEditor";
 import { COACHES } from "@/lib/prompts/coaches";
 import { download, toMarkdown } from "@/lib/export";
@@ -15,15 +16,17 @@ import {
   allHabitsOfCard,
   checkpointsOfCard,
   habitsOfCard,
+  loadHabitLogs,
   timeBoxesOfCard,
   loadBigStory,
   loadCardById,
   upsertCard,
 } from "@/lib/storage";
-import { normalizeTime } from "@/lib/date";
+import { normalizeTime, today } from "@/lib/date";
+import { buildForest } from "@/lib/forest";
 import { clearPendingCard, deleteImpactText, peekPendingCard } from "@/lib/goal-card";
 import type { BigStory, Checkpoint, GoalCard, Obstacle } from "@/types/goal";
-import type { Habit } from "@/types/behavior";
+import type { Habit, HabitLog } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
 
 /**
@@ -51,6 +54,7 @@ export default function GoalDetailPage({
   const [doomedHabits, setDoomedHabits] = useState<Habit[]>([]);
   const [boxes, setBoxes] = useState<TimeBox[]>([]);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
+  const [logs, setLogs] = useState<HabitLog[]>([]);
 
   useEffect(() => {
     /*
@@ -68,6 +72,7 @@ export default function GoalDetailPage({
       ),
     );
     setCheckpoints(checkpointsOfCard(id));
+    setLogs(loadHabitLogs());
     setReady(true);
   }, [id]);
 
@@ -87,6 +92,20 @@ export default function GoalDetailPage({
       });
     },
     [],
+  );
+
+  // この目標だけの木。中間目標・習慣を編集すると、その場で枝ぶりが変わる
+  const tree = useMemo(
+    () =>
+      buildForest({
+        values: big?.values ?? [],
+        cards: card ? [card] : [],
+        checkpoints: card ? { [card.id]: checkpoints } : {},
+        habits: card ? { [card.id]: habits } : {},
+        logs,
+        today: today(),
+      }),
+    [big, card, checkpoints, habits, logs],
   );
 
   if (!ready) {
@@ -170,6 +189,17 @@ export default function GoalDetailPage({
             </span>
           )}
         </div>
+
+        <figure className="mt-4 overflow-hidden rounded-xl border border-line">
+          <GoalForest
+            model={tree}
+            single
+            label="この目標の木。小枝が中間目標、葉が習慣、地下の根が価値観"
+          />
+          <figcaption className="border-t border-line bg-surface px-3 py-2 text-[11.5px] leading-relaxed text-muted">
+            小枝＝中間目標（芽→花、終わりにしたら落ち葉） ・ 葉＝習慣の続き具合 ・ 根＝中間目標の評価で選んだ価値観
+          </figcaption>
+        </figure>
 
         <div className="mt-4 flex flex-col gap-3">
           {/*

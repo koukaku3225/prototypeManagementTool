@@ -5,5 +5,5 @@ import { redirect } from "next/navigation";
  * 古いリンク・ブックマークを拾うためのリダイレクト。
  */
 export default function LegacyTree() {
-  redirect("/goals?view=tree");
+  redirect("/goals?view=forest");
 }

@@ -1,10 +1,11 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { CoachAvatar } from "@/components/CoachAvatar";
+import { GoalForest } from "@/components/GoalForest";
 import { WeekShareBar } from "@/components/WeekShareBar";
 import { COACHES } from "@/lib/prompts/coaches";
 import {
@@ -12,16 +13,19 @@ import {
   habitsOfCard,
   loadBigStory,
   loadCards,
+  loadHabitLogs,
   loadTimeBoxes,
   timeBoxesOfCard,
 } from "@/lib/storage";
 import { daysLeft, nearestActive } from "@/lib/checkpoint";
+import { buildForest, treeCounts, type ForestModel, type ForestTree } from "@/lib/forest";
+import { VALUE_COLORS } from "@/lib/forest-draw";
 import { scheduleLabel } from "@/lib/habit";
 import type { Checkpoint } from "@/types/goal";
 import { isThisWeek, today } from "@/lib/date";
 import { humanDuration, shareByCard, totalMinutes, type CardShare } from "@/lib/timebox";
 import { MAX_SMALL_STORIES, type BigStory, type GoalCard } from "@/types/goal";
-import type { Habit } from "@/types/behavior";
+import type { Habit, HabitLog } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
 
 /** 目標1件ぶんの投下時間。今週と、始めてからの合計 */
@@ -42,7 +46,7 @@ interface CardTime {
  * この画面の「幹」として置く。目標が物語にぶら下がる、という
  * このアプリの中心概念がそのまま画面に出る。
  */
-type View = "list" | "tree";
+type View = "list" | "forest";
 
 export default function GoalsPage() {
   return (
@@ -62,12 +66,15 @@ export default function GoalsPage() {
 function GoalsInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const view: View = params.get("view") === "tree" ? "tree" : "list";
+  // 旧「ツリー」のURL（?view=tree）も森で開く
+  const v = params.get("view");
+  const view: View = v === "forest" || v === "tree" ? "forest" : "list";
 
   const [big, setBig] = useState<BigStory | null>(null);
   const [cards, setCards] = useState<GoalCard[]>([]);
   const [habits, setHabits] = useState<Record<string, Habit[]>>({});
   const [checkpoints, setCheckpoints] = useState<Record<string, Checkpoint[]>>({});
+  const [logs, setLogs] = useState<HabitLog[]>([]);
   const [boxes, setBoxes] = useState<Record<string, TimeBox[]>>({});
   const [times, setTimes] = useState<Record<string, CardTime>>({});
   const [shares, setShares] = useState<CardShare[]>([]);
@@ -80,6 +87,7 @@ function GoalsInner() {
     setCards(cs);
     setHabits(Object.fromEntries(cs.map((c) => [c.id, habitsOfCard(c.id)])));
     setCheckpoints(Object.fromEntries(cs.map((c) => [c.id, checkpointsOfCard(c.id)])));
+    setLogs(loadHabitLogs());
     /*
      * これから来る予定を先に。過ぎたものを「次の予定」と呼ばない。
      * toISOString() は UTC なので、JST では朝9時までが前日になり
@@ -124,8 +132,21 @@ function GoalsInner() {
 
   function setView(v: View) {
     // URLに残す。表示の切り替えは戻るで元に戻せたほうがよい
-    router.replace(v === "tree" ? "/goals?view=tree" : "/goals");
+    router.replace(v === "forest" ? "/goals?view=forest" : "/goals");
   }
+
+  const forest = useMemo(
+    () =>
+      buildForest({
+        values: big?.values ?? [],
+        cards,
+        checkpoints,
+        habits,
+        logs,
+        today: today(),
+      }),
+    [big, cards, checkpoints, habits, logs],
+  );
 
   if (!ready) {
     return (
@@ -176,7 +197,7 @@ function GoalsInner() {
               <Link
                 href="/story"
                 className={`block rounded-xl bg-accent-soft px-4 py-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
-                  view === "tree" ? "border-2 border-accent-line" : "border border-accent-line"
+                  view === "forest" ? "border-2 border-accent-line" : "border border-accent-line"
                 }`}
               >
                 <div className="flex items-start gap-3">
@@ -228,16 +249,16 @@ function GoalsInner() {
               <ViewButton on={view === "list"} onClick={() => setView("list")}>
                 リスト
               </ViewButton>
-              <ViewButton on={view === "tree"} onClick={() => setView("tree")}>
-                ツリー
+              <ViewButton on={view === "forest"} onClick={() => setView("forest")}>
+                森
               </ViewButton>
             </div>
 
             <div className="mt-3">
-              {view === "tree" ? (
-                <TreeView
-                  cards={active}
-                  big={big}
+              {view === "forest" ? (
+                <ForestView
+                  model={forest}
+                  cards={cards}
                   habits={habits}
                   boxes={boxes}
                   times={times}
@@ -315,72 +336,117 @@ function ViewButton({
   );
 }
 
-/** ツリー表示。幹は上に出ているので、ここは枝だけ描く */
-function TreeView({
+/**
+ * 森の表示。木を押すと選ぶだけで、画面は移らない（押し間違いで詳細へ飛ばない）。
+ * 選んだ木の中身と、詳細への入口は下のパネルに出す。
+ */
+function ForestView({
+  model,
   cards,
-  big,
   habits,
   boxes,
   times,
   checkpoints,
 }: {
+  model: ForestModel;
   cards: GoalCard[];
-  big: BigStory | null;
   habits: Record<string, Habit[]>;
   boxes: Record<string, TimeBox[]>;
   times: Record<string, CardTime>;
   checkpoints: Record<string, Checkpoint[]>;
 }) {
-  const linked = cards.filter((c) => c.bigStoryId && c.bigStoryId === big?.id);
-  const orphans = cards.filter((c) => !c.bigStoryId || c.bigStoryId !== big?.id);
+  const [picked, setPicked] = useState<string | null>(null);
+  const tree = model.trees.find((t) => t.cardId === picked) ?? model.trees[0] ?? null;
+  const card = tree ? cards.find((c) => c.id === tree.cardId) ?? null : null;
 
   return (
     <>
-      <div className="relative pl-5">
-        <span aria-hidden="true" className="absolute left-0 top-0 h-full w-px bg-line" />
-        {linked.map((c) => (
-          <div key={c.id} className="relative py-1.5">
-            <span aria-hidden="true" className="absolute -left-5 top-1/2 h-px w-5 bg-line" />
-            <GoalRow
-              card={c}
-              habits={habits[c.id] ?? []}
-              boxes={boxes[c.id] ?? []}
-              time={times[c.id]}
-              checkpoints={checkpoints[c.id] ?? []}
-              showRationale
-            />
-          </div>
-        ))}
-        {linked.length === 0 && big && (
-          <p className="py-3 pl-3 text-[12.5px] leading-relaxed text-muted">
-            この物語にぶら下がる目標はまだありません。
-          </p>
-        )}
+      <div className="overflow-hidden rounded-xl border border-line">
+        <GoalForest
+          model={model}
+          selectedId={tree?.cardId ?? null}
+          onSelect={setPicked}
+          label="目標の森。木1本が目標、小枝が中間目標、葉が習慣、地下の根が価値観"
+        />
       </div>
 
-      {orphans.length > 0 && (
-        <section className="mt-5">
-          <h2 className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
-            物語に紐づいていない目標
-          </h2>
-          <p className="mt-1 text-[12px] leading-relaxed text-muted">
-            詳細画面から大きな物語に紐づけられます。
-          </p>
-          <div className="mt-2 flex flex-col gap-2">
-            {orphans.map((c) => (
-              <GoalRow
-                key={c.id}
-                card={c}
-                habits={habits[c.id] ?? []}
-                boxes={boxes[c.id] ?? []}
-                time={times[c.id]}
-                checkpoints={checkpoints[c.id] ?? []}
-              />
-            ))}
-          </div>
+      {model.trees.length === 0 && (
+        <p className="mt-2 px-1 text-[12.5px] leading-relaxed text-muted">
+          目標を足すと、ここに木が1本生えます。
+        </p>
+      )}
+
+      {tree && card && (
+        <section aria-live="polite" className="mt-3 flex flex-col gap-2">
+          <TreeSummary tree={tree} values={model.values} />
+          <GoalRow
+            card={card}
+            habits={habits[card.id] ?? []}
+            boxes={boxes[card.id] ?? []}
+            time={times[card.id]}
+            checkpoints={checkpoints[card.id] ?? []}
+            muted={tree.done}
+          />
         </section>
       )}
+
+      <details className="mt-3 rounded-xl border border-line bg-surface px-4 py-2">
+        <summary className="flex min-h-10 cursor-pointer items-center text-[12.5px] text-muted">
+          森の読み方
+        </summary>
+        <dl className="grid grid-cols-[4.5em_1fr] gap-x-2 gap-y-1 pb-2 text-[12.5px] leading-relaxed">
+          <dt className="font-medium">木</dt>
+          <dd className="text-muted">目標。日が経つほど太く高くなる</dd>
+          <dt className="font-medium">小枝</dt>
+          <dd className="text-muted">中間目標。足したときに1本生える</dd>
+          <dt className="font-medium">芽・花</dt>
+          <dd className="text-muted">期間中は芽、完了にすると花</dd>
+          <dt className="font-medium">落ち葉</dt>
+          <dd className="text-muted">「今回は終わりにする」を選んだ中間目標。土に還る</dd>
+          <dt className="font-medium">葉</dt>
+          <dd className="text-muted">習慣の続き具合。途切れると黄ばむが、落ちはしない</dd>
+          <dt className="font-medium">実</dt>
+          <dd className="text-muted">完了にした目標</dd>
+          <dt className="font-medium">根</dt>
+          <dd className="text-muted">
+            大きな物語の「大事にしているもの」。中間目標の「たて方を評価する」で選ぶと、その木とつながる
+          </dd>
+        </dl>
+      </details>
     </>
+  );
+}
+
+function TreeSummary({ tree, values }: { tree: ForestTree; values: string[] }) {
+  const n = treeCounts(tree);
+  return (
+    <div className="rounded-xl border border-line bg-surface px-4 py-3">
+      <p className="font-mono text-[11px] text-muted">
+        小枝{tree.twigs.length} ・ 芽{n.buds} ・ 花{n.flowers} ・ 落ち葉{n.fallen}
+        {tree.done ? " ・ 実" : ""}
+      </p>
+      {tree.links.length > 0 ? (
+        <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label="つながっている根">
+          {tree.links.map((k) => (
+            <li
+              key={k}
+              className="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-0.5 text-[11.5px]"
+            >
+              <span
+                aria-hidden="true"
+                className="h-2 w-2 rounded-full"
+                style={{ background: VALUE_COLORS[k % VALUE_COLORS.length] }}
+              />
+              {values[k]}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-[12px] leading-relaxed text-muted">
+          まだどの根ともつながっていません。中間目標の「たて方を評価する」で価値観を選ぶと、根とつながります。
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -391,7 +457,6 @@ function GoalRow({
   time,
   checkpoints = [],
   muted,
-  showRationale,
 }: {
   card: GoalCard;
   habits: Habit[];
@@ -400,7 +465,6 @@ function GoalRow({
   time?: CardTime;
   checkpoints?: Checkpoint[];
   muted?: boolean;
-  showRationale?: boolean;
 }) {
   const coach = COACHES[card.coachId];
   const title = card.vision.refined || card.vision.raw || "（未記入の目標）";
@@ -443,17 +507,6 @@ function GoalRow({
           <span className="text-muted">{humanDuration(time.total)}</span>
         </p>
       )}
-
-      {showRationale &&
-        (card.rationale ? (
-          <p className="mt-2 border-l-2 border-accent-line pl-2.5 text-[12.5px] leading-relaxed text-muted">
-            なぜ効くか: {card.rationale}
-          </p>
-        ) : (
-          <p className="mt-2 border-l-2 border-line pl-2.5 text-[12px] leading-relaxed text-muted">
-            大きな物語とのつながりが未記入
-          </p>
-        ))}
 
       {(habits.length > 0 || nextBox || checkpoint) && (
         <dl className="mt-2.5 flex flex-col gap-1 font-mono text-[11px] text-muted">
