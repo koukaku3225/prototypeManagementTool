@@ -282,6 +282,93 @@ t("移行v3: 直すものが無ければ書き込まない", () => {
   assert.equal(raw("gc.timeboxes"), before, "触る必要が無いのに書き換えた");
 });
 
+// ------------------------------------------------- 移行 v4（目標が無い習慣を消す）
+
+/**
+ * クラウド側の habits_card_id_fkey は CASCADE だが、ローカルは
+ * deleteCard() を通ったときしか一緒に消えない。過去のバグ等で
+ * 目標だけが先に無くなると、参照先の無い習慣が gc.habits に残り、
+ * 同期のたびに 23503（外部キー違反）で拒否され続ける。
+ * healIfDanglingReference() の送り直しでも、相手の目標がローカルにも
+ * 無いので直らない。v4 でローカル側を掃除しておく。
+ */
+function habit(id, cardId, over = {}) {
+  return {
+    id,
+    cardId,
+    title: `習慣 ${id}`,
+    minimalTitle: "",
+    estimateMin: 15,
+    schedule: { kind: "daily" },
+    startTime: null,
+    where: null,
+    cue: null,
+    createdAt: "2026-09-07T00:00:00.000Z",
+    archivedAt: null,
+    ...over,
+  };
+}
+
+t("移行v4: 目標が無い習慣が消える", () => {
+  reset({
+    "gc.schemaVersion": "3",
+    "gc.cards": JSON.stringify([card("a")]),
+    "gc.habits": JSON.stringify([
+      habit("00000000-0000-4000-8000-000000000001", "a"),
+      habit("00000000-0000-4000-8000-000000000002", "missing-card"),
+    ]),
+  });
+  S.loadHabits();
+  const after = parsed("gc.habits");
+  assert.equal(after.length, 1, "孤児が消えていない");
+  assert.equal(after[0].cardId, "a");
+});
+
+t("移行v4: 孤児の習慣の記録も一緒に消える", () => {
+  reset({
+    "gc.schemaVersion": "3",
+    "gc.cards": JSON.stringify([]),
+    "gc.habits": JSON.stringify([
+      habit("00000000-0000-4000-8000-000000000003", "missing-card"),
+    ]),
+    "gc.habitlogs": JSON.stringify([
+      { habitId: "00000000-0000-4000-8000-000000000003", date: "2026-09-13", status: "done" },
+    ]),
+  });
+  S.loadHabits();
+  assert.deepEqual(parsed("gc.habits"), []);
+  assert.deepEqual(parsed("gc.habitlogs"), [], "孤児の記録が残っている");
+});
+
+t("移行v4: 目標が残っている習慣は触らない", () => {
+  const before = JSON.stringify([
+    habit("00000000-0000-4000-8000-000000000004", "a"),
+  ]);
+  reset({
+    "gc.schemaVersion": "3",
+    "gc.cards": JSON.stringify([card("a")]),
+    "gc.habits": before,
+  });
+  S.loadHabits();
+  assert.equal(raw("gc.habits"), before, "触る必要が無いのに書き換えた");
+});
+
+t("移行v4: 何度実行しても同じ結果（冪等）", () => {
+  reset({
+    "gc.schemaVersion": "3",
+    "gc.cards": JSON.stringify([card("a")]),
+    "gc.habits": JSON.stringify([
+      habit("00000000-0000-4000-8000-000000000005", "a"),
+      habit("00000000-0000-4000-8000-000000000006", "missing-card"),
+    ]),
+  });
+  S.loadHabits();
+  const after1 = raw("gc.habits");
+  S.__resetMigrationFlagForTest();
+  S.loadHabits();
+  assert.equal(raw("gc.habits"), after1, "2回目で内容が変わった");
+});
+
 t("空の localStorage でも落ちず、版番号だけ立つ", () => {
   reset();
   assert.deepEqual(S.loadCards(), []);
