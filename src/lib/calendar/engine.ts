@@ -4,6 +4,7 @@ import {
   deleteEvent,
   insertEvent,
   listEvents,
+  needsReconnect,
   patchEvent,
   refreshAccessToken,
   type GoogleEvent,
@@ -50,7 +51,15 @@ export interface SyncResult {
   pendingDeletes: number;
   /** Google API呼び出しに失敗した件数。0件でなければ lastError に残す */
   failed: number;
+  /**
+   * 書き込みの途中で「連携し直さないと直らない」失敗が起きた（R12）。
+   * そこで打ち切っている。画面は「連携し直してください」を出す。
+   */
+  needsReconnect?: boolean;
 }
+
+/** 同期が丸ごと失敗した理由。reconnect_required のときだけ画面が再連携を案内する */
+export type SyncFailure = { ok: false; message: string; reason?: "reconnect_required" };
 
 const isGhostId = (id: string) => id.startsWith("habit-");
 
@@ -215,16 +224,21 @@ export async function runSync(
   boxes: SyncBoxInput[],
   confirmDeletes: boolean,
   deps: SyncDeps = defaultDeps,
-): Promise<{ ok: true; result: SyncResult } | { ok: false; message: string }> {
+): Promise<{ ok: true; result: SyncResult } | SyncFailure> {
   const link = await deps.loadLink();
   if (!link) return { ok: false, message: "連携していません。" };
 
   let token: string;
   try {
     token = await deps.refreshAccessToken(link.refreshToken);
-  } catch {
+  } catch (err) {
     await deps.updateLink({ lastError: "トークンを更新できませんでした" });
-    return { ok: false, message: "連携が切れています。設定から再連携してください。" };
+    return {
+      ok: false,
+      message: "連携が切れています。設定から再連携してください。",
+      // 失効（invalid_grant）など、連携し直さないと直らないときだけ画面に案内させる
+      ...(needsReconnect(err) ? { reason: "reconnect_required" as const } : {}),
+    };
   }
 
   const fromDate = addDays(-7);
@@ -238,7 +252,19 @@ export async function runSync(
   // 変更の無かった枠は byId/byMark に引っかからず missing 扱いになり、
   // 同期のたびに createEvent が起きて予定が増殖していた（レビューで指摘）。
   // 全件取得なら毎回同じ状態から突き合わせるので、この事故は起きない。
-  const listed = await deps.listEvents(token, link.calendarId, { timeMin, timeMax });
+  let listed: Awaited<ReturnType<typeof deps.listEvents>>;
+  try {
+    listed = await deps.listEvents(token, link.calendarId, { timeMin, timeMax });
+  } catch (err) {
+    /*
+     * 権限切れは例外のまま投げると、ルートの catch で「時間をおいて試して」に
+     * 丸められ、何度待っても直らない（R12）。ここで理由として返す。
+     * それ以外（障害など）は、これまでどおり投げる。
+     */
+    if (!needsReconnect(err)) throw err;
+    await deps.updateLink({ lastError: "予定を読む許可がありません" });
+    return { ok: false, message: "連携し直してください。", reason: "reconnect_required" };
+  }
   if (!listed.ok) {
     // ここで lastError を更新しないと、取得失敗が握りつぶされて
     // 「同期が止まっているのに誰も気づけない」状態になる（レビューで指摘）
@@ -356,14 +382,22 @@ export async function runSync(
       }
       // keepBox / none は何もしない
     } catch (err) {
-      // 1件の失敗で全体を止めない。次回の同期で追いつく
       console.error("[calendar/sync] box", b.id, err);
       result.failed++;
+      /*
+       * 権限切れは1件ごとに違う結果にならない。残りを叩き続けても全部同じ理由で
+       * 失敗するだけなので打ち切り、画面に「連携し直して」を出させる（R12）。
+       * 混雑などの一時的な失敗は、これまでどおり1件の失敗として続ける。
+       */
+      if (needsReconnect(err)) {
+        result.needsReconnect = true;
+        break;
+      }
     }
   }
 
   // --- カレンダー側にしか無い予定を処理する ---
-  for (const e of events) {
+  for (const e of result.needsReconnect ? [] : events) {
     if (handledEventIds.has(e.id)) continue; // 上のループで見た
     const mark = markOf(e);
     const action = decideCalendarAction({
@@ -399,6 +433,10 @@ export async function runSync(
     } catch (err) {
       console.error("[calendar/sync] event", e.id, err);
       result.failed++;
+      if (needsReconnect(err)) {
+        result.needsReconnect = true;
+        break;
+      }
     }
   }
 
@@ -407,7 +445,11 @@ export async function runSync(
     // 「これはもう使っていない」ことを明示する
     syncToken: null,
     lastSyncedAt: new Date().toISOString(),
-    lastError: result.failed > 0 ? `${result.failed}件の同期に失敗しました` : null,
+    lastError: result.needsReconnect
+      ? "カレンダーへ書き込む許可がありません"
+      : result.failed > 0
+        ? `${result.failed}件の同期に失敗しました`
+        : null,
   });
   return { ok: true, result };
 }

@@ -13,6 +13,8 @@ import assert from "node:assert/strict";
 import {
   applyCalendarReconnect,
   calendarChanged,
+  nextReconnectFlag,
+  reconnectBannerSource,
 } from "../src/lib/calendar/reconnect.ts";
 
 let passed = 0;
@@ -289,6 +291,121 @@ t("save が値を返さない実装（void）は、これまでどおり成功�
   assert.equal(r.cleared, 2);
   assert.equal(r.failed, 0);
   assert.equal(s.state.flag, "new-cal");
+});
+
+// --- R12 ①: 連携した時刻（connected_at）で、本物の繋ぎ直しと不審な変化を見分ける ---
+//
+// いままでは「カレンダーIDが前回と違う」だけで全期間の枠のIDを落としていた。
+// status が想定外の値を返しただけでも落ち、落ちた瞬間に目印も新しい値へ移るので
+// 自己回復しない（送信窓内は重複予定として作り直され、窓外はIDを失ったまま）。
+
+const T1 = "2026-09-01T00:00:00.000+00:00";
+const T2 = "2026-09-14T00:00:00.000+00:00";
+const flagOf = (calendarId, connectedAt) => JSON.stringify({ calendarId, connectedAt });
+
+t("IDが違い、連携した時刻も新しい → 本物の繋ぎ直しとして落とす", () => {
+  const s = fakeStorage(boxes(), flagOf("old-cal", T1));
+  const r = applyCalendarReconnect({ currentCalendarId: "new-cal", currentConnectedAt: T2, storage: s });
+  assert.equal(r.changed, true);
+  assert.equal(r.suspicious, false);
+  assert.equal(r.cleared, 2);
+  assert.deepEqual(JSON.parse(s.state.flag), { calendarId: "new-cal", connectedAt: T2 });
+});
+
+t("【R12】IDだけ違って連携した時刻が同じ → 不審。落とさず、目印も書かない", () => {
+  const s = fakeStorage(boxes(), flagOf("old-cal", T1));
+  const r = applyCalendarReconnect({ currentCalendarId: "weird-cal", currentConnectedAt: T1, storage: s });
+  assert.equal(r.suspicious, true, "呼び出し側がこの回の同期を見送れるように知らせる");
+  assert.equal(r.changed, false);
+  assert.equal(r.cleared, 0);
+  assert.equal(s.state.writes, 0, "1件も書き換えてはいけない");
+  assert.equal(s.state.flag, flagOf("old-cal", T1), "判断材料の目印を上書きしてはいけない");
+});
+
+t("【R12】IDが違って連携した時刻が前より古い → 不審", () => {
+  const s = fakeStorage(boxes(), flagOf("old-cal", T2));
+  const r = applyCalendarReconnect({ currentCalendarId: "new-cal", currentConnectedAt: T1, storage: s });
+  assert.equal(r.suspicious, true);
+  assert.equal(s.state.writes, 0);
+});
+
+t("【R12】IDが違って連携した時刻が取れない → 不審", () => {
+  const s = fakeStorage(boxes(), flagOf("old-cal", T1));
+  const r = applyCalendarReconnect({ currentCalendarId: "new-cal", currentConnectedAt: null, storage: s });
+  assert.equal(r.suspicious, true);
+  assert.equal(s.state.writes, 0);
+});
+
+t("同じカレンダーなら、時刻が変わっていても落とさず、目印を新しい形で書き直す", () => {
+  const s = fakeStorage(boxes(), "cal");
+  const r = applyCalendarReconnect({ currentCalendarId: "cal", currentConnectedAt: T2, storage: s });
+  assert.equal(r.changed, false);
+  assert.equal(r.suspicious, false);
+  assert.equal(s.state.writes, 0);
+  assert.deepEqual(JSON.parse(s.state.flag), { calendarId: "cal", connectedAt: T2 });
+});
+
+t("前の目印が古い形（IDだけ）でIDが違うなら、比べようがないので繋ぎ直しとして扱う", () => {
+  // 修正前の端末に残っている目印。ここを不審にすると、本物の繋ぎ直しで永久に同期が止まる
+  const s = fakeStorage(boxes(), "old-cal");
+  const r = applyCalendarReconnect({ currentCalendarId: "new-cal", currentConnectedAt: T2, storage: s });
+  assert.equal(r.changed, true);
+  assert.equal(r.suspicious, false);
+  assert.equal(r.cleared, 2);
+});
+
+t("この端末で初めてなら、時刻付きの目印を書くだけ", () => {
+  const s = fakeStorage(boxes(), null);
+  const r = applyCalendarReconnect({ currentCalendarId: "cal", currentConnectedAt: T1, storage: s });
+  assert.equal(r.changed, false);
+  assert.equal(r.suspicious, false);
+  assert.equal(s.state.writes, 0);
+  assert.deepEqual(JSON.parse(s.state.flag), { calendarId: "cal", connectedAt: T1 });
+});
+
+t("目印が壊れていても落ちず、初回として扱う", () => {
+  const s = fakeStorage(boxes(), "{壊れた");
+  const r = applyCalendarReconnect({ currentCalendarId: "cal", currentConnectedAt: T1, storage: s });
+  // 壊れた文字列は「IDだけの古い目印」と区別できないので、IDが違う扱いになる。
+  // 古い形と同じく繋ぎ直し扱い（落とすだけで、消えはしない方向）
+  assert.equal(r.suspicious, false);
+});
+
+// --- R12 ②: 「連携し直してください」の印を、重ね表示と同期で別々に持つ ---
+//
+// 印は重ね表示が読めた瞬間に消していた。同期（書き込み）側の権限切れで付けた印まで
+// 同じ瞬間に消えると、案内が出てもすぐ消える。どちらで付いたかを持たせる。
+
+t("何も無い状態から、重ね表示の権限切れで overlay、同期の権限切れで sync", () => {
+  assert.equal(nextReconnectFlag(null, "overlay_reconnect"), "overlay");
+  assert.equal(nextReconnectFlag(null, "sync_reconnect"), "sync");
+  assert.equal(nextReconnectFlag("0", "sync_reconnect"), "sync");
+});
+
+t("両方で権限切れなら both。片方が直れば、もう片方だけ残る", () => {
+  assert.equal(nextReconnectFlag("overlay", "sync_reconnect"), "both");
+  assert.equal(nextReconnectFlag("sync", "overlay_reconnect"), "both");
+  assert.equal(nextReconnectFlag("both", "overlay_ok"), "sync", "重ね表示が読めても、同期側の印は消さない");
+  assert.equal(nextReconnectFlag("both", "sync_ok"), "overlay");
+  assert.equal(nextReconnectFlag("sync", "overlay_ok"), "sync");
+  assert.equal(nextReconnectFlag("overlay", "sync_ok"), "overlay");
+  assert.equal(nextReconnectFlag("overlay", "overlay_ok"), "0");
+  assert.equal(nextReconnectFlag("sync", "sync_ok"), "0");
+});
+
+t("修正前の印 \"1\" は、重ね表示で付いた印として扱う", () => {
+  assert.equal(nextReconnectFlag("1", "overlay_ok"), "0");
+  assert.equal(nextReconnectFlag("1", "sync_reconnect"), "both");
+  assert.equal(reconnectBannerSource("1"), "overlay");
+});
+
+t("案内に出す種類：無し・重ね表示・同期・両方", () => {
+  assert.equal(reconnectBannerSource(null), null);
+  assert.equal(reconnectBannerSource("0"), null);
+  assert.equal(reconnectBannerSource("overlay"), "overlay");
+  assert.equal(reconnectBannerSource("sync"), "sync");
+  assert.equal(reconnectBannerSource("both"), "both");
+  assert.equal(reconnectBannerSource("なにか"), null, "知らない値で案内を出さない");
 });
 
 console.log(`${passed} passed, ${failed} failed`);

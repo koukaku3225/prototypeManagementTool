@@ -24,6 +24,8 @@ export interface CalendarLink {
   refreshToken: string;
   calendarId: string;
   syncToken: string | null;
+  /** 連携を作った（作り直した）時刻。繋ぎ直しの判定に使う（R12） */
+  connectedAt: string | null;
   lastSyncedAt: string | null;
   lastError: string | null;
 }
@@ -60,6 +62,7 @@ export async function loadLink(): Promise<CalendarLink | null> {
     refreshToken: data.refresh_token as string,
     calendarId: data.calendar_id as string,
     syncToken: (data.sync_token as string | null) ?? null,
+    connectedAt: (data.connected_at as string | null) ?? null,
     lastSyncedAt: (data.last_synced_at as string | null) ?? null,
     lastError: (data.last_error as string | null) ?? null,
   };

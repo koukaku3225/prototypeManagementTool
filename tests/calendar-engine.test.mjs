@@ -26,6 +26,7 @@ import {
   runSync,
   toRfc3339,
 } from "../src/lib/calendar/engine.ts";
+import { GoogleApiError } from "../src/lib/calendar/google.ts";
 
 let passed = 0;
 let failed = 0;
@@ -354,6 +355,100 @@ await at("#R3f 23:30〜24:00 の枠が、同期のたびに書き換わらない
   assert.equal(calls.patch.length, 0, "カレンダー側も書き換えている");
   assert.equal(calls.insert.length, 0);
   assert.deepEqual(r.result.deletes, []);
+});
+
+// --- R12 ②: 書き込み・取得・トークン更新での権限切れを「連携し直して」まで届ける ---
+
+const newBox = (id) => ({
+  id,
+  date: addDays(2),
+  start: "10:00",
+  end: "11:00",
+  title: id,
+  googleEventId: null,
+  updatedAt: "2026-09-01T00:00:00Z",
+  hasNotes: false,
+});
+
+await at("予定の作成が401なら、needsReconnect を返し、残りの枠は叩かない", async () => {
+  const { deps, calls } = makeDeps([]);
+  deps.insertEvent = async (_t, _c, v) => {
+    calls.insert.push(v);
+    throw new GoogleApiError(401, "無効", null);
+  };
+  const r = await runSync([newBox("a"), newBox("b"), newBox("c")], false, deps);
+  assert.equal(r.ok, true);
+  assert.equal(r.result.needsReconnect, true);
+  assert.equal(calls.insert.length, 1, "権限が無いと分かったあとも全件叩き続けている");
+});
+
+await at("権限不足の403（insufficientPermissions）も needsReconnect", async () => {
+  const { deps } = makeDeps([]);
+  deps.insertEvent = async () => {
+    throw new GoogleApiError(403, "権限不足", "insufficientPermissions");
+  };
+  const r = await runSync([newBox("a")], false, deps);
+  assert.equal(r.result.needsReconnect, true);
+});
+
+await at("混雑による403（rateLimitExceeded）は needsReconnect にしない。1件失敗として続ける", async () => {
+  const { deps, calls } = makeDeps([]);
+  deps.insertEvent = async (_t, _c, v) => {
+    calls.insert.push(v);
+    throw new GoogleApiError(403, "混雑", "rateLimitExceeded");
+  };
+  const r = await runSync([newBox("a"), newBox("b")], false, deps);
+  assert.equal(r.ok, true);
+  assert.equal(Boolean(r.result.needsReconnect), false, "再連携しても直らない案内を出してしまう");
+  assert.equal(r.result.failed, 2);
+  assert.equal(calls.insert.length, 2);
+});
+
+await at("素の Error（通信断など）は needsReconnect にしない", async () => {
+  const { deps } = makeDeps([]);
+  deps.insertEvent = async () => {
+    throw new Error("network");
+  };
+  const r = await runSync([newBox("a")], false, deps);
+  assert.equal(Boolean(r.result.needsReconnect), false);
+});
+
+await at("トークン更新が invalid_grant なら reason: reconnect_required", async () => {
+  const { deps } = makeDeps([]);
+  deps.refreshAccessToken = async () => {
+    throw new GoogleApiError(400, "失効", "invalid_grant");
+  };
+  const r = await runSync([newBox("a")], false, deps);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "reconnect_required");
+});
+
+await at("トークン更新が一時的な失敗なら reason を付けない", async () => {
+  const { deps } = makeDeps([]);
+  deps.refreshAccessToken = async () => {
+    throw new GoogleApiError(500, "障害", null);
+  };
+  const r = await runSync([newBox("a")], false, deps);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, undefined);
+});
+
+await at("予定の取得が401なら reason: reconnect_required（例外で500にしない）", async () => {
+  const { deps } = makeDeps([]);
+  deps.listEvents = async () => {
+    throw new GoogleApiError(401, "無効", null);
+  };
+  const r = await runSync([newBox("a")], false, deps);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "reconnect_required");
+});
+
+await at("予定の取得が権限以外の失敗なら、これまでどおり例外を投げる", async () => {
+  const { deps } = makeDeps([]);
+  deps.listEvents = async () => {
+    throw new GoogleApiError(503, "障害", "backendError");
+  };
+  await assert.rejects(() => runSync([newBox("a")], false, deps));
 });
 
 console.log(`${passed} passed, ${failed} failed`);

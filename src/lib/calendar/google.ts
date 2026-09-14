@@ -77,6 +77,22 @@ export class GoogleApiError extends Error {
 }
 
 /**
+ * GoogleApiError か。
+ *
+ * instanceof だけに頼らない。同じファイルが別のモジュールとして2回読み込まれると
+ * （パスの書き方が違うだけで起きる。テストで実際に起きた）、クラスが別物になり
+ * instanceof が false になる。すると権限切れでも「連携し直して」が出ない。
+ */
+function isGoogleApiError(err: unknown): err is GoogleApiError {
+  if (err instanceof GoogleApiError) return true;
+  return (
+    err instanceof Error &&
+    err.name === "GoogleApiError" &&
+    typeof (err as { status?: unknown }).status === "number"
+  );
+}
+
+/**
  * 失敗レスポンスの本文から「理由」を取り出す。取れなければ null。
  *
  * 2つの形が来る。
@@ -157,7 +173,7 @@ const RECONNECT_OAUTH_ERRORS = new Set(["invalid_grant"]);
  * 案内が端末に居座る**（2026-09-10 レビュー指摘1）。
  */
 export function needsReconnect(err: unknown): boolean {
-  if (!(err instanceof GoogleApiError)) return false;
+  if (!isGoogleApiError(err)) return false;
   if (err.reason && RECONNECT_OAUTH_ERRORS.has(err.reason)) return true;
   if (err.status === 401) return true;
   if (err.status !== 403) return false;
@@ -250,7 +266,14 @@ export async function createCalendar(token: string, summary: string): Promise<st
     method: "POST",
     body: JSON.stringify({ summary, timeZone: "Asia/Tokyo" }),
   });
-  if (!res.ok) throw new Error(`カレンダーを作成できませんでした (${res.status})`);
+  if (!res.ok) {
+    // 素の Error だと needsReconnect が常に false になり、権限が無くても案内が出ない（R12）
+    throw new GoogleApiError(
+      res.status,
+      `カレンダーを作成できませんでした (${res.status})`,
+      await readErrorReason(res),
+    );
+  }
   const j = (await res.json()) as { id?: string };
   if (!j.id) throw new Error("カレンダーIDが返りませんでした");
   return j.id;
@@ -348,7 +371,13 @@ export async function insertEvent(
     method: "POST",
     body: JSON.stringify(eventBody(v)),
   });
-  if (!res.ok) throw new Error(`予定を作成できませんでした (${res.status})`);
+  if (!res.ok) {
+    throw new GoogleApiError(
+      res.status,
+      `予定を作成できませんでした (${res.status})`,
+      await readErrorReason(res),
+    );
+  }
   const j = (await res.json()) as { id?: string };
   if (!j.id) throw new Error("イベントIDが返りませんでした");
   return j.id;
@@ -365,7 +394,13 @@ export async function patchEvent(
     `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
     { method: "PATCH", body: JSON.stringify(eventBody(v)) },
   );
-  if (!res.ok) throw new Error(`予定を更新できませんでした (${res.status})`);
+  if (!res.ok) {
+    throw new GoogleApiError(
+      res.status,
+      `予定を更新できませんでした (${res.status})`,
+      await readErrorReason(res),
+    );
+  }
 }
 
 export async function deleteEvent(
@@ -380,7 +415,11 @@ export async function deleteEvent(
   );
   // 410/404 は「すでに消えている」。目的は達成されているので成功扱い
   if (!res.ok && res.status !== 404 && res.status !== 410) {
-    throw new Error(`予定を削除できませんでした (${res.status})`);
+    throw new GoogleApiError(
+      res.status,
+      `予定を削除できませんでした (${res.status})`,
+      await readErrorReason(res),
+    );
   }
 }
 

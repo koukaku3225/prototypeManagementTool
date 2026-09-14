@@ -23,6 +23,11 @@ export async function GET() {
        * これは本人にしか返らない（requireAuthIfEnabled + RLS）。
        */
       calendarId: link?.calendarId ?? null,
+      /*
+       * 連携を作り直した時刻。IDが変わっても、これが新しくなっていなければ
+       * 本物の繋ぎ直しではないとブラウザ側が判断する（R12）
+       */
+      connectedAt: link?.connectedAt ?? null,
     });
   } catch (err) {
     /*
@@ -37,6 +42,7 @@ export async function GET() {
       lastError: "連携状態を確認できませんでした",
       // 分からないときは null。ブラウザ側はこれを見て「触らない」を選ぶ
       calendarId: null,
+      connectedAt: null,
       unknown: true,
     });
   }

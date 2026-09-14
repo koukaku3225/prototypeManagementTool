@@ -13,7 +13,11 @@ import { buildOverlay } from "../src/lib/calendar/overlay.ts";
 import { fromRfc3339 } from "../src/lib/calendar/engine.ts";
 import {
   GoogleApiError,
+  createCalendar,
+  deleteEvent,
+  insertEvent,
   needsReconnect,
+  patchEvent,
   refreshAccessToken,
 } from "../src/lib/calendar/google.ts";
 import { CalendarOverlayQuerySchema } from "../src/lib/api-schema.ts";
@@ -313,6 +317,58 @@ t("日付は YYYY-MM-DD だけ通す", () => {
       false,
       `通してはいけない入力を通した: ${JSON.stringify(bad)}`,
     );
+  }
+});
+
+// --- R12 ②: 書き込み側も、失敗の理由を持った GoogleApiError で投げる ---
+// 素の Error だと needsReconnect が常に false になり、権限が無くても案内が出なかった。
+
+const EV = { title: "t", startIso: "2026-09-14T10:00:00+09:00", endIso: "2026-09-14T11:00:00+09:00", timeboxId: "b" };
+const writeCases = [
+  ["予定の作成", () => insertEvent("tok", "cal", EV)],
+  ["予定の更新", () => patchEvent("tok", "cal", "ev", EV)],
+  ["予定の削除", () => deleteEvent("tok", "cal", "ev")],
+  ["カレンダーの作成", () => createCalendar("tok", "名前")],
+];
+
+for (const [label, call] of writeCases) {
+  await at(`${label}の権限不足（403 insufficientPermissions）は再連携の案内に届く`, async () => {
+    stubFetch(403, { error: { errors: [{ reason: "insufficientPermissions" }], status: "PERMISSION_DENIED" } });
+    try {
+      await call();
+      assert.fail("403 で成功してはいけない");
+    } catch (err) {
+      assert.ok(err instanceof GoogleApiError, "GoogleApiError で投げること");
+      assert.equal(err.status, 403);
+      assert.equal(err.reason, "insufficientPermissions");
+      assert.equal(needsReconnect(err), true);
+    } finally {
+      globalThis.fetch = REAL_FETCH;
+    }
+  });
+
+  await at(`${label}の混雑（403 rateLimitExceeded）は再連携の案内にしない`, async () => {
+    stubFetch(403, { error: { errors: [{ reason: "rateLimitExceeded" }] } });
+    try {
+      await call();
+      assert.fail("403 で成功してはいけない");
+    } catch (err) {
+      assert.ok(err instanceof GoogleApiError);
+      assert.equal(needsReconnect(err), false);
+    } finally {
+      globalThis.fetch = REAL_FETCH;
+    }
+  });
+}
+
+await at("予定の削除で 404/410 は、これまでどおり成功扱い", async () => {
+  for (const status of [404, 410]) {
+    stubFetch(status, "");
+    try {
+      await deleteEvent("tok", "cal", "ev");
+    } finally {
+      globalThis.fetch = REAL_FETCH;
+    }
   }
 });
 

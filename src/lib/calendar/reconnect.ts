@@ -81,6 +81,11 @@ export interface ReconnectStorage<T extends { googleEventId?: string | null }> {
 export interface ReconnectOutcome {
   /** 繋ぎ直しを検知したか */
   changed: boolean;
+  /**
+   * IDは変わったのに、連携を作り直した形跡が無い（R12）。
+   * 何も落とさず目印も書いていない。呼び出し側はこの回の同期を見送ること。
+   */
+  suspicious: boolean;
   /** 実際にIDを落とした枠の数。ログ用 */
   cleared: number;
   /** 落とそうとしたが保存に失敗した枠の数。1件でもあれば目印は書かない */
@@ -100,13 +105,45 @@ export function applyCalendarReconnect<
   T extends { googleEventId?: string | null },
 >(i: {
   currentCalendarId: string | null;
+  /**
+   * いまの連携を作った時刻（google_calendar_links.connected_at）。R12。
+   * 省略（undefined）すると時刻を見ない、以前の判定になる。
+   * null は「時刻が取れなかった」で、IDが変わっていれば不審として扱う。
+   */
+  currentConnectedAt?: string | null;
   storage: ReconnectStorage<T>;
 }): ReconnectOutcome {
   const { currentCalendarId, storage } = i;
-  if (!currentCalendarId) return { changed: false, cleared: 0, failed: 0 };
+  if (!currentCalendarId) return { changed: false, suspicious: false, cleared: 0, failed: 0 };
 
-  const previousCalendarId = storage.readFlag();
-  const changed = calendarChanged({ previousCalendarId, currentCalendarId });
+  const previous = parseCalendarFlag(storage.readFlag());
+  const previousCalendarId = previous?.calendarId ?? null;
+  let changed = calendarChanged({ previousCalendarId, currentCalendarId });
+
+  /*
+   * R12: IDが変わっただけでは「繋ぎ直した」と言い切らない。
+   *
+   * 全期間の枠からIDを落とすのは取り返しがつかない（落ちた瞬間に目印も新しい値へ移り、
+   * 次回は changed=false で自己回復しない）。本物の繋ぎ直しなら、連携を作り直した時刻
+   * （connected_at）が必ず前回より新しい。新しくないのにIDだけ違うのは、status が
+   * 想定外の値を返したと見て、落とさず・目印も書かず・この回の同期を見送らせる。
+   *
+   * 前回の目印が古い形（IDだけ）なら比べようがない。その場合は以前どおり繋ぎ直しとして
+   * 扱う。ここを不審にすると、修正前から使っている端末で本物の繋ぎ直しが永久に止まる。
+   */
+  if (changed && i.currentConnectedAt !== undefined && previous?.connectedAt) {
+    const now = i.currentConnectedAt ? Date.parse(i.currentConnectedAt) : NaN;
+    const before = Date.parse(previous.connectedAt);
+    if (!(now > before)) {
+      return { changed: false, suspicious: true, cleared: 0, failed: 0 };
+    }
+  }
+  if (changed && i.currentConnectedAt === null && previous && !previous.connectedAt) {
+    // 時刻が取れず、前回も時刻を持たない。比べる材料がゼロなので、以前どおり繋ぎ直し扱い
+    changed = true;
+  } else if (changed && i.currentConnectedAt === null) {
+    return { changed: false, suspicious: true, cleared: 0, failed: 0 };
+  }
 
   let cleared = 0;
   let failed = 0;
@@ -135,6 +172,71 @@ export function applyCalendarReconnect<
    * ならない＝**残った古いIDが処理窓に入った日に、枠が一言もなく消える**
    * という、この関数が塞いだはずの穴そのもの。書かなければ次回やり直せる。
    */
-  if (failed === 0) storage.writeFlag(currentCalendarId);
-  return { changed, cleared, failed };
+  if (failed === 0) {
+    storage.writeFlag(
+      i.currentConnectedAt
+        ? JSON.stringify({ calendarId: currentCalendarId, connectedAt: i.currentConnectedAt })
+        : currentCalendarId,
+    );
+  }
+  return { changed, suspicious: false, cleared, failed };
+}
+
+/**
+ * 目印を読む。新しい形は JSON（カレンダーIDと連携した時刻）、古い形はIDの文字列だけ。
+ * JSON として読めないものは古い形とみなす（壊れた値でも落ちない）。
+ */
+function parseCalendarFlag(
+  raw: string | null,
+): { calendarId: string; connectedAt: string | null } | null {
+  if (!raw) return null;
+  if (raw.startsWith("{")) {
+    try {
+      const j = JSON.parse(raw) as { calendarId?: unknown; connectedAt?: unknown };
+      if (typeof j.calendarId === "string") {
+        return {
+          calendarId: j.calendarId,
+          connectedAt: typeof j.connectedAt === "string" ? j.connectedAt : null,
+        };
+      }
+    } catch {
+      /* 下で古い形として扱う */
+    }
+  }
+  return { calendarId: raw, connectedAt: null };
+}
+
+// ------------------------------------------------ 「連携し直してください」の印（R12 ②）
+
+/**
+ * 印の値。重ね表示（読み取り）と同期（書き込み）のどちらで権限切れを踏んだか。
+ * - "0" / null … 無し
+ * - "overlay" … 重ね表示で踏んだ。修正前の "1" もこれとして読む
+ * - "sync" … 同期で踏んだ
+ * - "both" … 両方
+ *
+ * 1つの "1" だけで持っていたときは、重ね表示が読めた瞬間に消していた。
+ * 同期側の権限切れまで同時に消えると、案内が出てもすぐ消えてしまう。
+ */
+export type ReconnectSource = "overlay" | "sync" | "both";
+export type ReconnectEvent = "overlay_ok" | "overlay_reconnect" | "sync_ok" | "sync_reconnect";
+
+export function reconnectBannerSource(raw: string | null): ReconnectSource | null {
+  if (raw === "1" || raw === "overlay") return "overlay";
+  if (raw === "sync" || raw === "both") return raw;
+  return null;
+}
+
+export function nextReconnectFlag(raw: string | null, event: ReconnectEvent): string {
+  const cur = reconnectBannerSource(raw);
+  let overlay = cur === "overlay" || cur === "both";
+  let sync = cur === "sync" || cur === "both";
+  if (event === "overlay_ok") overlay = false;
+  if (event === "overlay_reconnect") overlay = true;
+  if (event === "sync_ok") sync = false;
+  if (event === "sync_reconnect") sync = true;
+  if (overlay && sync) return "both";
+  if (overlay) return "overlay";
+  if (sync) return "sync";
+  return "0";
 }

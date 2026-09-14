@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { readDeviceFlag } from "@/lib/storage";
 import { DEVICE_KEY } from "@/lib/storage-keys";
+import { reconnectBannerSource, type ReconnectSource } from "@/lib/calendar/reconnect";
 
 interface CalendarStatus {
   connected: boolean;
@@ -43,11 +44,12 @@ export function CalendarLink() {
    * 読み取りスコープを後から足したので、**既に連携済みの人だけ**が
    * この状態になる（2026-09-08 指摘2）。
    */
-  const [needsReconnect, setNeedsReconnect] = useState(false);
+  const [reconnectSource, setReconnectSource] = useState<ReconnectSource | null>(null);
 
   useEffect(() => {
-    setNeedsReconnect(
-      readDeviceFlag(DEVICE_KEY.calendarNeedsReconnect) === "1",
+    // "1"（修正前の印）は重ね表示で付いたものとして読む。同期側の印は R12 で追加
+    setReconnectSource(
+      reconnectBannerSource(readDeviceFlag(DEVICE_KEY.calendarNeedsReconnect)),
     );
   }, []);
 
@@ -138,17 +140,27 @@ export function CalendarLink() {
         「連携しています」だけを出すと、重ね表示が永久に出ない理由が
         どこにも無いまま放置される。やることを1つだけ示す。
       */}
-      {needsReconnect && (
+      {reconnectSource && (
         <div
           role="alert"
           className="mt-2 rounded-lg border border-accent-line bg-accent-soft px-3 py-2.5 text-[12px] leading-relaxed text-accent"
         >
-          <p>
-            <strong className="font-medium">読み取りの許可が足りません。</strong>
-            ほかのカレンダーの予定を時間割に重ねて表示できていません。
-            あとから読み取りの許可を追加したため、それより前に連携した場合は
-            もう一度同意し直す必要があります。
-          </p>
+          {reconnectSource === "overlay" ? (
+            <p>
+              <strong className="font-medium">読み取りの許可が足りません。</strong>
+              ほかのカレンダーの予定を時間割に重ねて表示できていません。
+              あとから読み取りの許可を追加したため、それより前に連携した場合は
+              もう一度同意し直す必要があります。
+            </p>
+          ) : (
+            <p>
+              <strong className="font-medium">連携が切れているか、許可が足りません。</strong>
+              時間割の予定をGoogleカレンダーへ送れていません
+              {reconnectSource === "both" ? "（ほかの予定の重ね表示もできていません）" : ""}。
+              Google側でアクセスを取り消した場合や、長く使っていなかった場合に起きます。
+              もう一度連携すると直ります。
+            </p>
+          )}
           <a
             href="/api/calendar/connect"
             className="mt-2 flex min-h-11 items-center justify-center rounded-lg bg-indigo px-3 text-[13.5px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"

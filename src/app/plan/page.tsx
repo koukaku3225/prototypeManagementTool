@@ -37,6 +37,12 @@ import { DEVICE_KEY } from "@/lib/storage-keys";
 import { shouldShowOnboarding } from "@/lib/onboarding";
 import { presetCardIdFrom } from "@/lib/goal-card";
 import type { OverlayEvent } from "@/lib/calendar/overlay";
+import {
+  nextReconnectFlag,
+  reconnectBannerSource,
+  type ReconnectEvent,
+  type ReconnectSource,
+} from "@/lib/calendar/reconnect";
 import { MAX_SMALL_STORIES } from "@/types/goal";
 import { emptyMeta, emptyReview, type TimeBox } from "@/types/timebox";
 import type { GoalCard } from "@/types/goal";
@@ -88,12 +94,23 @@ export default function PlanPage() {
    */
   const [overlay, setOverlay] = useState<OverlayEvent[]>([]);
   /**
-   * 重ね表示が「権限不足」で読めていないか。
+   * 連携し直さないと直らない失敗を、どこで踏んでいるか（R12）。
+   * overlay … 重ね表示が読めない／sync … カレンダーへ送れない／both … 両方。
    *
-   * 連携し直さないと直らない状態なので、黙って0件にしない。
-   * 出しっぱなしにならないよう、読めた時点で必ず下ろす。
+   * 黙って0件にしない。出しっぱなしにならないよう、読めた（送れた）時点で
+   * その側の印だけを下ろす。印は端末に置き、設定画面でも同じ案内を出す。
    */
-  const [needsReconnect, setNeedsReconnect] = useState(false);
+  const [reconnectSource, setReconnectSource] = useState<ReconnectSource | null>(null);
+  const readReconnect = useCallback(
+    () => setReconnectSource(reconnectBannerSource(readDeviceFlag(DEVICE_KEY.calendarNeedsReconnect))),
+    [],
+  );
+  const markReconnect = useCallback((event: ReconnectEvent) => {
+    const next = nextReconnectFlag(readDeviceFlag(DEVICE_KEY.calendarNeedsReconnect), event);
+    writeDeviceFlag(DEVICE_KEY.calendarNeedsReconnect, next);
+    setReconnectSource(reconnectBannerSource(next));
+  }, []);
+  useEffect(() => readReconnect(), [readReconnect]);
   /** 直前の操作。取り消しに使う */
   const [undo, setUndo] = useState<{ message: string; revert: () => void } | null>(
     null,
@@ -156,9 +173,8 @@ export default function PlanPage() {
         if (!alive) return;
         if (d?.ok) {
           setOverlay(d.events ?? []);
-          // 読めたということは権限は足りている。古い印は消す
-          setNeedsReconnect(false);
-          writeDeviceFlag(DEVICE_KEY.calendarNeedsReconnect, "0");
+          // 読めたということは読み取りの権限は足りている。重ね表示側の印だけ消す
+          markReconnect("overlay_ok");
           return;
         }
         /*
@@ -170,8 +186,7 @@ export default function PlanPage() {
          * （2026-09-08 指摘2）。設定画面でも出せるよう印を残す。
          */
         if (d?.reason === "reconnect_required") {
-          setNeedsReconnect(true);
-          writeDeviceFlag(DEVICE_KEY.calendarNeedsReconnect, "1");
+          markReconnect("overlay_reconnect");
         }
       })
       .catch(() => {
@@ -180,7 +195,7 @@ export default function PlanPage() {
     return () => {
       alive = false;
     };
-  }, [date]);
+  }, [date, markReconnect]);
 
   // 現在時刻。分が変わるたびに動かす（秒まで追う必要はない）
   useEffect(() => {
@@ -336,7 +351,7 @@ export default function PlanPage() {
   return (
     <>
       <AppHeader title="時間割" />
-      <CalendarSyncBoot onApplied={() => reload(date)} />
+      <CalendarSyncBoot onApplied={() => reload(date)} onReconnectChange={readReconnect} />
       <main className="phone flex min-h-0 flex-1 flex-col px-4 pb-3 pt-3">
         {/*
           重ね表示が権限不足で読めていないときだけ出す。
@@ -344,12 +359,16 @@ export default function PlanPage() {
           押す先は設定画面。ここから直接 /api/calendar/connect へ送らないのは、
           連携し直すと何が起きるかを読んでから決めてほしいため。
         */}
-        {needsReconnect && (
+        {reconnectSource && (
           <p
             role="status"
             className="mb-3 rounded-xl border border-accent-line bg-accent-soft px-4 py-3 text-[12.5px] leading-relaxed text-accent"
           >
-            Googleカレンダーを読む許可が足りないので、ほかの予定を重ねて表示できていません。
+            {reconnectSource === "overlay"
+              ? "Googleカレンダーを読む許可が足りないので、ほかの予定を重ねて表示できていません。"
+              : reconnectSource === "sync"
+                ? "Googleカレンダーとの連携が切れているか許可が足りないので、予定をカレンダーへ送れていません。"
+                : "Googleカレンダーとの連携が切れているか許可が足りないので、予定の送信とほかの予定の重ね表示ができていません。"}
             <Link href="/settings" className="ml-1 underline">
               設定から連携し直す
             </Link>
