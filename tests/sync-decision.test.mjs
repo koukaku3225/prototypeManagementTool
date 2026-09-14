@@ -151,5 +151,58 @@ t("中間目標のJSONが壊れていても落ちず、持ち越さない", () =
   assert.deepEqual(carryOverOnPull({ "gc.checkpoints": '{"not":"array"}' }, ["A"]), {});
 });
 
+// ---- 中間目標のクラウド同期、端末ごとに初回だけ合わせる（R16） ----
+
+const { mergeCheckpoints, sendableCheckpoint } = await import("../src/lib/supabase/sync-decision.ts");
+
+const U1 = "0b0f2a4e-1111-4a4a-8a8a-000000000001";
+const U2 = "0b0f2a4e-1111-4a4a-8a8a-000000000002";
+const U3 = "0b0f2a4e-1111-4a4a-8a8a-000000000003";
+const CARD = "f5d40667-55fb-4084-9fbb-df21a03b3df2";
+const full = (id, updatedAt, over = {}) => ({
+  id,
+  cardId: CARD,
+  title: id.slice(-1),
+  period: { kind: "week", start: "2026-09-14", end: "2026-09-20" },
+  status: "active",
+  createdAt: "2026-09-14T00:00:00.000Z",
+  updatedAt,
+  ...over,
+});
+
+t("ローカルだけ・クラウドだけの中間目標は、両方残す（初回に片方を消さない）", () => {
+  const out = mergeCheckpoints([full(U1, "2026-09-14T01:00:00Z")], [full(U2, "2026-09-14T01:00:00Z")]);
+  assert.deepEqual(out.map((c) => c.id).sort(), [U1, U2]);
+});
+
+t("同じ中間目標が両方にあれば、更新が新しいほうを採る", () => {
+  const local = full(U1, "2026-09-14T05:00:00Z", { title: "ローカルで直した" });
+  const cloud = full(U1, "2026-09-14T03:00:00Z", { title: "古い" });
+  assert.equal(mergeCheckpoints([local], [cloud])[0].title, "ローカルで直した");
+  const newerCloud = full(U1, "2026-09-14T09:00:00Z", { title: "別端末で直した" });
+  assert.equal(mergeCheckpoints([local], [newerCloud])[0].title, "別端末で直した");
+});
+
+t("更新時刻が同じならローカルを採る（いま見ている画面と食い違わせない）", () => {
+  const local = full(U1, "2026-09-14T05:00:00Z", { title: "ローカル" });
+  const cloud = full(U1, "2026-09-14T05:00:00Z", { title: "クラウド" });
+  const out = mergeCheckpoints([local], [cloud]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].title, "ローカル");
+});
+
+t("両方空なら空", () => {
+  assert.deepEqual(mergeCheckpoints([], []), []);
+});
+
+t("送れる中間目標：id・目標ID が uuid、日付が YYYY-MM-DD、種類と状態が決まった値", () => {
+  assert.equal(sendableCheckpoint(full(U3, "2026-09-14T00:00:00Z")), true);
+  assert.equal(sendableCheckpoint(full("not-a-uuid", "x")), false);
+  assert.equal(sendableCheckpoint(full(U3, "x", { cardId: "card-1" })), false);
+  assert.equal(sendableCheckpoint(full(U3, "x", { period: { kind: "week", start: "来週", end: "2026-09-20" } })), false);
+  assert.equal(sendableCheckpoint(full(U3, "x", { period: { kind: "day", start: "2026-09-14", end: "2026-09-20" } })), false);
+  assert.equal(sendableCheckpoint(full(U3, "x", { status: "paused" })), false);
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

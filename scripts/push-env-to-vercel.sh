@@ -84,8 +84,14 @@ for name in $VARS; do
   for target in $TARGETS; do
     # 既存があれば消す。無ければ失敗するが、それは想定内なので無視する
     vercel env rm "$name" "$target" --yes >/dev/null 2>&1 || true
-    # 改行を付けずに渡す。末尾の改行が値に混ざると、トークンとして無効になる
-    printf '%s' "$value" | vercel env add "$name" "$target" >/dev/null
+    # CLI 50系の preview は「どのブランチか」を聞いて止まり、案内どおり
+    # --value --yes を付けても止まる。第3引数に空文字を渡すと「全ブランチ」で通る。
+    # --value なら末尾の改行も混ざらない
+    if [ "$target" = "preview" ]; then
+      vercel env add "$name" preview "" --value "$value" --yes >/dev/null
+    else
+      vercel env add "$name" "$target" --value "$value" --yes >/dev/null
+    fi
     echo "  → $name ($target) を設定しました"
   done
 done

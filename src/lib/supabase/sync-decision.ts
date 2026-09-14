@@ -8,6 +8,8 @@
  */
 
 import { DEVICE_LOCAL_KEYS, KEY } from "@/lib/storage-keys";
+import { isValidUuid } from "@/lib/uuid";
+import type { Checkpoint } from "@/types/goal";
 
 export type SyncDirection =
   /** クラウドを正として、この端末を上書きする */
@@ -136,4 +138,43 @@ export function carryOverOnPull(
     }
   }
   return out;
+}
+
+/**
+ * ローカルとクラウドの中間目標を合わせる（R16、2026-09-14）。
+ *
+ * 送信は「そのキーの中身でクラウドをまるごと突き合わせ、手元に無い行は消す」方式で、
+ * すでに同期している端末は開くたびに全部を送り直す。中間目標のテーブルを足した直後に
+ * それをそのまま走らせると、**最初に送った端末が、別の端末から上がった中間目標を消す**。
+ * そこで端末ごとに最初の1回だけ、両方を合わせてから送る。
+ *
+ * - 片方にしか無いものは両方残す
+ * - 両方にあれば更新時刻が新しいほう。同じならローカル（いま見ている画面と食い違わせない）
+ */
+export function mergeCheckpoints(local: Checkpoint[], cloud: Checkpoint[]): Checkpoint[] {
+  const byId = new Map<string, Checkpoint>();
+  for (const c of cloud) byId.set(c.id, c);
+  for (const c of local) {
+    const other = byId.get(c.id);
+    if (!other || (c.updatedAt ?? "") >= (other.updatedAt ?? "")) byId.set(c.id, c);
+  }
+  return [...byId.values()];
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * クラウドに送れる形か。
+ * upsert は配列を1回で送るので、1件でも型の合わない行があるとその回が丸ごと拒否され、
+ * 正常な中間目標まで届かなくなる（goal_cards の期限「3年後」で実際に起きた）。
+ */
+export function sendableCheckpoint(c: Checkpoint): boolean {
+  return (
+    isValidUuid(c.id) &&
+    isValidUuid(c.cardId) &&
+    DATE_RE.test(c.period?.start ?? "") &&
+    DATE_RE.test(c.period?.end ?? "") &&
+    (c.period?.kind === "week" || c.period?.kind === "month") &&
+    (c.status === "active" || c.status === "done" || c.status === "abandoned")
+  );
 }

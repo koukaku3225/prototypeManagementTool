@@ -64,6 +64,12 @@ export const DEVICE_KEY = {
    * 気づいた側が置いていく形にしてある。
    */
   calendarNeedsReconnect: "gc.calendarNeedsReconnect",
+  /**
+   * どのユーザーとして、中間目標をクラウドと一度合わせたか（R16）。
+   * 合わせる前に全件送信すると、別の端末から上がった中間目標を消してしまうので、
+   * 端末ごとに最初の1回だけ合わせてから送る（sync.ts の ensureCheckpointsMerged）。
+   */
+  checkpointsMerged: "gc.checkpointsMerged",
 } as const;
 
 /**

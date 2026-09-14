@@ -14,19 +14,29 @@ import {
   DEVICE_KEY,
   hasUserContent,
   KEY,
+  loadCheckpoints,
   readDeviceFlag,
+  replaceCheckpoints,
   restoreState,
   setSyncFlushHook,
   setSyncHook,
   writeDeviceFlag,
 } from "@/lib/storage";
 import { createPushQueue } from "./push-queue";
-import { carryOverOnPull, decideSyncDirection, isForeignKeyViolation } from "./sync-decision";
+import {
+  carryOverOnPull,
+  decideSyncDirection,
+  isForeignKeyViolation,
+  mergeCheckpoints,
+  sendableCheckpoint,
+} from "./sync-decision";
 import { isValidUuid } from "@/lib/uuid";
 import { supabaseBrowser } from "./client";
 import {
   bigStoryFromRow,
   bigStoryToRow,
+  checkpointFromRow,
+  checkpointToRow,
   goalCardFromRow,
   goalCardToRow,
   habitFromRow,
@@ -41,7 +51,7 @@ import {
   timeBoxToRow,
   usageToRows,
 } from "./mappers";
-import type { BigStory, GoalCard, Session, UserProfile } from "@/types/goal";
+import type { BigStory, Checkpoint, GoalCard, Session, UserProfile } from "@/types/goal";
 import type { Habit, HabitLog } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
 
@@ -466,6 +476,31 @@ async function pushOne(
         );
         return true;
       }
+      case KEY.checkpoints: {
+        /*
+         * 端末ごとに一度クラウドと合わせるまでは送らない（R16）。
+         * 合わせる前の全件送信は、別の端末から上がった中間目標を消す。
+         * ensureCheckpointsMerged が合わせたあと、印を付けてからここを通す。
+         */
+        if (readDeviceFlag(DEVICE_KEY.checkpointsMerged) !== userId) return false;
+        const all = (value ?? []) as Checkpoint[];
+        const ok = all.filter(sendableCheckpoint);
+        if (ok.length < all.length) {
+          noteFailure(
+            `checkpoints: 形式が不正な中間目標${all.length - ok.length}件を送れませんでした`,
+            new Error("id・目標ID・期間の日付・種類・状態のいずれかが不正"),
+          );
+        }
+        await reconcileCollection(
+          "checkpoints",
+          userId,
+          // 送れなかったものも「残す」側に入れる。外すとクラウドの対応する行を消してしまう
+          all.map((c) => c.id),
+          "id",
+          ok.map((c) => checkpointToRow(c, userId)),
+        );
+        return true;
+      }
       default:
         // schemaVersion / variant / snapshots はローカルだけの関心事。同期しない
         return false;
@@ -525,7 +560,8 @@ export async function backfillAll(): Promise<{
   const failed: string[] = [];
   // sessions（archive）は big_stories/goal_cards が参照する session_id の先に
   // なるので、他より先に送る。順序を間違えるとFK違反で goal_cards が弾かれる
-  const order = [KEY.session, KEY.archive, KEY.bigstory, KEY.cards, KEY.habits, KEY.habitLogs, KEY.timeboxes, KEY.profile];
+  // checkpoints は goal_cards を参照するので、カードより後に送る
+  const order = [KEY.session, KEY.archive, KEY.bigstory, KEY.cards, KEY.habits, KEY.habitLogs, KEY.timeboxes, KEY.checkpoints, KEY.profile];
   const keys = [...order.filter((k) => k in snap), ...Object.keys(snap).filter((k) => !order.includes(k as (typeof order)[number]))];
 
   for (const key of keys) {
@@ -563,7 +599,9 @@ export async function backfillAll(): Promise<{
  *
  * gc.running / gc.variant / gc.schemaVersion は Supabase に対応するテーブルを
  * 持たない、この端末だけの関心事（走っている打刻・A/Bの割り当て・移行の版）。
- * gc.checkpoints（中間目標）もまだテーブルが無い。carryOverOnPull() を参照。
+ * gc.checkpoints（中間目標）は、この端末がまだクラウドと一度も合わせていなければ
+ * ローカルの分も残してクラウドと合わせる（R16。合わせる前のローカルはクラウドに
+ * 上がっていないので、クラウドを正とすると消える）。合わせ済みならクラウドが正。
  * 何もしないと restoreState() の remove() だけが効いて、これらが
  * 無警告で消える（実際に「走行中の打刻が消える」形で見つかった不具合）。
  * クラウド由来のデータを詰める前に、いまの値をそのまま持ち越しておく。
@@ -574,7 +612,7 @@ export async function pullAll(): Promise<boolean> {
   const supabase = supabaseBrowser();
 
   try {
-    const [big, profile, cards, habits, logs, boxes, sessions] = await Promise.all([
+    const [big, profile, cards, habits, logs, boxes, sessions, checkpoints] = await Promise.all([
       supabase.from("big_stories").select("*").eq("user_id", userId).maybeSingle(),
       supabase.from("user_profiles").select("*").eq("user_id", userId).maybeSingle(),
       supabase.from("goal_cards").select("*").eq("user_id", userId),
@@ -586,8 +624,9 @@ export async function pullAll(): Promise<boolean> {
         .select("*")
         .eq("user_id", userId)
         .order("started_at", { ascending: false }),
+      supabase.from("checkpoints").select("*").eq("user_id", userId),
     ]);
-    for (const r of [big, profile, cards, habits, logs, boxes, sessions]) {
+    for (const r of [big, profile, cards, habits, logs, boxes, sessions, checkpoints]) {
       if (r.error) throw r.error;
     }
 
@@ -609,6 +648,18 @@ export async function pullAll(): Promise<boolean> {
     data[KEY.habits] = JSON.stringify((habits.data ?? []).map(habitFromRow));
     data[KEY.habitLogs] = JSON.stringify((logs.data ?? []).map(habitLogFromRow));
     data[KEY.timeboxes] = JSON.stringify((boxes.data ?? []).map(timeBoxFromRow));
+    {
+      const cloudCps = (checkpoints.data ?? []).map(checkpointFromRow);
+      const carried = data[KEY.checkpoints]
+        ? (JSON.parse(data[KEY.checkpoints]) as Checkpoint[])
+        : [];
+      const merged =
+        readDeviceFlag(DEVICE_KEY.checkpointsMerged) === userId
+          ? cloudCps
+          : mergeCheckpoints(carried, cloudCps);
+      if (merged.length > 0) data[KEY.checkpoints] = JSON.stringify(merged);
+      else delete data[KEY.checkpoints];
+    }
     if (currentRow) data[KEY.session] = JSON.stringify(sessionFromRow(currentRow));
     data[KEY.archive] = JSON.stringify(archiveRows.map(sessionFromRow));
 
@@ -628,6 +679,41 @@ export async function pullAll(): Promise<boolean> {
     noteFailure("クラウドからの取り込みに失敗しました", err);
     return false;
   }
+}
+
+/**
+ * 中間目標を、この端末で一度だけクラウドと合わせて送る（R16、2026-09-14）。
+ *
+ * すでに同期している端末は、開くたびに全部を送り直す（backfillAll）。
+ * 中間目標のテーブルを足した直後にそのまま送ると、送信の突き合わせが
+ * 「手元に無い行はクラウドから消す」なので、**別の端末から上がった中間目標を消す**。
+ * そこで最初の1回だけ、クラウドの分を取ってきてローカルと合わせ、
+ * 合わせた結果を書き戻してから送る。印が付いたあとはふつうの送信に任せる。
+ *
+ * 失敗したら印を戻す（次回やり直す）。そのあいだ中間目標の送信は止まるが、
+ * ローカルには残っているので失うものは無い。
+ */
+async function ensureCheckpointsMerged(userId: string): Promise<boolean> {
+  if (readDeviceFlag(DEVICE_KEY.checkpointsMerged) === userId) return true;
+  const supabase = supabaseBrowser();
+  const { data, error } = await supabase.from("checkpoints").select("*").eq("user_id", userId);
+  if (error) {
+    noteFailure("中間目標をクラウドと合わせられませんでした", error);
+    return false;
+  }
+  if (currentUserId !== userId) return false;
+  const merged = mergeCheckpoints(loadCheckpoints(), (data ?? []).map(checkpointFromRow));
+  // 書き戻しで同期フックが走っても、印がまだ無いので pushOne は送らない
+  if (!replaceCheckpoints(merged)) return false;
+  const before = failureSeq;
+  writeDeviceFlag(DEVICE_KEY.checkpointsMerged, userId);
+  await pushKey(KEY.checkpoints, merged);
+  if (failureSeq !== before) {
+    // 送れなかった。印を戻して次回やり直す（合わせた結果はローカルに残っている）
+    writeDeviceFlag(DEVICE_KEY.checkpointsMerged, "");
+    return false;
+  }
+  return true;
 }
 
 /** クラウド側に、このユーザーの成果物が1件でもあるか */
@@ -678,6 +764,9 @@ async function resolveInitialSync(userId: string): Promise<void> {
         }
         writeDeviceFlag(DEVICE_KEY.syncedUser, userId);
         enablePush();
+        // 再読み込みの前に済ませる。後だと送信の途中でページが消える
+        await ensureCheckpointsMerged(userId);
+        if (currentUserId !== userId) return;
         setState({ kind: "ready" });
         /*
          * 画面はもう localStorage を読み終えている（各ページは useEffect で
@@ -693,6 +782,9 @@ async function resolveInitialSync(userId: string): Promise<void> {
         enablePush();
         writeDeviceFlag(DEVICE_KEY.syncedUser, userId);
         setState({ kind: "pushing" });
+        // 全件送信より先に。合わせる前に送ると、別端末の中間目標を消す
+        await ensureCheckpointsMerged(userId);
+        if (currentUserId !== userId) return;
         await backfillAll();
         if (currentUserId !== userId) return;
         setState({ kind: "ready" });
@@ -702,6 +794,8 @@ async function resolveInitialSync(userId: string): Promise<void> {
       case "ready": {
         enablePush();
         writeDeviceFlag(DEVICE_KEY.syncedUser, userId);
+        await ensureCheckpointsMerged(userId);
+        if (currentUserId !== userId) return;
         setState({ kind: "ready" });
         return;
       }
@@ -738,6 +832,7 @@ export async function resolveConflict(direction: "pull" | "push"): Promise<boole
   } else {
     setState({ kind: "pushing" });
     enablePush();
+    await ensureCheckpointsMerged(userId);
     const r = await backfillAll();
     if (!r.ok) {
       setState({ kind: "failed", message: "送信に一部失敗しました" });
@@ -747,6 +842,8 @@ export async function resolveConflict(direction: "pull" | "push"): Promise<boole
 
   writeDeviceFlag(DEVICE_KEY.syncedUser, userId);
   enablePush();
+  // pull で合わせた中間目標は、まだ送っていない。ここで送る（合わせ済みなら何もしない）
+  await ensureCheckpointsMerged(userId);
   setState({ kind: "ready" });
   return true;
 }

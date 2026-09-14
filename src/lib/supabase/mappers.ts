@@ -6,6 +6,7 @@
  * 呼び出し側（sync.ts）はこの関数を通すだけで、どちらの形も直接触らない。
  */
 import type {
+  Checkpoint,
   BigStory,
   GoalCard,
   Session,
@@ -314,5 +315,43 @@ export function profileFromRow(r: Record<string, unknown>): UserProfile {
       avgResponseLength: (r.avg_response_length as number) ?? 0,
       prefersConcrete: (r.prefers_concrete as boolean) ?? false,
     },
+  };
+}
+
+/**
+ * 中間目標（checkpoints テーブル。R16、2026-09-14）。
+ * 評価（evaluation）は1つの中間目標に1つだけ付く自己評価なので、jsonb に丸ごと入れる。
+ * 無いときは null で送る。undefined のままだと列が送られず、消した評価がクラウドに残る。
+ */
+export function checkpointToRow(c: Checkpoint, userId: string) {
+  return {
+    id: c.id,
+    user_id: userId,
+    card_id: c.cardId,
+    title: c.title,
+    period_kind: c.period.kind,
+    period_start: c.period.start,
+    period_end: c.period.end,
+    status: c.status,
+    evaluation: c.evaluation ?? null,
+    created_at: c.createdAt,
+    updated_at: c.updatedAt,
+  };
+}
+
+export function checkpointFromRow(r: Record<string, unknown>): Checkpoint {
+  return {
+    id: r.id as string,
+    cardId: r.card_id as string,
+    title: (r.title as string) ?? "",
+    period: {
+      kind: r.period_kind as Checkpoint["period"]["kind"],
+      start: r.period_start as string,
+      end: r.period_end as string,
+    },
+    status: r.status as Checkpoint["status"],
+    evaluation: (r.evaluation as Checkpoint["evaluation"]) ?? null,
+    createdAt: r.created_at as string,
+    updatedAt: r.updated_at as string,
   };
 }

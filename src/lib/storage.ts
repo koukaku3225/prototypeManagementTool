@@ -834,6 +834,14 @@ export function loadCheckpoints(): Checkpoint[] {
   return read<Checkpoint[]>(KEY.checkpoints) ?? [];
 }
 
+/**
+ * 中間目標をまるごと置き換える。クラウドと合わせた結果を書き戻すときだけ使う（R16）。
+ * 画面からの編集は upsertCheckpoint / deleteCheckpoint を通すこと。
+ */
+export function replaceCheckpoints(all: Checkpoint[]): boolean {
+  return write(KEY.checkpoints, all);
+}
+
 export const checkpointsOfCard = (cardId: string): Checkpoint[] =>
   loadCheckpoints().filter((c) => c.cardId === cardId);
 

@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 
-const { goalCardToRow } = await import("../src/lib/supabase/mappers.ts");
+const { goalCardToRow, checkpointToRow, checkpointFromRow } = await import("../src/lib/supabase/mappers.ts");
 
 let passed = 0;
 let failed = 0;
@@ -56,6 +56,45 @@ t("形だけ日付で、実在しない日は null", () => {
 
 t("日付の前後に文字があれば null", () => {
   assert.equal(deadlineOf("2026-10-31まで"), null);
+});
+
+// ---- 中間目標（checkpoints テーブル、R16 2026-09-14） ----
+
+const cpLocal = (over = {}) => ({
+  id: "0b0f2a4e-1111-4a4a-8a8a-000000000001",
+  cardId: "f5d40667-55fb-4084-9fbb-df21a03b3df2",
+  title: "今週3本書く",
+  period: { kind: "week", start: "2026-09-14", end: "2026-09-20" },
+  status: "active",
+  createdAt: "2026-09-14T00:00:00.000Z",
+  updatedAt: "2026-09-14T01:00:00.000Z",
+  ...over,
+});
+
+t("中間目標を行にして、行から戻すと元に戻る", () => {
+  const c = cpLocal({
+    evaluation: {
+      motives: { identified: 8, intrinsic: 7, introjected: 3, external: 2 },
+      linkedValues: ["成長"],
+      whyItMatters: "自分で稼ぐ力",
+      hasBuddy: true,
+      buddyNote: "友人に報告",
+      updatedAt: "2026-09-14T02:00:00.000Z",
+    },
+  });
+  const row = checkpointToRow(c, "user-1");
+  assert.equal(row.user_id, "user-1");
+  assert.equal(row.card_id, c.cardId);
+  assert.equal(row.period_kind, "week");
+  assert.equal(row.period_start, "2026-09-14");
+  assert.equal(row.period_end, "2026-09-20");
+  assert.deepEqual(checkpointFromRow(row), c);
+});
+
+t("評価の無い中間目標は evaluation を null で送り、null で戻す", () => {
+  const row = checkpointToRow(cpLocal(), "u");
+  assert.equal(row.evaluation, null, "undefined のままだと列が送られず、消した評価がクラウドに残る");
+  assert.equal(checkpointFromRow(row).evaluation, null);
 });
 
 console.log(`${passed} passed, ${failed} failed`);
