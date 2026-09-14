@@ -29,7 +29,10 @@ import {
   isForeignKeyViolation,
   mergeCheckpoints,
   mergeWithReport,
+  planCollectionPush,
+  rowFingerprint,
   sendableCheckpoint,
+  type PushBase,
 } from "./sync-decision";
 import { isValidUuid } from "@/lib/uuid";
 import { supabaseBrowser } from "./client";
@@ -236,9 +239,58 @@ function clearFailure(): void {
 let failureSeq = 0;
 
 /**
- * 配列で持つコレクション（goal_cards / habits / habit_logs / timeboxes）を
- * まるごと突き合わせる。この規模のデータなら、差分計算より
- * 「消えたものを消して、残ったものを upsert する」ほうが取りこぼしがない。
+ * 送り方。
+ * - diff：ふだんの保存。変わった行だけ書き、この端末で消した行だけ消す
+ * - full：まとめて送る（開いたときの合体・「いまの内容を送る」・外部キー違反の自己修復）。
+ *   全行を書くが、消すのはこの端末で消した行だけ
+ * - authoritative：衝突で本人が「この端末を残す」を選んだとき。この端末に無い行はクラウドから消す
+ */
+export type PushMode = "diff" | "full" | "authoritative";
+
+/** 基準（この端末が前回そろえた各行の指紋）を読む。別アカウントのものは使わない */
+function loadPushBase(userId: string, table: string): PushBase | null {
+  try {
+    const v = JSON.parse(readDeviceFlag(DEVICE_KEY.pushBase) ?? "null");
+    if (!v || v.userId !== userId) return null;
+    const b = v.tables?.[table];
+    return b && typeof b === "object" ? (b as PushBase) : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePushBase(userId: string, table: string, base: PushBase): void {
+  let v: { userId: string; tables: Record<string, PushBase> } = { userId, tables: {} };
+  try {
+    const cur = JSON.parse(readDeviceFlag(DEVICE_KEY.pushBase) ?? "null");
+    if (cur && cur.userId === userId && cur.tables && typeof cur.tables === "object") v = cur;
+  } catch {
+    /* 壊れていたら作り直す */
+  }
+  v.tables[table] = base;
+  // 書けなくても、次回は「基準なし＝全部書いて何も消さない」に倒れるだけ
+  writeDeviceFlag(DEVICE_KEY.pushBase, JSON.stringify(v));
+}
+
+/**
+ * 同じキーの送信を順番に並べる。
+ * 前の送信が基準を書き換える前に次の送信が基準を読むと、
+ * 「消した行」を取りこぼしたり、同じ行を二重に書いたりする。
+ */
+const pushChains = new Map<string, Promise<unknown>>();
+function serialized<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = pushChains.get(key) ?? Promise.resolve();
+  const run = prev.catch(() => undefined).then(fn);
+  pushChains.set(key, run.catch(() => undefined));
+  return run;
+}
+
+/**
+ * 配列で持つコレクション（goal_cards / habits / timeboxes / checkpoints）を送る。
+ *
+ * 2026-09-15 までは、保存のたびに「全行 upsert・この端末に無い行はクラウドから消す」だった。
+ * 開きっぱなしの端末で1件保存するだけで、別端末が後から足した行が消え、直した行が
+ * 古い中身で上書きされていた（本番で再現）。ふだんは差分だけにする（planCollectionPush）。
  */
 async function reconcileCollection(
   table: string,
@@ -246,6 +298,7 @@ async function reconcileCollection(
   incomingIds: string[],
   idColumn: string,
   rows: Record<string, unknown>[],
+  mode: PushMode = "diff",
 ) {
   const supabase = supabaseBrowser();
 
@@ -278,21 +331,35 @@ async function reconcileCollection(
     }
   }
 
-  const { data: existing, error: readErr } = await supabase
-    .from(table)
-    .select(idColumn)
-    .eq("user_id", userId);
-  if (readErr) throw readErr;
+  const keyed = sendRows.map((r) => ({ key: String(r[idColumn]), fp: rowFingerprint(r), row: r }));
 
-  /*
-   * 消す判断には、送れなかった行の ID も「残す」側へ入れておく。
-   * 除外したぶんを keep から外すと、クラウド側にある対応する行を
-   * 「ローカルで消された」とみなして消してしまう。
-   */
-  const keep = new Set(incomingIds);
-  const gone = (existing ?? [])
-    .map((r: Record<string, unknown>) => r[idColumn] as string)
-    .filter((id: string) => !keep.has(id));
+  let gone: string[];
+  let base: PushBase;
+  if (mode === "authoritative") {
+    const { data: existing, error: readErr } = await supabase
+      .from(table)
+      .select(idColumn)
+      .eq("user_id", userId);
+    if (readErr) throw readErr;
+
+    /*
+     * 消す判断には、送れなかった行の ID も「残す」側へ入れておく。
+     * 除外したぶんを keep から外すと、クラウド側にある対応する行を
+     * 「ローカルで消された」とみなして消してしまう。
+     */
+    const keep = new Set(incomingIds);
+    gone = (existing ?? [])
+      .map((r: Record<string, unknown>) => r[idColumn] as string)
+      .filter((id: string) => !keep.has(id));
+    base = Object.fromEntries(keyed.map((k) => [k.key, k.fp]));
+  } else {
+    // 送れなかった行も「この端末にある」側へ入れる（消した行と取り違えない）
+    const plan = planCollectionPush(loadPushBase(userId, table), keyed, incomingIds, mode);
+    const write = new Set(plan.upsert);
+    sendRows = keyed.filter((k) => write.has(k.key)).map((k) => k.row);
+    gone = plan.remove;
+    base = plan.next;
+  }
 
   /*
    * 先に書き、あとで消す。順序を逆にすると、削除だけ成功して
@@ -313,21 +380,50 @@ async function reconcileCollection(
       .in(idColumn, gone);
     if (error) throw error;
   }
+  // 書き・消しが両方通ったときだけ基準を進める。途中で落ちたら次回もう一度同じ差分を送る
+  if (currentUserId === userId) savePushBase(userId, table, base);
 }
 
-/** habit_logs だけ主キーが複合（habit_id, date）なので、専用の突き合わせにする */
-async function reconcileHabitLogs(userId: string, logs: HabitLog[]) {
-  const supabase = supabaseBrowser();
-  const { data: existing, error: readErr } = await supabase
-    .from("habit_logs")
-    .select("habit_id, date")
-    .eq("user_id", userId);
-  if (readErr) throw readErr;
+const habitLogKey = (habitId: string, date: string) => `${habitId}|${date}`;
 
-  const keep = new Set(logs.map((l) => `${l.habitId}|${l.date}`));
-  const gone = (existing ?? []).filter(
-    (r: { habit_id: string; date: string }) => !keep.has(`${r.habit_id}|${r.date}`),
-  ) as { habit_id: string; date: string }[];
+/** habit_logs だけ主キーが複合（habit_id, date）なので、専用の突き合わせにする */
+async function reconcileHabitLogs(userId: string, logs: HabitLog[], mode: PushMode = "diff") {
+  const supabase = supabaseBrowser();
+  const keyed = logs.map((l) => {
+    const row = habitLogToRow(l, userId);
+    return { key: habitLogKey(l.habitId, l.date), fp: rowFingerprint(row), row };
+  });
+
+  let gone: { habit_id: string; date: string }[];
+  let toWrite: Record<string, unknown>[];
+  let base: PushBase;
+  if (mode === "authoritative") {
+    const { data: existing, error: readErr } = await supabase
+      .from("habit_logs")
+      .select("habit_id, date")
+      .eq("user_id", userId);
+    if (readErr) throw readErr;
+    const keep = new Set(keyed.map((k) => k.key));
+    gone = (existing ?? []).filter(
+      (r: { habit_id: string; date: string }) => !keep.has(habitLogKey(r.habit_id, r.date)),
+    ) as { habit_id: string; date: string }[];
+    toWrite = keyed.map((k) => k.row);
+    base = Object.fromEntries(keyed.map((k) => [k.key, k.fp]));
+  } else {
+    const plan = planCollectionPush(
+      loadPushBase(userId, "habit_logs"),
+      keyed,
+      keyed.map((k) => k.key),
+      mode,
+    );
+    const write = new Set(plan.upsert);
+    toWrite = keyed.filter((k) => write.has(k.key)).map((k) => k.row);
+    gone = plan.remove.map((k) => {
+      const i = k.lastIndexOf("|");
+      return { habit_id: k.slice(0, i), date: k.slice(i + 1) };
+    });
+    base = plan.next;
+  }
 
   for (const g of gone) {
     const { error } = await supabase
@@ -338,11 +434,56 @@ async function reconcileHabitLogs(userId: string, logs: HabitLog[]) {
       .eq("date", g.date);
     if (error) throw error;
   }
-  if (logs.length > 0) {
-    const { error } = await supabase
-      .from("habit_logs")
-      .upsert(logs.map((l) => habitLogToRow(l, userId)));
+  if (toWrite.length > 0) {
+    const { error } = await supabase.from("habit_logs").upsert(toWrite);
     if (error) throw error;
+  }
+  if (currentUserId === userId) savePushBase(userId, "habit_logs", base);
+}
+
+/**
+ * クラウドから取り込んだ直後に、基準を「いまこの端末にある中身」にそろえる。
+ *
+ * 取り込み（pull）はクラウド＝この端末になるので、ここで基準を作っておかないと、
+ * 取り込み直後に消した行が「基準に無い＝この端末で消したと分からない」扱いになり、
+ * クラウドに残り続ける（次に開いたときの合体で戻ってくる）。
+ */
+function seedPushBaseFromLocal(userId: string): void {
+  const snap = captureState();
+  const parse = <T,>(k: string): T[] => {
+    try {
+      const v = JSON.parse(snap[k] ?? "[]");
+      return Array.isArray(v) ? (v as T[]) : [];
+    } catch {
+      return [];
+    }
+  };
+  const fps = (rows: Record<string, unknown>[], key: (r: Record<string, unknown>) => string) =>
+    Object.fromEntries(rows.map((r) => [key(r), rowFingerprint(r)]));
+  const byId = (r: Record<string, unknown>) => String(r.id);
+
+  savePushBase(userId, "goal_cards", fps(parse<GoalCard>(KEY.cards).map((c) => goalCardToRow(c, userId)), byId));
+  savePushBase(userId, "habits", fps(parse<Habit>(KEY.habits).map((h) => habitToRow(h, userId)), byId));
+  savePushBase(
+    userId,
+    "timeboxes",
+    fps(parse<TimeBox>(KEY.timeboxes).map((b) => timeBoxToRow(b, userId)).filter((r) => isValidUuid(r.id)), byId),
+  );
+  savePushBase(
+    userId,
+    "habit_logs",
+    fps(
+      parse<HabitLog>(KEY.habitLogs).map((l) => habitLogToRow(l, userId)),
+      (r) => habitLogKey(String(r.habit_id), String(r.date)),
+    ),
+  );
+  // 中間目標は、合わせ済みの端末だけ（合わせる前は送らないので基準も持たない）
+  if (readDeviceFlag(DEVICE_KEY.checkpointsMerged) === userId) {
+    savePushBase(
+      userId,
+      "checkpoints",
+      fps(parse<Checkpoint>(KEY.checkpoints).filter(sendableCheckpoint).map((c) => checkpointToRow(c, userId)), byId),
+    );
   }
 }
 
@@ -359,6 +500,7 @@ export async function pushKey(
    * （セキュリティレビュー指摘7）。
    */
   expectedUserId?: string,
+  mode: PushMode = "diff",
 ): Promise<void> {
   const userId = currentUserId;
   if (!userId) return; // ログインしていなければ何もしない
@@ -366,7 +508,7 @@ export async function pushKey(
 
   const seenBefore = failureSeq;
   try {
-    const wrote = await pushOne(key, value, userId);
+    const wrote = await serialized(key, () => pushOne(key, value, userId, mode));
     /*
      * 実際に書けて、その間に新しい失敗も記録されていないときだけ取り下げる。
      *
@@ -392,6 +534,7 @@ async function pushOne(
   key: string,
   value: unknown,
   userId: string,
+  mode: PushMode,
 ): Promise<boolean> {
   {
     const supabase = supabaseBrowser();
@@ -459,6 +602,7 @@ async function pushOne(
           cards.map((c) => c.id),
           "id",
           cards.map((c) => goalCardToRow(c, userId)),
+          mode,
         );
         return true;
       }
@@ -470,11 +614,12 @@ async function pushOne(
           habits.map((h) => h.id),
           "id",
           habits.map((h) => habitToRow(h, userId)),
+          mode,
         );
         return true;
       }
       case KEY.habitLogs: {
-        await reconcileHabitLogs(userId, value as HabitLog[]);
+        await reconcileHabitLogs(userId, value as HabitLog[], mode);
         return true;
       }
       case KEY.timeboxes: {
@@ -485,6 +630,7 @@ async function pushOne(
           boxes.map((b) => b.id),
           "id",
           boxes.map((b) => timeBoxToRow(b, userId)),
+          mode,
         );
         return true;
       }
@@ -510,6 +656,7 @@ async function pushOne(
           all.map((c) => c.id),
           "id",
           ok.map((c) => checkpointToRow(c, userId)),
+          mode,
         );
         return true;
       }
@@ -561,7 +708,7 @@ async function healIfDanglingReference(err: unknown): Promise<void> {
  * captureState() は既存のスナップショット機能が使っているのと同じ取り出しで、
  * 「今の状態をまるごと書き出す」目的にそのまま転用できる。
  */
-export async function backfillAll(): Promise<{
+export async function backfillAll(mode: "full" | "authoritative" = "full"): Promise<{
   ok: boolean;
   pushed: string[];
   failed: string[];
@@ -590,7 +737,7 @@ export async function backfillAll(): Promise<{
      */
     const before = failureSeq;
     try {
-      await pushKey(key, JSON.parse(raw), userId);
+      await pushKey(key, JSON.parse(raw), userId, mode);
       if (failureSeq === before) pushed.push(key);
       else failed.push(key);
     } catch (err) {
@@ -627,7 +774,10 @@ export async function pullAll(): Promise<boolean> {
   try {
     const cloud = await fetchCloudSnapshot(userId);
     if (!cloud) return false;
-    return writeLocalWithoutPush(cloud.data);
+    const ok = writeLocalWithoutPush(cloud.data);
+    // この端末＝クラウドになったので、基準もそろえる（取り込み直後に消した行を送れるように）
+    if (ok && currentUserId === userId) seedPushBaseFromLocal(userId);
+    return ok;
   } catch (err) {
     noteFailure("クラウドからの取り込みに失敗しました", err);
     return false;
@@ -941,7 +1091,8 @@ export async function resolveConflict(direction: "pull" | "push"): Promise<boole
     setState({ kind: "pushing" });
     enablePush();
     await ensureCheckpointsMerged(userId);
-    const r = await backfillAll();
+    // 本人が「この端末を残す」を選んだ。この端末に無い行はクラウドからも消す
+    const r = await backfillAll("authoritative");
     if (!r.ok) {
       setState({ kind: "failed", message: "送信に一部失敗しました" });
       return false;

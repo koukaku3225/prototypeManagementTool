@@ -72,6 +72,12 @@ export const DEVICE_KEY = {
   checkpointsMerged: "gc.checkpointsMerged",
   /** 開いたときの合体で最後に画面を読み直した時刻（ミリ秒）。再読み込みの繰り返しを止める歯止め */
   lastMergeReloadAt: "gc.lastMergeReloadAt",
+  /**
+   * この端末が前回クラウドとそろえた各行の指紋（sync.ts の reconcileCollection）。
+   * 保存のたびに「変わった行だけ書き、この端末で消した行だけ消す」ための基準。
+   * 無くても壊れない（全部書いて何も消さない、に倒れる）。
+   */
+  pushBase: "gc.pushBase",
 } as const;
 
 /**

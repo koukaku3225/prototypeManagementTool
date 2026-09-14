@@ -17,6 +17,8 @@ import {
   isForeignKeyViolation,
   mergeSnapshots,
   mergeWithReport,
+  planCollectionPush,
+  rowFingerprint,
 } from "../src/lib/supabase/sync-decision.ts";
 
 let passed = 0;
@@ -348,6 +350,59 @@ t("この端末に無い1件もの（プロフィール等）をクラウドか�
 t("壊れたJSONがあっても落ちず、読めるほうを残す", () => {
   const m = mergeSnapshots({ "gc.cards": "{壊れた" }, snap({ "gc.cards": [box("c")] }));
   assert.deepEqual(parse(m, "gc.cards").map((c) => c.id), ["c"]);
+});
+
+/* ───── 送信の差分（planCollectionPush、2026-09-15） ───── */
+
+const rows = (obj) => Object.entries(obj).map(([key, v]) => ({ key, fp: rowFingerprint(v) }));
+
+t("【本番で再現した不具合】開きっぱなしの端末で1件足しても、別端末が足した行は消さない", () => {
+  // この端末が前回そろえたのは a・b。その後、別端末がクラウドに z を足した（この端末は知らない）
+  const base = Object.fromEntries(rows({ a: { t: "A" }, b: { t: "B" } }).map((r) => [r.key, r.fp]));
+  const now = rows({ a: { t: "A" }, b: { t: "B" }, c: { t: "新しく足した" } });
+  const plan = planCollectionPush(base, now, ["a", "b", "c"], "diff");
+  assert.deepEqual(plan.remove, [], "基準に無い行（z）は消す候補に入らない");
+  assert.deepEqual(plan.upsert, ["c"], "変わっていない a・b を古い中身で上書きしない");
+});
+
+t("この端末で消した行だけを消す", () => {
+  const base = Object.fromEntries(rows({ a: 1, b: 2 }).map((r) => [r.key, r.fp]));
+  const plan = planCollectionPush(base, rows({ a: 1 }), ["a"], "diff");
+  assert.deepEqual(plan.remove, ["b"]);
+  assert.deepEqual(plan.upsert, []);
+  assert.deepEqual(Object.keys(plan.next), ["a"]);
+});
+
+t("この端末で直した行は書く", () => {
+  const base = Object.fromEntries(rows({ a: { t: "前" } }).map((r) => [r.key, r.fp]));
+  const plan = planCollectionPush(base, rows({ a: { t: "後" } }), ["a"], "diff");
+  assert.deepEqual(plan.upsert, ["a"]);
+});
+
+t("基準が無い（初回・別アカウント）なら全部書いて、何も消さない", () => {
+  const plan = planCollectionPush(null, rows({ a: 1, b: 2 }), ["a", "b"], "diff");
+  assert.deepEqual(plan.upsert, ["a", "b"]);
+  assert.deepEqual(plan.remove, []);
+});
+
+t("full は変わっていない行も書くが、消すのはこの端末で消した行だけ", () => {
+  const base = Object.fromEntries(rows({ a: 1, b: 2 }).map((r) => [r.key, r.fp]));
+  const plan = planCollectionPush(base, rows({ a: 1 }), ["a"], "full");
+  assert.deepEqual(plan.upsert, ["a"]);
+  assert.deepEqual(plan.remove, ["b"]);
+});
+
+t("送れなかった行（不正ID）はこの端末にある扱い。消さず、基準にも入れない", () => {
+  const base = Object.fromEntries(rows({ a: 1, bad: 2 }).map((r) => [r.key, r.fp]));
+  const plan = planCollectionPush(base, rows({ a: 1 }), ["a", "bad"], "diff");
+  assert.deepEqual(plan.remove, []);
+  assert.deepEqual(Object.keys(plan.next), ["a"]);
+});
+
+t("指紋は中身が同じなら同じ、1文字でも違えば違う", () => {
+  assert.equal(rowFingerprint({ a: "x", b: null }), rowFingerprint({ a: "x", b: null }));
+  assert.notEqual(rowFingerprint({ a: "x" }), rowFingerprint({ a: "y" }));
+  assert.notEqual(rowFingerprint({ title: "読書" }), rowFingerprint({ title: "読書 " }));
 });
 
 console.log(`${passed} passed, ${failed} failed`);
