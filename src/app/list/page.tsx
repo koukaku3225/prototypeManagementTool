@@ -13,7 +13,7 @@ import {
   activeHabits,
   cancelRunning,
   clearHabitLogFromBox,
-  deleteTimeBox,
+  removeTimeBox,
   loadCards,
   loadCheckpoints,
   loadHabitLogs,
@@ -493,7 +493,8 @@ export default function TodayPage() {
           isNew={isNew}
           onSave={saveBox}
           onDelete={(id) => {
-            deleteTimeBox(id);
+            // 取り込んだ枠は非表示にするだけ（本当に消すと次の同期で戻ってくる）
+            removeTimeBox(id);
             reload();
             closeSheet();
           }}

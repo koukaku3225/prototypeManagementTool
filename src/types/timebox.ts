@@ -69,6 +69,29 @@ export interface TimeBox {
    */
   googleEventId?: string | null;
   /**
+   * どこから来た枠か。無ければ "app"（それまでの枠はすべてアプリで作ったもの）。
+   *
+   * "google" は本人のメインカレンダーから取り込んだ枠（calendar/primary.ts）。
+   * タイトルと時刻は Google が正で、アプリでは変えられない。
+   * アプリで持つのは完了・事前準備・振り返り・目標の紐づけ・色だけ。
+   */
+  source?: "app" | "google";
+  /** 取り込み元の予定ID（source が "google" のときだけ）。繰り返し予定は1回ごとに別 */
+  sourceEventId?: string | null;
+  /**
+   * アプリで消した時刻。取り込んだ枠だけに付く。
+   *
+   * 本当に消すと、次の同期でまた取り込まれて戻ってくる。
+   * 行は残して「この予定は取り込まない」という記録にし、どの画面にも出さない
+   * （storage.ts の loadTimeBoxes が最初から除く）。
+   */
+  hiddenAt?: string | null;
+  /**
+   * Google 側で予定が消えたのに、書き込みか完了があるので残した時刻。
+   * 書いたものを Google の削除だけで失わせないため。画面では「Googleで削除済み」と出す。
+   */
+  sourceGoneAt?: string | null;
+  /**
    * 最後に触った時刻（ISO8601）。
    *
    * カレンダーと双方向に同期するとき「どちらが新しいか」を決める材料。

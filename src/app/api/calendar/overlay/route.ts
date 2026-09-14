@@ -53,9 +53,10 @@ export async function GET(req: Request) {
      * 本人が Google カレンダー側で非表示にしているものは重ねない。
      * 向こうで消しているのにこちらで出るのは、本人の意思に反する。
      * 専用カレンダーも除く（その予定は既に本体の枠として描かれている）。
+     * メインカレンダーも除く。取り込んで枠として描いているので、重ねると二重に見える。
      */
     const calendars = (await listCalendars(token))
-      .filter((c) => c.selected && c.id !== link.calendarId)
+      .filter((c) => c.selected && !c.primary && c.id !== link.calendarId)
       /*
        * 数を切る。カレンダーごとに1往復するので、多いと
        * maxDuration を超えて全部出なくなる。少しでも出るほうがよい。

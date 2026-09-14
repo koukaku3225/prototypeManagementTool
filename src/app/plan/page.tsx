@@ -17,11 +17,13 @@ import {
   writeDeviceFlag,
   loadCards,
   loadTimeBoxes,
+  removeTimeBox,
   setHabitLog,
   timeBoxesOn,
   undoDeleteTimeBox,
   upsertTimeBox,
 } from "@/lib/storage";
+import { isFromGoogle } from "@/lib/calendar/primary";
 import { habitBoxesOn, habitsOfActiveCards, isGhost, materializeHabitBox } from "@/lib/habit-plan";
 import {
   currentBox,
@@ -258,6 +260,8 @@ export default function PlanPage() {
    */
   function moveByDrag(box: TimeBox, next: { start: string; end: string }) {
     if (next.start === box.start && next.end === box.end) return;
+    // 取り込んだ枠の時刻は Google が正。グリッド側でもつかめないが、念のため入口でも止める
+    if (isFromGoogle(box)) return;
     const before = box;
     const resized = durationMin(next) !== durationMin(box);
     const real = save({ ...box, ...next });
@@ -303,7 +307,8 @@ export default function PlanPage() {
 
   function remove(id: string) {
     const before = boxes.find((b) => b.id === id);
-    deleteTimeBox(id);
+    // 取り込んだ枠は非表示にするだけ（本当に消すと次の同期で戻ってくる）
+    removeTimeBox(id);
     reload(date);
     close();
     // 消したものは戻せないと痛い。取り消しを出す

@@ -4,9 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { addDays } from "@/lib/date";
 import {
   deleteTimeBoxes,
+  loadAllTimeBoxes,
   loadTimeBoxes,
   readDeviceFlag,
   upsertTimeBox,
+  upsertTimeBoxes,
   writeDeviceFlag,
 } from "@/lib/storage";
 import {
@@ -15,9 +17,39 @@ import {
   nextReconnectFlag,
   type ReconnectEvent,
 } from "@/lib/calendar/reconnect";
+import { isFromGoogle, mergePrimary, type PrimaryFetch } from "@/lib/calendar/primary";
 import { DEVICE_KEY } from "@/lib/storage-keys";
 import { getSyncState } from "@/lib/supabase/sync";
-import { emptyMeta } from "@/types/timebox";
+
+/**
+ * メインカレンダーの予定を取り込む（calendar/primary.ts）。変わった件数を返す。
+ *
+ * 読めなかったとき（未連携・通信断・権限切れ）は何もしない。
+ * 「読めなかった」を「予定が0件」と取り違えると、取り込んだ枠を全部消してしまう。
+ */
+async function importPrimary(): Promise<{ changed: number; reconnect: boolean }> {
+  const data = await fetch("/api/calendar/primary")
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null);
+  if (!data?.ok || !Array.isArray(data.events) || !data.from || !data.to) {
+    return { changed: 0, reconnect: data?.reason === "reconnect_required" };
+  }
+  const fetched: PrimaryFetch = { from: data.from, to: data.to, events: data.events };
+  // 非表示の行も渡す。渡さないと、消した予定を取り込み直してしまう
+  const { upserts, deletes, braked } = mergePrimary(
+    loadAllTimeBoxes(),
+    fetched,
+    new Date().toISOString(),
+  );
+  if (braked) {
+    console.warn(
+      "[calendar] Googleで一度に多くの予定が消えていたので、消さずに「Googleで削除済み」にしました",
+    );
+  }
+  upsertTimeBoxes(upserts);
+  deleteTimeBoxes(deletes);
+  return { changed: upserts.length + deletes.length, reconnect: false };
+}
 
 // サーバー側の取得窓は -7日〜+60日だが、送信側はそれより広め（-14〜+90）に
 // 絞る。窓をぴったり合わせると、サーバーとクライアントで「今日」の算出が
@@ -60,6 +92,18 @@ export function CalendarSyncBoot({
   const [pending, setPending] = useState(0);
 
   const runSync = useCallback(async (confirmDeletes: boolean) => {
+    /*
+     * 先にメインカレンダーを取り込む。専用カレンダーの繋ぎ直しとは関係が無い
+     * （予定IDはメインカレンダーのもの）ので、下の「見送り」に巻き込まない。
+     * 取り込んだ枠は source="google" なので、下の専用カレンダーへの送信には入らない。
+     */
+    const primary = await importPrimary();
+    if (primary.reconnect) {
+      markReconnect("overlay_reconnect");
+      onReconnectChange?.();
+    }
+    if (primary.changed > 0) onApplied();
+
     /*
      * 送る前に「繋ぎ直していないか」を確かめる。
      *
@@ -131,6 +175,9 @@ export function CalendarSyncBoot({
       // 全件送るとAPIスキーマの上限（500件）を超えて弾かれ、以後同期が
       // 恒久的に止まる（レビューで指摘）。期間で絞って送信する
       .filter((b) => b.date >= from && b.date <= to)
+      // メインカレンダーから取り込んだ枠は送らない。送ると専用カレンダーに
+      // 同じ予定が写り、Google 上で二重に並ぶ
+      .filter((b) => !isFromGoogle(b))
       .map((b) => ({
         id: b.id,
         date: b.date,
@@ -138,10 +185,6 @@ export function CalendarSyncBoot({
         end: b.end,
         title: b.title,
         googleEventId: b.googleEventId ?? null,
-        updatedAt: b.updatedAt,
-        hasNotes: Boolean(
-          b.meta.why || b.meta.obstacle || b.meta.counter || b.review,
-        ),
       }));
 
     const res = await fetch("/api/calendar/sync", {
@@ -179,45 +222,17 @@ export function CalendarSyncBoot({
      * 「送信の成否」と「目印を書いてよいか」は無関係になっている。
      */
 
-    // カレンダーは title/start/end/googleEventId しか持たない。
-    // meta・review・cardId・color はサーバーから来ないので、元の枠を
-    // 展開したうえで返ってきたキーだけを上書きする（本人の記入を守る）
+    /*
+     * 専用カレンダーは一方向なので、返ってくるのは予定IDの対応だけ。
+     * タイトル・時刻・書き込みには触らない（元の枠を展開して ID だけ差し替える）。
+     */
     const all = loadTimeBoxes();
-    for (const u of data.upserts ?? []) {
+    const idFixes = (data.upserts ?? []).flatMap((u: { id: string; googleEventId?: string }) => {
       const cur = all.find((b) => b.id === u.id);
-      if (!cur) continue;
-      upsertTimeBox({
-        ...cur,
-        ...(u.title !== undefined ? { title: u.title } : {}),
-        ...(u.date !== undefined ? { date: u.date } : {}),
-        ...(u.start !== undefined ? { start: u.start } : {}),
-        ...(u.end !== undefined ? { end: u.end } : {}),
-        ...(u.googleEventId !== undefined ? { googleEventId: u.googleEventId } : {}),
-      });
-    }
-    for (const im of data.imports ?? []) {
-      upsertTimeBox({
-        id: crypto.randomUUID(),
-        date: im.date,
-        start: im.start,
-        end: im.end,
-        title: im.title,
-        cardId: null,
-        googleEventId: im.googleEventId,
-        meta: emptyMeta(),
-        completedAt: null,
-        review: null,
-        createdAt: new Date().toISOString(),
-      });
-    }
-    // 1件ずつ消すと、件数ぶんクラウドへの全件送信が走る。まとめて1回にする
-    deleteTimeBoxes(data.deletes ?? []);
-
-    const changed =
-      (data.upserts?.length ?? 0) +
-      (data.imports?.length ?? 0) +
-      (data.deletes?.length ?? 0);
-    if (changed > 0) onApplied();
+      return cur && u.googleEventId ? [{ ...cur, googleEventId: u.googleEventId }] : [];
+    });
+    upsertTimeBoxes(idFixes);
+    if (idFixes.length > 0) onApplied();
   }, [onApplied, onReconnectChange]);
 
   useEffect(() => {

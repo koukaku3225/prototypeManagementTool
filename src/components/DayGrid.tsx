@@ -13,6 +13,7 @@ import {
   toTime,
 } from "@/lib/timebox";
 import type { OverlayEvent } from "@/lib/calendar/overlay";
+import { isFromGoogle } from "@/lib/calendar/primary";
 import type { TimeBox } from "@/types/timebox";
 
 /**
@@ -347,12 +348,19 @@ export function DayGrid({
               const active = drag?.box.id === box.id;
               const picked = selected === box.id;
               const pressing = pressingId === box.id;
+              /*
+               * メインカレンダーから取り込んだ枠は動かせない（時刻は Google が正）。
+               * 押せば詳細が開き、完了・事前準備・振り返りはそこから付けられる。
+               */
+              const locked = isFromGoogle(box);
               return (
                 <div
                   key={box.id}
                   data-box
                   data-box-id={box.id}
-                  onPointerDown={(e) => onBoxPointerDown(e, box, "move")}
+                  onPointerDown={(e) => {
+                    if (!locked) onBoxPointerDown(e, box, "move");
+                  }}
                   onClick={() => {
                     if (dragging || consumeClick()) return;
                     onPickBox(box);
@@ -371,7 +379,7 @@ export function DayGrid({
                     height: `${height * 100}%`,
                     left: `${(col / cols) * 100}%`,
                     width: `calc(${(1 / cols) * 100}% - 3px)`,
-                    cursor: active ? "grabbing" : "grab",
+                    cursor: locked ? "pointer" : active ? "grabbing" : "grab",
                     zIndex: active || picked ? 20 : undefined,
                     // 押した瞬間に沈ませる。長押しを待つあいだ「効いている」と分かる
                     transform: pressing ? "scale(0.97)" : undefined,
@@ -379,23 +387,27 @@ export function DayGrid({
                   }}
                   className={`overflow-visible rounded-md border text-left focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${
                     done ? tone.done : tone.box
-                  } ${active || picked ? "shadow-lg ring-2 ring-accent" : ""}`}
+                  } ${active || picked ? "shadow-lg ring-2 ring-accent" : ""} ${
+                    box.sourceGoneAt ? "opacity-50" : ""
+                  }`}
                 >
                   {/*
                     マウス用の、長さを変える帯。触る操作では使わない
                     （枠の中を全部つかめないと、30分の枠は動かせない）
                   */}
-                  <span
-                    data-box
-                    aria-hidden="true"
-                    onPointerDown={(e) => {
-                      if (e.pointerType !== "mouse") return;
-                      e.stopPropagation();
-                      onBoxPointerDown(e, box, "resize-start");
-                    }}
-                    style={{ height: MOUSE_EDGE_PX, cursor: "ns-resize" }}
-                    className="absolute inset-x-0 top-0 z-10 hidden md:block"
-                  />
+                  {!locked && (
+                    <span
+                      data-box
+                      aria-hidden="true"
+                      onPointerDown={(e) => {
+                        if (e.pointerType !== "mouse") return;
+                        e.stopPropagation();
+                        onBoxPointerDown(e, box, "resize-start");
+                      }}
+                      style={{ height: MOUSE_EDGE_PX, cursor: "ns-resize" }}
+                      className="absolute inset-x-0 top-0 z-10 hidden md:block"
+                    />
+                  )}
 
                   {/*
                     中身は枠の中だけに収める。
@@ -426,6 +438,7 @@ export function DayGrid({
                         <span className="block truncate font-mono text-[9.5px] leading-tight opacity-80">
                           {box.start}
                           {active && <> 〜{box.end}</>}
+                          {locked && <span className="ml-1 font-sans">・Google</span>}
                         </span>
                         <span
                           className={`block truncate text-[11px] leading-tight ${
@@ -438,23 +451,25 @@ export function DayGrid({
                     )}
                   </div>
 
-                  <span
-                    data-box
-                    aria-hidden="true"
-                    onPointerDown={(e) => {
-                      if (e.pointerType !== "mouse") return;
-                      e.stopPropagation();
-                      onBoxPointerDown(e, box, "resize-end");
-                    }}
-                    style={{ height: MOUSE_EDGE_PX, cursor: "ns-resize" }}
-                    className="absolute inset-x-0 bottom-0 z-10 hidden md:block"
-                  />
+                  {!locked && (
+                    <span
+                      data-box
+                      aria-hidden="true"
+                      onPointerDown={(e) => {
+                        if (e.pointerType !== "mouse") return;
+                        e.stopPropagation();
+                        onBoxPointerDown(e, box, "resize-end");
+                      }}
+                      style={{ height: MOUSE_EDGE_PX, cursor: "ns-resize" }}
+                      className="absolute inset-x-0 bottom-0 z-10 hidden md:block"
+                    />
+                  )}
 
                   {/*
                     選んだときだけ出る、長さを変える丸いつまみ。
                     枠の外にはみ出させるので、28pxの枠でも指で掴める
                   */}
-                  {picked && !done && (
+                  {picked && !done && !locked && (
                     <>
                       <Handle
                         edge="start"

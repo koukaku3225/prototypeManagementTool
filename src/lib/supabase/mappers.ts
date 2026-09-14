@@ -217,6 +217,11 @@ export function timeBoxToRow(b: TimeBox, userId: string) {
     completed_at: b.completedAt,
     review: b.review,
     google_event_id: b.googleEventId ?? null,
+    // 取り込んだ枠の印。null も明示して送る（外した印がクラウドに残らないように）
+    source: b.source ?? "app",
+    source_event_id: b.sourceEventId ?? null,
+    hidden_at: b.hiddenAt ?? null,
+    source_gone_at: b.sourceGoneAt ?? null,
     updated_at: b.updatedAt ?? null,
     created_at: b.createdAt,
   };
@@ -236,6 +241,10 @@ export function timeBoxFromRow(r: Record<string, unknown>): TimeBox {
     completedAt: (r.completed_at as string | null) ?? null,
     review: (r.review as TimeBox["review"]) ?? null,
     googleEventId: (r.google_event_id as string | null) ?? null,
+    source: r.source === "google" ? "google" : "app",
+    sourceEventId: (r.source_event_id as string | null) ?? null,
+    hiddenAt: (r.hidden_at as string | null) ?? null,
+    sourceGoneAt: (r.source_gone_at as string | null) ?? null,
     updatedAt: (r.updated_at as string | null) ?? undefined,
     createdAt: r.created_at as string,
   };

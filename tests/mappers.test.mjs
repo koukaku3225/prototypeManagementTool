@@ -97,5 +97,55 @@ t("評価の無い中間目標は evaluation を null で送り、null で戻す
   assert.equal(checkpointFromRow(row).evaluation, null);
 });
 
+const { timeBoxToRow, timeBoxFromRow } = await import("../src/lib/supabase/mappers.ts");
+
+const tb = (over = {}) => ({
+  id: "00000000-0000-4000-8000-000000000001",
+  date: "2026-09-15",
+  start: "12:00",
+  end: "13:00",
+  title: "飯",
+  cardId: null,
+  color: null,
+  habitId: null,
+  meta: { why: "", obstacle: "", counter: "" },
+  completedAt: null,
+  review: null,
+  googleEventId: null,
+  updatedAt: "2026-09-14T00:00:00.000Z",
+  createdAt: "2026-09-14T00:00:00.000Z",
+  ...over,
+});
+
+t("取り込んだ枠の出どころ・予定ID・非表示・削除済みを送って戻せる", () => {
+  // 送り忘れると、別端末では「アプリの枠」に見えて編集でき、消すと戻らない
+  const local = tb({
+    source: "google",
+    sourceEventId: "abc_20260915T030000Z",
+    hiddenAt: "2026-09-14T01:00:00.000Z",
+    sourceGoneAt: "2026-09-14T02:00:00.000Z",
+  });
+  const row = timeBoxToRow(local, "u");
+  assert.equal(row.source, "google");
+  assert.equal(row.source_event_id, "abc_20260915T030000Z");
+  assert.equal(row.hidden_at, "2026-09-14T01:00:00.000Z");
+  assert.equal(row.source_gone_at, "2026-09-14T02:00:00.000Z");
+  const back = timeBoxFromRow({ ...row, start_time: "12:00:00", end_time: "13:00:00" });
+  assert.equal(back.source, "google");
+  assert.equal(back.sourceEventId, local.sourceEventId);
+  assert.equal(back.hiddenAt, local.hiddenAt);
+  assert.equal(back.sourceGoneAt, local.sourceGoneAt);
+});
+
+t("アプリの枠は source を app で送り、null の非表示を明示する（消した非表示がクラウドに残らない）", () => {
+  const row = timeBoxToRow(tb(), "u");
+  assert.equal(row.source, "app");
+  assert.equal(row.source_event_id, null);
+  assert.equal(row.hidden_at, null);
+  assert.equal(row.source_gone_at, null);
+  const back = timeBoxFromRow({ ...row, start_time: "12:00:00", end_time: "13:00:00", source: null });
+  assert.equal(back.source, "app", "列が無い古い行はアプリの枠として読む");
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

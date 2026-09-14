@@ -10,6 +10,10 @@ import {
   type GoogleEvent,
 } from "./google";
 import { loadLink, updateLink } from "./link";
+import { foldEndToSameDay, fromRfc3339, toRfc3339 } from "./time";
+
+// 時刻の変換は time.ts へ移した。既存の import（overlay ルート・テスト）のために再輸出する
+export { foldEndToSameDay, fromRfc3339, toRfc3339 };
 
 /** 1回の同期で許す削除の上限。超えたら止めて本人に確認する */
 export const DELETE_BRAKE = 5;
@@ -22,31 +26,20 @@ export interface SyncBoxInput {
   end: string;
   title: string;
   googleEventId?: string | null;
+  /** 一方向になってからは使わない。古い画面が送ってきても弾かないよう残す */
   updatedAt?: string;
-  hasNotes: boolean;
+  hasNotes?: boolean;
 }
 
-/** ブラウザに返す指示 */
+/**
+ * ブラウザに返す指示。
+ *
+ * 専用カレンダーは「アプリ → Google」の一方向なので（decide.ts）、
+ * アプリの枠に書き戻すのは予定IDの対応だけ。タイトル・時刻・削除は返さない。
+ */
 export interface SyncResult {
-  /** 内容を書き換える枠（title/start/end/date と googleEventId のみ） */
-  upserts: {
-    id: string;
-    title?: string;
-    date?: string;
-    start?: string;
-    end?: string;
-    googleEventId?: string | null;
-  }[];
-  /** 新しく取り込む枠 */
-  imports: {
-    title: string;
-    date: string;
-    start: string;
-    end: string;
-    googleEventId: string;
-  }[];
-  /** 消す枠のid */
-  deletes: string[];
+  /** 予定IDを付け直す枠 */
+  upserts: { id: string; googleEventId: string }[];
   /** ブレーキが働いた場合の件数。0 なら通常どおり実行済み */
   pendingDeletes: number;
   /** Google API呼び出しに失敗した件数。0件でなければ lastError に残す */
@@ -79,81 +72,8 @@ export type SyncFailure = { ok: false; message: string; reason?: "reconnect_requ
 
 const isGhostId = (id: string) => id.startsWith("habit-");
 
-/**
- * "2026-09-05" + "10:00" → RFC3339（JST固定）
- *
- * このアプリでは `end: "24:00"` が正規の値である（`toTime(1440)` が作り、
- * 一日の最後のマス 23:30–24:00 を押せば普通にできる）。
- * ところが RFC3339 は `time-hour = 2DIGIT ; 00-23` で、**24時を表現できない**。
- * そのまま送ると Google に弾かれるか、翌日0時へ正規化されて
- * 「終わりの日付が翌日」になり、内容一致の判定が永久に成立しなくなる。
- * 同期のたびに枠が書き換わり、最後は 23:30〜00:00 という
- * 長さ0分の枠に潰れていた。
- *
- * こちらで明示的に「翌日の 00:00」へ直しておく。
- */
-export function toRfc3339(date: string, time: string): string {
-  if (time === "24:00") return `${addDays(1, new Date(`${date}T00:00:00`))}T00:00:00+09:00`;
-  return `${date}T${time}:00+09:00`;
-}
-
-/**
- * RFC3339 → ローカル表現。終日予定（date のみ）は対象外なので null。
- *
- * `new Date(...).getHours()` はサーバーのタイムゾーンを見る。
- * ローカル開発機は JST だから気づけないが、Vercel の既定タイムゾーンは UTC
- * なので、本番でだけ時刻が9時間ずれる（レビューで実際に指摘された）。
- * `Intl.DateTimeFormat` に `timeZone: "Asia/Tokyo"` を明示することで、
- * 実行環境のタイムゾーンに関係なく常にJSTの時刻を取り出す。
- */
-const JST_FORMAT = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Tokyo",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-
-export function fromRfc3339(
-  dt: { dateTime?: string; date?: string } | undefined,
-): { date: string; time: string } | null {
-  if (!dt?.dateTime) return null;
-  const d = new Date(dt.dateTime);
-  if (Number.isNaN(d.getTime())) return null;
-  const parts = Object.fromEntries(
-    JST_FORMAT.formatToParts(d).map((p) => [p.type, p.value]),
-  ) as Record<string, string>;
-  // 環境によって深夜0時が "24" で返ることがあるので丸める
-  const hour = parts.hour === "24" ? "00" : parts.hour;
-  return {
-    date: `${parts.year}-${parts.month}-${parts.day}`,
-    time: `${hour}:${parts.minute}`,
-  };
-}
-
-/**
- * 終わりが「翌日の 00:00」なら、開始と同じ日の "24:00" に畳み直す。
- *
- * toRfc3339 が 24:00 を翌日0時として送るので、読み戻すと日付が翌日になる。
- * そのままだと「終わりの日付が開始と違う」ため内容一致の判定が永久に
- * 成立せず、同期のたびに枠が書き換わって最後は長さ0分に潰れていた。
- * 送るときと読むときで同じ約束にしておく。
- *
- * 本当に日をまたぐ予定（22:00〜翌02:00 など）はここでは畳まない。
- * このアプリの枠は1日で閉じる決まりなので、扱えないものは扱えないまま返す。
- */
-export function foldEndToSameDay(
-  start: { date: string; time: string } | null,
-  end: { date: string; time: string } | null,
-): { date: string; time: string } | null {
-  if (!start || !end) return end;
-  if (end.time !== "00:00") return end;
-  const nextOfStart = addDays(1, new Date(`${start.date}T00:00:00`));
-  if (end.date !== nextOfStart) return end;
-  return { date: start.date, time: "24:00" };
-}
+/** 空のタイトルを送るときの表記。google.ts の eventBody と揃える */
+const EMPTY_TITLE = "（未記入）";
 
 const markOf = (e: GoogleEvent): string | null =>
   e.extendedProperties?.private?.timeboxId ?? null;
@@ -192,14 +112,20 @@ function ownedEvent(
   byMark: Map<string, GoogleEvent>,
   b: SyncBoxInput,
 ): GoogleEvent | undefined {
+  const marked = byMark.get(b.id);
   if (b.googleEventId) {
     const cand = byId.get(b.googleEventId);
-    if (!cand) return undefined;
-    const mark = markOf(cand);
-    if (mark && mark !== b.id) return undefined;
-    return cand;
+    const mark = cand ? markOf(cand) : null;
+    if (cand && (!mark || mark === b.id) && cand.status !== "cancelled") return cand;
+    /*
+     * IDで引けない・消されていても、自分の印が付いた生きた予定があればそれを使う。
+     * 以前は ID を持っている枠は印を見なかったので、ID が古くなると
+     * 「消された → 作り直す」になり、生きている予定と二重になりえた。
+     */
+    if (marked && marked.status !== "cancelled") return marked;
+    return cand && (!mark || mark === b.id) ? cand : undefined;
   }
-  return byMark.get(b.id);
+  return marked;
 }
 
 /**
@@ -303,19 +229,13 @@ export async function runSync(
   const boxById = new Map(inWindow.map((b) => [b.id, b]));
   const result: SyncResult = {
     upserts: [],
-    imports: [],
-    deletes: [],
     pendingDeletes: 0,
     failed: 0,
   };
 
   // --- まず削除の件数を数えてブレーキを判定する ---
+  // 消すのは「アプリで消された枠の予定（印付き）」だけ。アプリの枠は消さない
   let deleteCount = 0;
-  for (const b of inWindow) {
-    if (isGhostId(b.id)) continue;
-    const e = ownedEvent(byId, byMark, b);
-    if (eventStateOf(byId, b, e) === "cancelled" && !b.hasNotes) deleteCount++;
-  }
   for (const e of events) {
     if (e.status === "cancelled") continue;
     const mark = markOf(e);
@@ -352,7 +272,9 @@ export async function runSync(
     const evEnd = foldEndToSameDay(evStart, e ? fromRfc3339(e.end) : null);
     const contentEqual = Boolean(
       e &&
-        (e.summary ?? "") === b.title &&
+        // 空のタイトルは「（未記入）」として送っている（google.ts の eventBody）。
+        // 同じ約束で比べないと、空の枠が同期のたびに書き直される
+        (e.summary ?? "") === (b.title || EMPTY_TITLE) &&
         evStart?.date === b.date &&
         evStart?.time === b.start &&
         evEnd?.date === b.date &&
@@ -362,13 +284,24 @@ export async function runSync(
     const action = decideCalendarAction({
       boxExists: true,
       boxIsGhost: isGhostId(b.id),
-      boxHasNotes: b.hasNotes,
-      boxUpdatedAt: b.updatedAt ?? null,
       eventState: eventStateOf(byId, b, e),
       eventHasMark: Boolean(e && markOf(e)),
-      eventUpdated: e?.updated ?? null,
       contentEqual,
     });
+
+    /*
+     * 予定IDが落ちていても、印で予定を見つけられたら付け直す（書き込みは要らない）。
+     * 付け直さないと、別端末の繋ぎ直し検知などでIDが消えた枠が、
+     * 永久にIDなしのまま残る（2026-09-14 の実機検証で今日の枠がそうなった）。
+     */
+    if (
+      e &&
+      e.status !== "cancelled" &&
+      action !== "createEvent" &&
+      b.googleEventId !== e.id
+    ) {
+      result.upserts.push({ id: b.id, googleEventId: e.id });
+    }
 
     if ((action === "createEvent" || (action === "updateEvent" && e)) && !spendWrite()) {
       continue;
@@ -390,28 +323,8 @@ export async function runSync(
           endIso: toRfc3339(b.date, b.end),
           timeboxId: b.id,
         });
-      } else if (
-        action === "updateBox" &&
-        e &&
-        evStart &&
-        evEnd &&
-        // 日をまたぐ予定は、このアプリの枠（1日で閉じる）に収まらない。
-        // 取り込むと開始だけ書き換わって長さが壊れるので、触らずに残す。
-        // 第2ループ（取り込み側）には既に同じガードがある
-        evStart.date === evEnd.date
-      ) {
-        // カレンダーが持つのは title/start/end だけ。それ以外は絶対に触らない
-        result.upserts.push({
-          id: b.id,
-          title: e.summary ?? "",
-          date: evStart.date,
-          start: evStart.time,
-          end: evEnd.time,
-        });
-      } else if (action === "deleteBox") {
-        result.deletes.push(b.id);
       }
-      // keepBox / none は何もしない
+      // none は何もしない
     } catch (err) {
       console.error("[calendar/sync] box", b.id, err);
       result.failed++;
@@ -434,11 +347,8 @@ export async function runSync(
     const action = decideCalendarAction({
       boxExists: false,
       boxIsGhost: false,
-      boxHasNotes: false,
-      boxUpdatedAt: null,
       eventState: e.status === "cancelled" ? "cancelled" : "present",
       eventHasMark: Boolean(mark),
-      eventUpdated: e.updated ?? null,
       contentEqual: false,
     });
 
@@ -447,22 +357,8 @@ export async function runSync(
     try {
       if (action === "deleteEvent") {
         await deps.deleteEvent(token, link.calendarId, e.id);
-      } else if (action === "importBox") {
-        const s = fromRfc3339(e.start);
-        // 送るときと同じ約束で畳む。畳まないと、Googleで作った
-        // 23:00〜翌0:00 の予定が「日をまたぐ」と見なされ、
-        // 無言で取り込まれないまま消える（送信側だけ直すと非対称になる）
-        const en = foldEndToSameDay(s, fromRfc3339(e.end));
-        if (!s || !en) continue; // 終日予定は時間割に載らない
-        if (s.date !== en.date) continue; // TimeBoxは日をまたぐ枠を表現できない
-        result.imports.push({
-          title: e.summary ?? "",
-          date: s.date,
-          start: s.time,
-          end: en.time,
-          googleEventId: e.id,
-        });
       }
+      // 印の無い予定は取り込まない。予定を入れる入口はメインカレンダー（primary.ts）
     } catch (err) {
       console.error("[calendar/sync] event", e.id, err);
       result.failed++;

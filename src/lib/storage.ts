@@ -654,7 +654,24 @@ export function clearHabitLogFromBox(
 
 // ---------------------------------------------------------------- タイムボックス
 
+/**
+ * 画面に出す枠。**アプリで消した取り込み枠（hiddenAt 付き）は最初から除く。**
+ *
+ * 取り込んだ枠は消しても行を残す（消すと次の同期でまた取り込まれる）。
+ * その行が時間割・一覧・目標画面・集計に出ないよう、画面ごとではなく
+ * ここ1か所で除いている。画面ごとに書くと、どこかで必ず漏れる。
+ */
 export function loadTimeBoxes(): TimeBox[] {
+  return loadAllTimeBoxes().filter((b) => !b.hiddenAt);
+}
+
+/**
+ * 非表示の行も含めた全件。**同期と、この下の書き込み関数だけが使う。**
+ *
+ * 書き込みで loadTimeBoxes() を読んで書き戻すと、見えない行が落ちて
+ * 「取り込まない」記録が消え、消したはずの予定が次の同期で戻ってくる。
+ */
+export function loadAllTimeBoxes(): TimeBox[] {
   ensureMigrated();
   return read<TimeBox[]>(KEY.timeboxes) ?? [];
 }
@@ -678,7 +695,7 @@ export const timeBoxesOfCard = (cardId: string): TimeBox[] =>
  * 部分失敗を検知しないと、片付いた目印だけが残る**。
  */
 export function upsertTimeBox(b: TimeBox): boolean {
-  const all = loadTimeBoxes();
+  const all = loadAllTimeBoxes();
   // 保存のたびに更新時刻を刻む。書き込みが必ずここを通るので、
   // 呼び出し側で付け忘れることがない（カレンダー同期の突き合わせに使う）
   const stamped: TimeBox = { ...b, updatedAt: new Date().toISOString() };
@@ -693,6 +710,56 @@ export function deleteTimeBox(id: string): void {
 }
 
 /**
+ * 枠をまとめて保存する。書き込みもクラウド送信も1回。
+ *
+ * メインカレンダーの取り込みは初回に数十件を足す。upsertTimeBox を件数ぶん
+ * 呼ぶと、そのたびに全件を書き直してクラウドにも送ることになる。
+ */
+export function upsertTimeBoxes(list: readonly TimeBox[]): boolean {
+  if (list.length === 0) return true;
+  const all = loadAllTimeBoxes();
+  const at = new Date().toISOString();
+  const index = new Map(all.map((b, i) => [b.id, i]));
+  for (const b of list) {
+    const stamped: TimeBox = { ...b, updatedAt: at };
+    const i = index.get(b.id);
+    if (i === undefined) {
+      index.set(b.id, all.length);
+      all.push(stamped);
+    } else {
+      all[i] = stamped;
+    }
+  }
+  return write(KEY.timeboxes, all);
+}
+
+/**
+ * 取り込んだ枠を非表示にする（行は残す）。
+ *
+ * 消した直後にタブを閉じても届くよう、deleteTimeBoxes と同じく待ちを解く。
+ */
+export function hideTimeBox(id: string): void {
+  const all = loadAllTimeBoxes();
+  const i = all.findIndex((b) => b.id === id);
+  if (i < 0) return;
+  all[i] = { ...all[i], hiddenAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  write(KEY.timeboxes, all);
+  onSyncFlushHook?.();
+}
+
+/**
+ * 画面の「この予定を消す」。取り込んだ枠は非表示に、アプリの枠は本当に消す。
+ *
+ * 呼び出し側で出どころを見て分けると、画面を足したときに分け忘れて
+ * 「消したのに戻ってくる」が再発するので、ここで分ける。
+ */
+export function removeTimeBox(id: string): void {
+  const target = loadAllTimeBoxes().find((b) => b.id === id);
+  if (target?.source === "google") hideTimeBox(id);
+  else deleteTimeBoxes([id]);
+}
+
+/**
  * 予定をまとめて消す。書き込みも送り切りも1回だけ。
  *
  * 消した直後にタブを閉じると、まとめ待ち（1.5秒）の削除が届かず、
@@ -704,7 +771,7 @@ export function deleteTimeBox(id: string): void {
 export function deleteTimeBoxes(ids: readonly string[]): void {
   if (ids.length === 0) return;
   const targets = new Set(ids);
-  const boxes = loadTimeBoxes();
+  const boxes = loadAllTimeBoxes();
   for (const gone of boxes) {
     if (!targets.has(gone.id)) continue;
     // 完了済みの習慣枠を消すときは、その枠が自動で付けた記録も取り消す
@@ -728,7 +795,8 @@ export function deleteTimeBoxes(ids: readonly string[]): void {
  * 連続日数と達成率に反映されない不整合が残る（2026-09-14 発見）。
  */
 export function undoDeleteTimeBox(b: TimeBox): void {
-  upsertTimeBox(b);
+  // 取り込んだ枠は非表示にしただけなので、消す前の姿（hiddenAt なし）で上書きすれば戻る
+  upsertTimeBox({ ...b, hiddenAt: null });
   if (b.habitId && b.completedAt) {
     setHabitLog({
       habitId: b.habitId,
@@ -741,11 +809,18 @@ export function undoDeleteTimeBox(b: TimeBox): void {
   }
 }
 
-/** 目標ごと消えるときは、その目標の枠も消す */
+/**
+ * 目標ごと消えるときは、その目標の枠も消す。
+ *
+ * ただし取り込んだ枠は紐づけを外すだけにする。消しても次の同期で
+ * 紐づけなしの枠として戻ってくるだけで、書き込みと非表示の記録だけが失われる。
+ */
 export function deleteTimeBoxesOfCard(cardId: string): void {
   write(
     KEY.timeboxes,
-    loadTimeBoxes().filter((b) => b.cardId !== cardId),
+    loadAllTimeBoxes()
+      .filter((b) => b.cardId !== cardId || b.source === "google")
+      .map((b) => (b.cardId === cardId ? { ...b, cardId: null } : b)),
   );
 }
 

@@ -138,9 +138,8 @@ await at("#2 内容が一致していれば2回目の同期で作り直さない
   assert.equal(calls.patch.length, 0, "patchEventが呼ばれてはいけない");
 });
 
-await at("#3 印の無い予定を取り込んだあと、二重取り込みされない", async () => {
-  // 1回目の同期で取り込まれ、アプリ側の枠に googleEventId が付いた状態を再現する。
-  // カレンダー側は人が作った予定なので extendedProperties（印）は無いまま。
+await at("#3 旧取り込み分（印の無い予定に対応する枠）は、印を付け直すだけで二重にしない", async () => {
+  // 一方向になる前に専用カレンダーから取り込んだ枠。カレンダー側に印が無い。
   // 固定日付だと時間が経つと期間外に落ちて再発検知が消えるので相対日付にする
   const day = addDays(10);
   const event = {
@@ -164,8 +163,93 @@ await at("#3 印の無い予定を取り込んだあと、二重取り込みさ�
   const { deps, calls } = makeDeps([event]);
   const r = await runSync([box], false, deps);
   assert.equal(r.ok, true);
-  assert.equal(r.result.imports.length, 0, "再取り込みされてはいけない");
+  assert.equal(calls.insert.length, 0, "作り直して二重にしてはいけない");
   assert.equal(calls.delete.length, 0, "人が作った予定を消してはいけない");
+  assert.equal(calls.patch.length, 1, "印を付けるために1回だけ直す");
+  assert.equal(calls.patch[0].timeboxId, "local-999");
+});
+
+await at("#3b 印の無い予定がカレンダーだけにあっても、取り込まず消さない", async () => {
+  const day = addDays(10);
+  const { deps, calls } = makeDeps([
+    {
+      id: "human",
+      status: "confirmed",
+      summary: "専用カレンダーで直接作った予定",
+      start: { dateTime: `${day}T09:00:00+09:00` },
+      end: { dateTime: `${day}T10:00:00+09:00` },
+    },
+  ]);
+  const r = await runSync([], false, deps);
+  assert.equal(r.ok, true);
+  assert.equal("imports" in r.result, false, "取り込みの指示を返してはいけない");
+  assert.equal(calls.delete.length + calls.insert.length + calls.patch.length, 0);
+});
+
+await at("#3c 予定IDが落ちた枠は、印で見つけてIDを付け直す（作り直さない）", async () => {
+  // 2026-09-14 本番：別画面の繋ぎ直し検知でIDが一斉に消え、
+  // 印の無い予定が二重になった。印付きなら付け直すだけで済むことを固定する
+  const day = addDays(2);
+  const { deps, calls } = makeDeps([
+    {
+      id: "ev-marked",
+      status: "confirmed",
+      summary: "今日の枠",
+      start: { dateTime: `${day}T08:45:00+09:00` },
+      end: { dateTime: `${day}T09:45:00+09:00` },
+      extendedProperties: { private: { timeboxId: "box-lost" } },
+    },
+  ]);
+  const r = await runSync(
+    [{ id: "box-lost", date: day, start: "08:45", end: "09:45", title: "今日の枠", googleEventId: null }],
+    false,
+    deps,
+  );
+  assert.equal(r.ok, true);
+  assert.equal(calls.insert.length, 0);
+  assert.deepEqual(r.result.upserts, [{ id: "box-lost", googleEventId: "ev-marked" }]);
+});
+
+await at("#3d IDが古くても、自分の印の付いた生きた予定があればそれを使う", async () => {
+  const day = addDays(2);
+  const { deps, calls } = makeDeps([
+    {
+      id: "ev-new",
+      status: "confirmed",
+      summary: "枠",
+      start: { dateTime: `${day}T10:00:00+09:00` },
+      end: { dateTime: `${day}T11:00:00+09:00` },
+      extendedProperties: { private: { timeboxId: "box-x" } },
+    },
+  ]);
+  const r = await runSync(
+    [{ id: "box-x", date: day, start: "10:00", end: "11:00", title: "枠", googleEventId: "ev-old" }],
+    false,
+    deps,
+  );
+  assert.equal(calls.insert.length, 0, "生きている予定と二重にしてはいけない");
+  assert.deepEqual(r.result.upserts, [{ id: "box-x", googleEventId: "ev-new" }]);
+});
+
+await at("#3e 空のタイトルの枠が、同期のたびに書き直されない", async () => {
+  // 空のタイトルは「（未記入）」として送っているので、同じ約束で比べる
+  const day = addDays(2);
+  const { deps, calls } = makeDeps([
+    {
+      id: "ev-empty",
+      status: "confirmed",
+      summary: "（未記入）",
+      start: { dateTime: `${day}T14:15:00+09:00` },
+      end: { dateTime: `${day}T15:15:00+09:00` },
+      extendedProperties: { private: { timeboxId: "box-empty" } },
+    },
+  ]);
+  await runSync(
+    [{ id: "box-empty", date: day, start: "14:15", end: "15:15", title: "", googleEventId: "ev-empty" }],
+    false,
+    deps,
+  );
+  assert.equal(calls.patch.length, 0);
 });
 
 await at("#4 期間外の枠は処理されない", async () => {
@@ -205,7 +289,7 @@ await at("#5 削除ブレーキが働くとAPI呼び出しが1件も起きない
   assert.equal(calls.patch.length, 0, "patchEventが呼ばれてはいけない");
 });
 
-await at("#6 カレンダーで削除され書き込みも無い枠は deletes に入る", async () => {
+await at("#6 専用カレンダーで削除された枠は、アプリから消さずに作り直す", async () => {
   const day = addDays(3);
   const event = {
     id: "ev6",
@@ -226,13 +310,15 @@ await at("#6 カレンダーで削除され書き込みも無い枠は deletes �
     updatedAt: "2026-09-01T00:00:00Z",
     hasNotes: false,
   };
-  const { deps } = makeDeps([event]);
+  const { deps, calls } = makeDeps([event]);
   const r = await runSync([box], false, deps);
   assert.equal(r.ok, true);
-  assert.deepEqual(r.result.deletes, ["box6"]);
+  assert.equal("deletes" in r.result, false, "アプリの枠を消す指示を返してはいけない");
+  assert.equal(calls.insert.length, 1, "アプリが正なので作り直す");
+  assert.deepEqual(r.result.upserts, [{ id: "box6", googleEventId: "new-event-id" }]);
 });
 
-await at("#7 カレンダーで削除されても振り返りがあれば残す（deletesに入らない）", async () => {
+await at("#7 振り返りのある枠も同じく作り直す（消さない）", async () => {
   const day = addDays(3);
   const event = {
     id: "ev7",
@@ -253,16 +339,15 @@ await at("#7 カレンダーで削除されても振り返りがあれば残す�
     updatedAt: "2026-09-01T00:00:00Z",
     hasNotes: true, // 振り返り等が書かれている
   };
-  const { deps } = makeDeps([event]);
+  const { deps, calls } = makeDeps([event]);
   const r = await runSync([box], false, deps);
   assert.equal(r.ok, true);
-  assert.deepEqual(r.result.deletes, [], "書き込みのある枠は消してはいけない（不変条件1）");
+  assert.equal(calls.insert.length, 1);
 });
 
-await at("#8 googleEventIdを持つ枠が全件取得の結果に見つからなければ削除された扱いにする（復活させない）", async () => {
-  // 差分取得をやめて全件取得にしたので、「窓の中に該当イベントが無い」こと
-  // 自体が「カレンダー側で削除された」証拠になる（レビューで指摘のC-3対応）。
-  // events を空にして、対応するイベントがどこにも見つからない状況を再現する
+await at("#8 googleEventIdの予定が全件取得に無ければ、作り直す", async () => {
+  // 全件取得なので「窓の中に該当イベントが無い」＝カレンダー側で消えた。
+  // 一方向なのでアプリの枠は消さず、カレンダーに戻す
   const day = addDays(3);
   const box = {
     id: "box8",
@@ -277,8 +362,8 @@ await at("#8 googleEventIdを持つ枠が全件取得の結果に見つからな
   const { deps, calls } = makeDeps([]); // 全件取得の結果に対応イベントが無い
   const r = await runSync([box], false, deps);
   assert.equal(r.ok, true);
-  assert.deepEqual(r.result.deletes, ["box8"]);
-  assert.equal(calls.insert.length, 0, "消された予定を復活させてはいけない（createEventが呼ばれてはいけない）");
+  assert.equal(calls.insert.length, 1);
+  assert.equal(calls.delete.length, 0);
 });
 
 t("#R3a 24:00 は翌日の00:00として送る（RFC3339に24時は無い）", () => {
@@ -354,7 +439,6 @@ await at("#R3f 23:30〜24:00 の枠が、同期のたびに書き換わらない
   assert.deepEqual(r.result.upserts, [], "枠を書き換えている（長さ0分に潰れる経路）");
   assert.equal(calls.patch.length, 0, "カレンダー側も書き換えている");
   assert.equal(calls.insert.length, 0);
-  assert.deepEqual(r.result.deletes, []);
 });
 
 // --- R12 ②: 書き込み・取得・トークン更新での権限切れを「連携し直して」まで届ける ---

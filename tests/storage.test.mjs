@@ -1049,6 +1049,95 @@ t("deleteTimeBoxes でも、完了済みの習慣枠が付けた記録を取り�
   assert.deepEqual(S.loadHabitLogs(), [], "枠が付けた「できた」が残って連続日数が水増しされる");
 });
 
+// ---------------------------------------------------------------- メインカレンダーから取り込んだ枠
+
+/*
+ * 取り込んだ枠をアプリで消すと、行は残して hiddenAt を付ける（消すと次の同期で戻る）。
+ * 非表示の行は、同期以外のどの画面にも出てはいけない。画面ごとに除外を書くと漏れるので、
+ * 読み出し口（loadTimeBoxes）で除いていることを固定する。
+ */
+const G1 = "00000000-0000-4000-8000-000000009401";
+const G2 = "00000000-0000-4000-8000-000000009402";
+const gb = (id, over = {}) => box(id, { source: "google", sourceEventId: `ev-${id}`, ...over });
+
+t("hideTimeBox は取り込んだ枠を非表示にし、loadTimeBoxes からは見えなくなる", () => {
+  reset();
+  S.upsertTimeBox(gb(G1));
+  S.upsertTimeBox(box(B1));
+  S.hideTimeBox(G1);
+  assert.deepEqual(S.loadTimeBoxes().map((b) => b.id), [B1]);
+  assert.deepEqual(S.timeBoxesOn("2026-09-14").map((b) => b.id), [B1]);
+  const all = S.loadAllTimeBoxes();
+  assert.equal(all.length, 2, "記録（行）ごと消えている");
+  assert.ok(all.find((b) => b.id === G1).hiddenAt, "hiddenAt が付いていない");
+});
+
+t("非表示の行があっても、ほかの枠を保存・削除したときに消えない", () => {
+  reset();
+  S.upsertTimeBox(gb(G1));
+  S.hideTimeBox(G1);
+  S.upsertTimeBox(box(B1));
+  S.upsertTimeBox(box(B2));
+  S.deleteTimeBox(B2);
+  assert.deepEqual(
+    S.loadAllTimeBoxes().map((b) => b.id).sort(),
+    [B1, G1].sort(),
+    "見えない行を読み飛ばして書き戻すと、取り込まない記録が消えて次の同期で復活する",
+  );
+});
+
+t("upsertTimeBoxes は足す・置き換えるを1回の書き込みで行い、非表示の行を残す", () => {
+  reset();
+  S.upsertTimeBox(gb(G1));
+  S.hideTimeBox(G1);
+  S.upsertTimeBox(box(B1, { title: "前" }));
+  const sync = wireSync();
+  try {
+    S.upsertTimeBoxes([box(B1, { title: "後" }), gb(G2)]);
+    assert.equal(sync.sent.length + sync.pending().length, 1, "件数ぶん書き込んでいる");
+  } finally {
+    sync.unwire();
+  }
+  const all = S.loadAllTimeBoxes();
+  assert.deepEqual(all.map((b) => b.id).sort(), [B1, G1, G2].sort());
+  assert.equal(all.find((b) => b.id === B1).title, "後");
+  assert.ok(all.find((b) => b.id === G1).hiddenAt);
+});
+
+t("removeTimeBox: アプリの枠は消し、取り込んだ枠は非表示にする", () => {
+  reset();
+  S.upsertTimeBox(box(B1));
+  S.upsertTimeBox(gb(G1));
+  S.removeTimeBox(B1);
+  S.removeTimeBox(G1);
+  assert.deepEqual(S.loadTimeBoxes(), []);
+  assert.deepEqual(S.loadAllTimeBoxes().map((b) => b.id), [G1]);
+});
+
+t("非表示にした取り込み枠を undoDeleteTimeBox で戻せる", () => {
+  reset();
+  const g = gb(G1);
+  S.upsertTimeBox(g);
+  S.removeTimeBox(G1);
+  S.undoDeleteTimeBox(g);
+  assert.deepEqual(S.loadTimeBoxes().map((b) => b.id), [G1]);
+  assert.equal(S.loadAllTimeBoxes().length, 1, "戻したら2行になった");
+});
+
+t("目標を消しても、取り込んだ枠は消さず紐づけだけ外す（消すと次の同期で紐づけなしで戻るだけ）", () => {
+  reset();
+  S.upsertTimeBox(box(B1, { cardId: "c1" }));
+  S.upsertTimeBox(gb(G1, { cardId: "c1", meta: { why: "大事", obstacle: "", counter: "" } }));
+  S.upsertTimeBox(gb(G2, { cardId: "c1" }));
+  S.hideTimeBox(G2);
+  S.deleteTimeBoxesOfCard("c1");
+  const all = S.loadAllTimeBoxes();
+  assert.deepEqual(all.map((b) => b.id).sort(), [G1, G2].sort());
+  assert.ok(all.every((b) => b.cardId === null));
+  assert.equal(all.find((b) => b.id === G1).meta.why, "大事", "書き込みが消えた");
+  assert.ok(all.find((b) => b.id === G2).hiddenAt, "非表示が外れた");
+});
+
 /*
  * クラウドからの取り込み（pullAll）と同じ手順で、中間目標が残ることを確かめる。
  * pullAll 本体は Supabase を呼ぶので、組み立て（carryOverOnPull）と

@@ -1,9 +1,10 @@
 /**
- * 同期の判断を組み合わせで総当たりする。
+ * 専用カレンダーへの書き込みの判断を、組み合わせで総当たりする。
  *
- * クラウド同期で「表の2マスしか実装していない」ことに気づけず、
- * 本番でデータが出てこない・消えかける、という2つの事故を出した。
- * 判断をI/Oから切り離してあるので、ここで全パターンを固定できる。
+ * 2026-09-14 から専用カレンダーは「アプリ → Google」の一方向になった。
+ * 取り込みは本人のメインカレンダーから別経路（primary.ts）で行う。
+ * 専用カレンダーから取り込んでいた頃、印の無い予定が二重になる・
+ * アプリで消しても復活する、という不具合が本番で出た（実機検証の報告を参照）。
  * 実行は `npm test`。
  */
 import assert from "node:assert/strict";
@@ -26,168 +27,104 @@ function inputs(over) {
   return {
     boxExists: false,
     boxIsGhost: false,
-    boxHasNotes: false,
-    boxUpdatedAt: null,
     eventState: "missing",
     eventHasMark: false,
-    eventUpdated: null,
     contentEqual: false,
     ...over,
   };
 }
 
-t("#1 アプリにあり、カレンダーに無い → カレンダーに作る", () => {
-  assert.equal(
-    decideCalendarAction(inputs({ boxExists: true, eventState: "missing" })),
-    "createEvent",
-  );
+const STATES = ["missing", "present", "cancelled"];
+
+t("#1 アプリにあり、カレンダーに無い → 作る", () => {
+  assert.equal(decideCalendarAction(inputs({ boxExists: true })), "createEvent");
 });
 
-t("#2a 両方あり、アプリ側が新しい → カレンダーを更新", () => {
+t("#2a 両方あり、中身が違う → アプリの内容でカレンダーを直す", () => {
   assert.equal(
-    decideCalendarAction(
-      inputs({
-        boxExists: true,
-        eventState: "present",
-        eventHasMark: true,
-        boxUpdatedAt: "2026-09-05T10:00:00.000Z",
-        eventUpdated: "2026-09-05T09:00:00.000Z",
-      }),
-    ),
+    decideCalendarAction(inputs({ boxExists: true, eventState: "present", eventHasMark: true })),
     "updateEvent",
   );
 });
 
-t("#2b 両方あり、カレンダー側が新しい → アプリを更新", () => {
+t("#2b 両方あり、中身も印も同じ → 何もしない", () => {
   assert.equal(
     decideCalendarAction(
-      inputs({
-        boxExists: true,
-        eventState: "present",
-        eventHasMark: true,
-        boxUpdatedAt: "2026-09-05T09:00:00.000Z",
-        eventUpdated: "2026-09-05T10:00:00.000Z",
-      }),
-    ),
-    "updateBox",
-  );
-});
-
-t("#2c 両方あり、中身が同じ → 何もしない", () => {
-  assert.equal(
-    decideCalendarAction(
-      inputs({
-        boxExists: true,
-        eventState: "present",
-        eventHasMark: true,
-        contentEqual: true,
-        boxUpdatedAt: "2026-09-05T09:00:00.000Z",
-        eventUpdated: "2026-09-05T10:00:00.000Z",
-      }),
+      inputs({ boxExists: true, eventState: "present", eventHasMark: true, contentEqual: true }),
     ),
     "none",
   );
 });
 
-t("#2d 同点ならアプリ側を優先する", () => {
-  // アプリ側の変更は必ず意図的な操作。カレンダーの updated は他の要因でも動く
+t("#2c 中身は同じだが印が無い（旧取り込み分）→ 印を付けるために直す", () => {
+  // 印が無いまま残すと、アプリで消したときに Google 側を片付けられない
   assert.equal(
     decideCalendarAction(
-      inputs({
-        boxExists: true,
-        eventState: "present",
-        eventHasMark: true,
-        boxUpdatedAt: "2026-09-05T10:00:00.000Z",
-        eventUpdated: "2026-09-05T10:00:00.000Z",
-      }),
+      inputs({ boxExists: true, eventState: "present", eventHasMark: false, contentEqual: true }),
     ),
     "updateEvent",
   );
 });
 
-t("#3a カレンダーで削除され、書き込みが無い → アプリからも消す", () => {
+t("#3 カレンダーで消された → アプリが正なので作り直す（アプリからは消さない）", () => {
   assert.equal(
-    decideCalendarAction(
-      inputs({ boxExists: true, eventState: "cancelled", boxHasNotes: false }),
-    ),
-    "deleteBox",
-  );
-});
-
-t("#3b カレンダーで削除されたが、振り返り等がある → 残す", () => {
-  assert.equal(
-    decideCalendarAction(
-      inputs({ boxExists: true, eventState: "cancelled", boxHasNotes: true }),
-    ),
-    "keepBox",
+    decideCalendarAction(inputs({ boxExists: true, eventState: "cancelled" })),
+    "createEvent",
   );
 });
 
 t("#4 アプリに無く、印のある予定 → アプリで消された。カレンダーからも消す", () => {
   assert.equal(
-    decideCalendarAction(
-      inputs({ boxExists: false, eventState: "present", eventHasMark: true }),
-    ),
+    decideCalendarAction(inputs({ eventState: "present", eventHasMark: true })),
     "deleteEvent",
   );
 });
 
-t("#5 アプリに無く、印の無い予定 → カレンダーで作られた。取り込む", () => {
-  assert.equal(
-    decideCalendarAction(
-      inputs({ boxExists: false, eventState: "present", eventHasMark: false }),
-    ),
-    "importBox",
-  );
+t("#5 アプリに無く、印の無い予定 → 触らない（取り込みもしない）", () => {
+  assert.equal(decideCalendarAction(inputs({ eventState: "present" })), "none");
 });
 
 t("#6 アプリに無く、カレンダーでも削除済み → 何もしない", () => {
   assert.equal(
-    decideCalendarAction(inputs({ boxExists: false, eventState: "cancelled" })),
+    decideCalendarAction(inputs({ eventState: "cancelled", eventHasMark: true })),
     "none",
   );
 });
 
 t("#7 習慣由来の枠は同期しない", () => {
-  // 実体を持たず毎回作り直されるので、書くと削除が走り続ける
-  assert.equal(
-    decideCalendarAction(
-      inputs({ boxExists: true, boxIsGhost: true, eventState: "missing" }),
-    ),
-    "none",
-  );
-});
-
-t("【不変条件1】書き込みのある枠を、決して消さない", () => {
-  for (const eventState of ["missing", "present", "cancelled"]) {
+  for (const eventState of STATES) {
     for (const eventHasMark of [true, false]) {
-      const d = decideCalendarAction(
-        inputs({ boxExists: true, boxHasNotes: true, eventState, eventHasMark }),
+      assert.equal(
+        decideCalendarAction(inputs({ boxExists: true, boxIsGhost: true, eventState, eventHasMark })),
+        "none",
       );
-      assert.notEqual(d, "deleteBox", `${eventState}/${eventHasMark} で deleteBox`);
     }
   }
 });
 
-t("【不変条件2】印の無い予定を、決して削除しない", () => {
-  // 印が無い ＝ カレンダー側で人が作ったもの。うちが消してよいものではない
+t("【不変条件】専用カレンダーを根拠にアプリの枠を書き換えたり消したりしない", () => {
   for (const boxExists of [true, false]) {
-    const d = decideCalendarAction(
-      inputs({ boxExists, eventState: "present", eventHasMark: false }),
-    );
-    assert.notEqual(d, "deleteEvent", `boxExists=${boxExists} で deleteEvent`);
+    for (const eventState of STATES) {
+      for (const eventHasMark of [true, false]) {
+        for (const contentEqual of [true, false]) {
+          const d = decideCalendarAction(
+            inputs({ boxExists, eventState, eventHasMark, contentEqual }),
+          );
+          assert.ok(
+            ["createEvent", "updateEvent", "deleteEvent", "none"].includes(d),
+            `${boxExists}/${eventState}/${eventHasMark}/${contentEqual} で ${d}`,
+          );
+        }
+      }
+    }
   }
 });
 
-t("【不変条件3】習慣由来の枠は、どの組み合わせでも none", () => {
-  for (const eventState of ["missing", "present", "cancelled"]) {
-    for (const boxHasNotes of [true, false]) {
-      assert.equal(
-        decideCalendarAction(
-          inputs({ boxExists: true, boxIsGhost: true, eventState, boxHasNotes }),
-        ),
-        "none",
-      );
+t("【不変条件】印の無い予定を、決して削除しない", () => {
+  for (const boxExists of [true, false]) {
+    for (const eventState of STATES) {
+      const d = decideCalendarAction(inputs({ boxExists, eventState, eventHasMark: false }));
+      assert.notEqual(d, "deleteEvent", `boxExists=${boxExists}/${eventState} で deleteEvent`);
     }
   }
 });

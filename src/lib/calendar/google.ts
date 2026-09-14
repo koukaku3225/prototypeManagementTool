@@ -290,6 +290,10 @@ export interface GoogleEvent {
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
   extendedProperties?: { private?: Record<string, string> };
+  /** "default" / "focusTime" / "workingLocation" など。取り込むかの判断に使う */
+  eventType?: string;
+  /** 招待の出欠。self が本人。断った招待は取り込まない */
+  attendees?: { self?: boolean; responseStatus?: string; email?: string }[];
 }
 
 /**
@@ -442,6 +446,8 @@ export interface GoogleCalendarSummary {
   summary: string;
   /** 本人が非表示にしているカレンダーは重ねない */
   selected: boolean;
+  /** 本人のメインカレンダーか。これは取り込むので重ねない（calendar/primary.ts） */
+  primary: boolean;
 }
 
 /**
@@ -468,7 +474,7 @@ export async function listCalendars(
       );
     }
     const j = (await res.json()) as {
-      items?: { id?: string; summary?: string; selected?: boolean }[];
+      items?: { id?: string; summary?: string; selected?: boolean; primary?: boolean }[];
       nextPageToken?: string;
     };
     for (const c of j.items ?? []) {
@@ -479,6 +485,7 @@ export async function listCalendars(
         // selected は「向こうの画面でチェックが入っているか」。
         // 省略されることがあり、その場合は表示扱いにする
         selected: c.selected !== false,
+        primary: c.primary === true,
       });
     }
     pageToken = j.nextPageToken;

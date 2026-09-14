@@ -13,6 +13,7 @@ import {
   toTimeInputValue,
 } from "@/lib/timebox";
 import { isGhost } from "@/lib/habit-plan";
+import { isFromGoogle } from "@/lib/calendar/primary";
 import { goalSelectOptions } from "@/lib/goal-card";
 import { loadTimeBoxes } from "@/lib/storage";
 import { emptyReview, type TimeBox } from "@/types/timebox";
@@ -128,6 +129,12 @@ export function TimeBoxSheet({
    */
   const fromHabit = !isNew && isGhost(draft);
   /*
+   * メインカレンダーから取り込んだ枠か。タイトルと時刻は Google が正なので、
+   * ここでは変えさせない（変えても Google に戻せず、次の同期で上書きされる）。
+   * 完了・事前準備・振り返り・目標・色はアプリだけの情報なので触れる。
+   */
+  const fromGoogle = !isNew && isFromGoogle(draft);
+  /*
    * 前回、同じ目標で書いた「今後の対策」。
    * 開くたびに全件読むが、この規模（数百件）なら体感に影響しない。
    * 新しい枠（未保存）でも、目標さえ選べば前回の対策は読めるべきなので
@@ -188,7 +195,13 @@ export function TimeBoxSheet({
             */}
             <div className="phone flex shrink-0 items-center gap-2 px-4 pt-2">
               <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
-                {isNew ? "新しい予定" : fromHabit ? "習慣の予定" : "予定"}
+                {isNew
+                  ? "新しい予定"
+                  : fromHabit
+                    ? "習慣の予定"
+                    : fromGoogle
+                      ? "Googleカレンダーの予定"
+                      : "予定"}
               </span>
               <button
                 type="button"
@@ -208,47 +221,80 @@ export function TimeBoxSheet({
                 空文字に落とし、欄が空になって二度と直せなくなる
                 （Android Chrome で実際に踏んだ）。
               */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="time"
-                  step={900}
-                  value={toTimeInputValue(draft.start)}
-                  onChange={(e) => applyTime(applyStartInput(draft, e.target.value))}
-                  className="min-h-11 rounded-lg border border-line bg-surface px-2.5 font-mono text-[15px]"
-                  aria-label="開始時刻"
-                />
-                <span aria-hidden="true" className="text-muted">
-                  〜
-                </span>
-                <input
-                  type="time"
-                  step={900}
-                  value={toTimeInputValue(draft.end)}
-                  onChange={(e) => applyTime(applyEndInput(draft, e.target.value))}
-                  className="min-h-11 rounded-lg border border-line bg-surface px-2.5 font-mono text-[15px]"
-                  aria-label="終了時刻"
-                />
-                <span className="ml-auto font-mono text-[11.5px] text-muted">
-                  {humanDuration(mins)}
-                </span>
-              </div>
-              {timeNote && (
-                <p role="status" className="mt-1.5 text-[12px] text-[var(--c-rose-fg)]">
-                  {timeNote}
-                </p>
-              )}
+              {fromGoogle ? (
+                /*
+                  取り込んだ枠のタイトルと時刻は読むだけ。入力欄を無効にするより
+                  文字で出すほうが「変えられない」ことがはっきりする
+                */
+                <div className="rounded-lg border border-line bg-surface px-3 py-2.5">
+                  <p className="flex items-center gap-2 font-mono text-[14px]">
+                    <span>
+                      {draft.start}〜{draft.end}
+                    </span>
+                    <span className="ml-auto text-[11.5px] text-muted">
+                      {humanDuration(mins)}
+                    </span>
+                  </p>
+                  <p className="mt-1 text-[15px] leading-snug">
+                    {draft.title || "（未記入）"}
+                  </p>
+                  <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted">
+                    タイトルと時間は Google カレンダーで変更してください。次に時間割を開いたときに反映されます。
+                  </p>
+                  {draft.sourceGoneAt && (
+                    <p
+                      role="status"
+                      className="mt-1.5 text-[12px] leading-relaxed text-[var(--c-rose-fg)]"
+                    >
+                      Google カレンダーでは削除済みです。書いた内容を残すため、ここにだけ残しています。
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="time"
+                      step={900}
+                      value={toTimeInputValue(draft.start)}
+                      onChange={(e) => applyTime(applyStartInput(draft, e.target.value))}
+                      className="min-h-11 rounded-lg border border-line bg-surface px-2.5 font-mono text-[15px]"
+                      aria-label="開始時刻"
+                    />
+                    <span aria-hidden="true" className="text-muted">
+                      〜
+                    </span>
+                    <input
+                      type="time"
+                      step={900}
+                      value={toTimeInputValue(draft.end)}
+                      onChange={(e) => applyTime(applyEndInput(draft, e.target.value))}
+                      className="min-h-11 rounded-lg border border-line bg-surface px-2.5 font-mono text-[15px]"
+                      aria-label="終了時刻"
+                    />
+                    <span className="ml-auto font-mono text-[11.5px] text-muted">
+                      {humanDuration(mins)}
+                    </span>
+                  </div>
+                  {timeNote && (
+                    <p role="status" className="mt-1.5 text-[12px] text-[var(--c-rose-fg)]">
+                      {timeNote}
+                    </p>
+                  )}
 
-              {/* 何をやるか */}
-              <input
-                type="text"
-                value={draft.title}
-                onChange={(e) => patch({ title: e.target.value })}
-                placeholder="何をやるか"
-                maxLength={120}
-                autoFocus={!draft.title}
-                className="mt-3 min-h-12 w-full rounded-lg border border-line bg-surface px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
-                aria-label="何をやるか"
-              />
+                  {/* 何をやるか */}
+                  <input
+                    type="text"
+                    value={draft.title}
+                    onChange={(e) => patch({ title: e.target.value })}
+                    placeholder="何をやるか"
+                    maxLength={120}
+                    autoFocus={!draft.title}
+                    className="mt-3 min-h-12 w-full rounded-lg border border-line bg-surface px-3 text-[15px] outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
+                    aria-label="何をやるか"
+                  />
+                </>
+              )}
 
               {/* どの目標か */}
               <div className="mt-3">
@@ -459,7 +505,9 @@ export function TimeBoxSheet({
                     (confirmDelete ? (
                       <div className="rounded-lg border border-line bg-surface px-3 py-2.5">
                         <p className="text-[12.5px] leading-relaxed">
-                          この予定を消します。振り返りも一緒に消えます。
+                          {fromGoogle
+                            ? "この予定をアプリから消します。Google カレンダーの予定は残り、次の同期でも戻ってきません。振り返りは見えなくなります。"
+                            : "この予定を消します。振り返りも一緒に消えます。"}
                         </p>
                         <div className="mt-2 flex gap-2">
                           <button
