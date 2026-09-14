@@ -191,6 +191,26 @@ export function DayGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitHeight]);
 
+  /**
+   * 選んだ枠の外を触ったら、選択を外す。
+   *
+   * 以前は時間割の空きを押したときしか外れず、枠の外側
+   * （時間割の外・ヘッダ・別の枠）を触ってもつまみが出たままだった。
+   * 選んだ枠そのもの（丸いつまみを含む）を触ったときだけは残す。
+   * 続けてつまみを引けるようにするため。
+   */
+  useEffect(() => {
+    if (!selected) return;
+    function onDown(e: PointerEvent) {
+      const hit = (e.target as HTMLElement | null)?.closest?.("[data-box-id]");
+      if (hit?.getAttribute("data-box-id") === selected) return;
+      setSelected(null);
+    }
+    // capture で先に見る。枠側が stopPropagation しても取りこぼさない
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [selected]);
+
   // 日付を変えたら測り直す（予定の位置が変わる）
   useEffect(measure, [boxes]);
 
@@ -331,6 +351,7 @@ export function DayGrid({
                 <div
                   key={box.id}
                   data-box
+                  data-box-id={box.id}
                   onPointerDown={(e) => onBoxPointerDown(e, box, "move")}
                   onClick={() => {
                     if (dragging || consumeClick()) return;
