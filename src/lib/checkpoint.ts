@@ -62,6 +62,53 @@ export function nearestActive(list: Checkpoint[], now: string = today()): Checkp
   return [...active].sort((a, b) => a.period.end.localeCompare(b.period.end))[0];
 }
 
+export interface TodayCheckpoint {
+  checkpoint: Checkpoint;
+  /** 期間が過ぎたのに、完了にも「今回は終わり」にもしていない */
+  over: boolean;
+  /** 残り日数（今日を含む）。期限切れなら0 */
+  left: number;
+}
+
+/**
+ * 今日の画面の先頭に出す中間目標（R19、2026-09-14）。
+ *
+ * 中間目標は目標の詳細にしか出ておらず、「今なにをやるべきか迷わない」という
+ * 謳い文句に反して、日々の画面からは見えなかった。
+ *
+ * - 出すのは、活動中で、見出しがあり、生きている目標（liveCardIds）にぶら下がり、
+ *   期間が始まっているもの
+ * - 期間が過ぎたのに閉じていないものは先に出す。放っておくと「残り0日」のまま
+ *   ずっと残るので、振り返りを促す
+ * - その次は期限の近い順。期限が同じなら週を月より先（より手前の区切り）
+ * - 画面を占領しないよう max 件まで。残りは件数だけ返す
+ */
+export function todayCheckpoints(
+  list: Checkpoint[],
+  liveCardIds: readonly string[],
+  now: string = today(),
+  max = 2,
+): { shown: TodayCheckpoint[]; rest: number } {
+  const live = new Set(liveCardIds);
+  const eligible = list
+    .filter(
+      (c) =>
+        c.status === "active" &&
+        live.has(c.cardId) &&
+        c.title.trim().length > 0 &&
+        c.period.start <= now,
+    )
+    .map((c) => ({ checkpoint: c, over: isPeriodOver(c, now), left: daysLeft(c, now) }))
+    .sort((a, b) => {
+      if (a.over !== b.over) return a.over ? -1 : 1;
+      const byEnd = a.checkpoint.period.end.localeCompare(b.checkpoint.period.end);
+      if (byEnd !== 0) return byEnd;
+      if (a.checkpoint.period.kind === b.checkpoint.period.kind) return 0;
+      return a.checkpoint.period.kind === "week" ? -1 : 1;
+    });
+  return { shown: eligible.slice(0, max), rest: Math.max(0, eligible.length - max) };
+}
+
 export function emptyCheckpoint(cardId: string, kind: CheckpointPeriodKind = "week"): Checkpoint {
   const now = new Date().toISOString();
   return {

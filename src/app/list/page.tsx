@@ -7,12 +7,15 @@ import { HabitCheck } from "@/components/HabitCheck";
 import { NowBar } from "@/components/NowBar";
 import { RunningBar } from "@/components/RunningBar";
 import { TimeBoxSheet } from "@/components/TimeBoxSheet";
+import { TodayCheckpoints } from "@/components/TodayCheckpoints";
+import { todayCheckpoints } from "@/lib/checkpoint";
 import {
   activeHabits,
   cancelRunning,
   clearHabitLogFromBox,
   deleteTimeBox,
   loadCards,
+  loadCheckpoints,
   loadHabitLogs,
   loadRunning,
   loadSession,
@@ -44,7 +47,7 @@ import {
   totalMinutes,
 } from "@/lib/timebox";
 import { today } from "@/lib/date";
-import type { GoalCard } from "@/types/goal";
+import type { Checkpoint, GoalCard } from "@/types/goal";
 import type { Habit, HabitLog, HabitLogState } from "@/types/behavior";
 import {
   emptyMeta,
@@ -65,6 +68,7 @@ import {
  */
 export default function TodayPage() {
   const [cards, setCards] = useState<GoalCard[]>([]);
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [boxes, setBoxes] = useState<TimeBox[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
   const [logs, setLogs] = useState<HabitLog[]>([]);
@@ -79,6 +83,7 @@ export default function TodayPage() {
   const reload = useCallback(() => {
     const allCards = loadCards();
     setCards(allCards);
+    setCheckpoints(loadCheckpoints());
     /*
      * 習慣から自動で並ぶ枠も、実体のある枠と同じ扱いで混ぜる。
      * ただし目標を完了にした習慣は除く（habit-plan.ts の habitsOfActiveCards
@@ -230,6 +235,10 @@ export default function TodayPage() {
   }
 
   const active = cards.filter((c) => (c.status ?? "active") !== "done");
+  const nowCheckpoints = todayCheckpoints(
+    checkpoints,
+    active.map((c) => c.id),
+  );
   const titleOf = (cardId: string | null) =>
     cardId
       ? (cards.find((c) => c.id === cardId)?.vision.refined ??
@@ -268,6 +277,12 @@ export default function TodayPage() {
             中断した対話を再開する →
           </Link>
         )}
+
+        <TodayCheckpoints
+          shown={nowCheckpoints.shown}
+          rest={nowCheckpoints.rest}
+          cards={cards}
+        />
 
         {nothingYet ? (
           <section className="mt-6 flex flex-col gap-4">

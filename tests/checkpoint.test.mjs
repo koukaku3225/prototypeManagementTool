@@ -18,6 +18,7 @@ import {
   nearestActive,
   scoreTone,
   selfConcordanceScore,
+  todayCheckpoints,
   totalDays,
 } from "../src/lib/checkpoint.ts";
 import { emptyCheckpointEvaluation } from "../src/types/goal.ts";
@@ -164,6 +165,103 @@ t("要約は触った項目だけを言う", () => {
     hasBuddy: true,
   };
   assert.equal(evaluationSummary(e), "動機+6・価値観2件・仲間あり");
+});
+
+// ---- 今日の画面の先頭に出す中間目標（R19、2026-09-14） ----
+//
+// 期間が今日を含む、または期間が過ぎたのに閉じていない中間目標を、最大2件。
+// 期限切れは「振り返る」を促すので先に出す。
+
+const NOW = "2026-09-14"; // 月曜
+const week = (id, start, end, over = {}) =>
+  cp({ id, title: id, period: { kind: "week", start, end }, ...over });
+const month = (id, start, end, over = {}) =>
+  cp({ id, title: id, period: { kind: "month", start, end }, ...over });
+const ids = (r) => r.shown.map((x) => x.checkpoint.id);
+
+t("期間が今日を含む中間目標を、期限の近い順に出す", () => {
+  const r = todayCheckpoints(
+    [month("m", "2026-09-01", "2026-09-30"), week("w", "2026-09-14", "2026-09-20")],
+    ["card-1"],
+    NOW,
+  );
+  assert.deepEqual(ids(r), ["w", "m"]);
+  assert.equal(r.rest, 0);
+  assert.equal(r.shown[0].left, 7);
+  assert.equal(r.shown[0].over, false);
+});
+
+t("期間の初日と最終日も「今日を含む」", () => {
+  assert.deepEqual(ids(todayCheckpoints([week("first", NOW, "2026-09-20")], ["card-1"], NOW)), ["first"]);
+  const last = todayCheckpoints([week("last", "2026-09-08", NOW)], ["card-1"], NOW);
+  assert.deepEqual(ids(last), ["last"]);
+  assert.equal(last.shown[0].left, 1, "最終日は残り1日");
+  assert.equal(last.shown[0].over, false);
+});
+
+t("まだ始まっていない期間は出さない", () => {
+  assert.deepEqual(ids(todayCheckpoints([week("next", "2026-09-21", "2026-09-27")], ["card-1"], NOW)), []);
+});
+
+t("期間が過ぎたのに閉じていないものは、期限切れとして先に出す", () => {
+  const r = todayCheckpoints(
+    [week("now", "2026-09-14", "2026-09-20"), week("old", "2026-09-07", "2026-09-13")],
+    ["card-1"],
+    NOW,
+  );
+  assert.deepEqual(ids(r), ["old", "now"]);
+  assert.equal(r.shown[0].over, true);
+  assert.equal(r.shown[0].left, 0);
+});
+
+t("完了・今回は終わりにしたものは出さない", () => {
+  const r = todayCheckpoints(
+    [
+      week("done", "2026-09-07", "2026-09-13", { status: "done" }),
+      week("ab", NOW, "2026-09-20", { status: "abandoned" }),
+    ],
+    ["card-1"],
+    NOW,
+  );
+  assert.deepEqual(ids(r), []);
+});
+
+t("完了した目標・消えた目標の中間目標は出さない", () => {
+  const r = todayCheckpoints([week("gone", NOW, "2026-09-20", { cardId: "card-x" })], ["card-1"], NOW);
+  assert.deepEqual(ids(r), []);
+});
+
+t("見出しが空の中間目標は出さない（中身の無い行を作らない）", () => {
+  const r = todayCheckpoints([week("blank", NOW, "2026-09-20", { title: "  " })], ["card-1"], NOW);
+  assert.deepEqual(ids(r), []);
+});
+
+t("最大2件。残りの件数を返す", () => {
+  const r = todayCheckpoints(
+    [
+      week("a", NOW, "2026-09-20"),
+      week("b", NOW, "2026-09-18"),
+      month("c", "2026-09-01", "2026-09-30"),
+      week("d", NOW, "2026-09-16"),
+    ],
+    ["card-1"],
+    NOW,
+  );
+  assert.deepEqual(ids(r), ["d", "b"]);
+  assert.equal(r.rest, 2);
+});
+
+t("期限が同じなら、週を月より先に出す", () => {
+  const r = todayCheckpoints(
+    [month("m", "2026-09-01", "2026-09-30"), week("w", "2026-09-28", "2026-09-30")],
+    ["card-1"],
+    "2026-09-29",
+  );
+  assert.deepEqual(ids(r), ["w", "m"]);
+});
+
+t("1件も無ければ空で、落ちない", () => {
+  assert.deepEqual(todayCheckpoints([], ["card-1"], NOW), { shown: [], rest: 0 });
 });
 
 console.log(`${passed} passed, ${failed} failed`);
