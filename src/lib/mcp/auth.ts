@@ -19,6 +19,25 @@ export async function verifyMcpToken(
   return { userId: payload.sub, clientId };
 }
 
+/**
+ * 公開鍵の取得口を URL ごとに使い回す。
+ *
+ * 以前は要求のたびに createRemoteJWKSet() を作っていた。jose の鍵キャッシュ・
+ * 同時要求の統合・再取得の間隔はそのインスタンスが持つので、毎回作ると効かず、
+ * 形だけ JWT の無効なトークンを送るたびに認証サーバーへ鍵を取りに行っていた
+ * （セキュリティレビュー指摘10）。URL はサーバー設定から決まり、利用者は選べない。
+ */
+const jwksByUrl = new Map<string, JWTVerifyGetKey>();
+
+export function getJwks(url: string): JWTVerifyGetKey {
+  let key = jwksByUrl.get(url);
+  if (!key) {
+    key = createRemoteJWKSet(new URL(url), { cooldownDuration: 30_000, cacheMaxAge: 600_000 });
+    jwksByUrl.set(url, key);
+  }
+  return key;
+}
+
 export async function authenticateMcpRequest(req: Request): Promise<McpPrincipal> {
   const cached = requestPrincipals.get(req);
   if (cached) return cached;
@@ -26,7 +45,7 @@ export async function authenticateMcpRequest(req: Request): Promise<McpPrincipal
   const match = header.match(/^Bearer ([^\s]+)$/);
   if (!match) throw new Error("mcp_unauthorized");
   const config = getMcpConfig();
-  const key = createRemoteJWKSet(new URL(config.jwksUrl));
+  const key = getJwks(config.jwksUrl);
   const principal = await verifyMcpToken(match[1], { ...config, key });
   requestPrincipals.set(req, principal);
   return principal;

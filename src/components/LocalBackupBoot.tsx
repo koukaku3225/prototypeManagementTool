@@ -48,7 +48,8 @@ export function LocalBackupBoot() {
         const snap = captureState();
         fetch("/api/local-backup", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          // 専用ヘッダは API 側の必須条件（別オリジンからの送信を止める）
+          headers: { "Content-Type": "application/json", "x-gc-local-backup": "1" },
           body: JSON.stringify(snap),
         }).catch(() => {
           /* 書けなくても致命的ではない。localStorage 側は保存済み */
@@ -67,7 +68,7 @@ export function LocalBackupBoot() {
   useEffect(() => {
     if (!isLocalHost()) return;
     if (hasUserContent(captureState())) return;
-    fetch("/api/local-backup")
+    fetch("/api/local-backup", { headers: { "x-gc-local-backup": "1" } })
       .then((r) => r.json())
       .then((res: { ok: boolean; data: Record<string, string> | null }) => {
         if (res.ok && res.data && hasUserContent(res.data)) setOffer(res.data);

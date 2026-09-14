@@ -279,6 +279,9 @@ export async function createCalendar(token: string, summary: string): Promise<st
   return j.id;
 }
 
+/** 一覧取得のページ上限。1ページ250件なので 5,000件まで */
+const MAX_LIST_PAGES = 20;
+
 export interface GoogleEvent {
   id: string;
   status?: string;
@@ -306,8 +309,18 @@ export async function listEvents(
   const events: GoogleEvent[] = [];
   let pageToken: string | undefined;
   let nextSyncToken: string | null = null;
+  let pages = 0;
 
   do {
+    /*
+     * ページが続く限り読むと、予定が極端に多いカレンダーで
+     * 関数の実行時間とクォータを使い切る（セキュリティレビュー指摘12）。
+     * 途中までの一覧で突き合わせると「見えなかった予定」を消したり作り直したり
+     * するので、打ち切るときは同期そのものを失敗にする。
+     */
+    if (++pages > MAX_LIST_PAGES) {
+      throw new Error(`予定が多すぎるため取得を打ち切りました（${MAX_LIST_PAGES}ページ超）`);
+    }
     const q = new URLSearchParams({ maxResults: "250", showDeleted: "true" });
     if (opts.syncToken) q.set("syncToken", opts.syncToken);
     else {

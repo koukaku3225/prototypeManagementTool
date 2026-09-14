@@ -91,6 +91,30 @@ t("【不変条件】pull を返すのは、ローカルが空のときだけ", 
   }
 });
 
+t("【不変条件】別アカウントとして同期されていたローカルは、自動で送らない（指摘2）", () => {
+  // 共有ブラウザで A → B に切り替えたとき、A のデータを B に黙って送らない
+  for (const cloudHasContent of [true, false]) {
+    const d = decideSyncDirection({
+      alreadySynced: false,
+      localHasContent: true,
+      cloudHasContent,
+      localOwnedByOtherUser: true,
+    });
+    assert.equal(d, "conflict");
+  }
+});
+
+t("別アカウントの記録があっても、ローカルが空なら今までどおり", () => {
+  assert.equal(
+    decideSyncDirection({ alreadySynced: false, localHasContent: false, cloudHasContent: true, localOwnedByOtherUser: true }),
+    "pull",
+  );
+  assert.equal(
+    decideSyncDirection({ alreadySynced: false, localHasContent: false, cloudHasContent: false, localOwnedByOtherUser: true }),
+    "ready",
+  );
+});
+
 // ---- 外部キー違反の判定。これを取り違えると自己修復が走らない ----
 
 t("Postgres のコード 23503 を外部キー違反と判定する", () => {

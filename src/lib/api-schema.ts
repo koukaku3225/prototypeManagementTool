@@ -2,6 +2,7 @@ import { z } from "zod";
 import { COACHES } from "@/lib/prompts/coaches";
 import { PHASE_META } from "@/lib/prompts/phases";
 import { FLOW } from "@/types/goal";
+import { isCrossSiteRequest, isJsonContentType, readBodyLimited } from "@/lib/request-guard";
 
 /**
  * APIルートの入力スキーマ。
@@ -186,33 +187,30 @@ export const CalendarOverlayQuerySchema = z.object({
 });
 
 /**
- * ボディを読んでサイズを見てから parse する。
+ * ボディを上限バイト数まで読んでから parse する。
  *
  * req.json() を先に呼ぶと、巨大なボディでも一旦メモリに展開されてしまう。
- * 先に文字列で受けて長さを見るほうが、弾くのが早い。
+ * 読みながらバイト数を数え、超えた時点で打ち切る（request-guard.ts）。
  */
 export async function parseBody<T>(
   req: Request,
   schema: z.ZodType<T>,
+  maxBytes: number = MAX_BODY_BYTES,
 ): Promise<
-  { ok: true; data: T } | { ok: false; status: 400 | 413 | 415 }
+  { ok: true; data: T } | { ok: false; status: 400 | 403 | 413 | 415 }
 > {
   // SEC-10: text/plain の単純リクエストはプリフライトが飛ばない。
-  // JSON を必須にするだけで、クロスサイトからの POST は塞げる
-  const ct = req.headers.get("content-type") ?? "";
-  if (!ct.includes("application/json")) return { ok: false, status: 415 };
+  // MIME タイプを完全一致で見る（`text/plain; x=application/json` を通さない）
+  if (!isJsonContentType(req.headers.get("content-type"))) return { ok: false, status: 415 };
+  // 別サイトのページから踏ませる送信（Cookie が付く）を弾く
+  if (isCrossSiteRequest(req)) return { ok: false, status: 403 };
 
-  let raw: string;
-  try {
-    raw = await req.text();
-  } catch {
-    return { ok: false, status: 400 };
-  }
-  if (raw.length > MAX_BODY_BYTES) return { ok: false, status: 413 };
+  const body = await readBodyLimited(req, maxBytes);
+  if (!body.ok) return { ok: false, status: body.status };
 
   let json: unknown;
   try {
-    json = JSON.parse(raw);
+    json = JSON.parse(body.text);
   } catch {
     return { ok: false, status: 400 };
   }

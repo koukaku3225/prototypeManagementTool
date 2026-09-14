@@ -1,10 +1,16 @@
 import { requireAuthIfEnabled } from "@/lib/require-auth";
 import { deleteLink } from "@/lib/calendar/link";
+import { isCrossSiteRequest } from "@/lib/request-guard";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
 
-export async function POST() {
+export async function POST(req: Request) {
+  // 本文なしの POST は、別サイトのフォームからでも Cookie 付きで送れる。
+  // 他人のページを開いただけで連携が外れないよう、出どころを確かめる
+  if (isCrossSiteRequest(req)) {
+    return Response.json({ ok: false, error: "forbidden" }, { status: 403 });
+  }
   const denied = await requireAuthIfEnabled();
   if (denied) return denied;
   // カレンダー側の予定は消さない。消すと取り返しがつかない

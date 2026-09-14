@@ -28,6 +28,11 @@ export interface SyncInputs {
   localHasContent: boolean;
   /** クラウド側に、このユーザーの成果物が1つでもあるか */
   cloudHasContent: boolean;
+  /**
+   * この端末のデータが、別のアカウントとして同期されていたものか。
+   * 省略は false（突き合わせの記録が無い＝ログイン前に作ったデータ）。
+   */
+  localOwnedByOtherUser?: boolean;
 }
 
 /**
@@ -64,6 +69,16 @@ export function decideSyncDirection(i: SyncInputs): SyncDirection {
      */
     return i.alreadySynced ? "conflict" : "pull";
   }
+
+  /*
+   * 1.5 別のアカウントのデータを、本人の同意なしに新しいアカウントへ送らない。
+   *
+   * 共有のブラウザで A がログアウトし B がログインすると、A のデータが
+   * localStorage に残ったまま「未突合・ローカルあり・クラウド空」になり、
+   * 以前は push で B の保存対象になっていた（セキュリティレビュー指摘2）。
+   * 引き継ぐか取り込むかは、B に選ばせる。
+   */
+  if (i.localHasContent && i.localOwnedByOtherUser) return "conflict";
 
   // 2. クラウドが空なら、送っても失われるものが無い
   if (!i.cloudHasContent) {

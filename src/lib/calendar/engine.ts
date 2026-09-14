@@ -56,7 +56,23 @@ export interface SyncResult {
    * そこで打ち切っている。画面は「連携し直してください」を出す。
    */
   needsReconnect?: boolean;
+  /**
+   * 1回の同期で行う Google への書き込みが上限（MAX_WRITE_OPS）に達し、
+   * 残りを次回に回した。送れなかった枠は googleEventId が付かないまま残るので、
+   * 次の同期で続きから作られる。
+   */
+  truncated?: boolean;
 }
+
+/**
+ * 1回の同期で Google へ書き込む（作成・更新・削除）件数の上限。
+ *
+ * 以前は上限が無く、500件の枠を送る1回の要求が500回の API 呼び出しになった
+ * （セキュリティレビュー指摘12）。盗まれたセッションや壊れたクライアントから、
+ * 共有プロジェクトのクォータと関数の実行時間を消費できた。
+ * 普段の同期はせいぜい数件なので、本人の操作では当たらない値にしてある。
+ */
+export const MAX_WRITE_OPS = 100;
 
 /** 同期が丸ごと失敗した理由。reconnect_required のときだけ画面が再連携を案内する */
 export type SyncFailure = { ok: false; message: string; reason?: "reconnect_required" };
@@ -316,6 +332,17 @@ export async function runSync(
   // が漏れて、毎回二重取り込みされていた（レビューで指摘）。
   const handledEventIds = new Set<string>();
 
+  /** 書き込みを1件使う。上限に達していたら false（その操作は次回に回す） */
+  let writeOps = 0;
+  const spendWrite = (): boolean => {
+    if (writeOps >= MAX_WRITE_OPS) {
+      result.truncated = true;
+      return false;
+    }
+    writeOps++;
+    return true;
+  };
+
   // --- アプリ側の枠を1件ずつ処理する ---
   for (const b of inWindow) {
     const e = ownedEvent(byId, byMark, b);
@@ -342,6 +369,10 @@ export async function runSync(
       eventUpdated: e?.updated ?? null,
       contentEqual,
     });
+
+    if ((action === "createEvent" || (action === "updateEvent" && e)) && !spendWrite()) {
+      continue;
+    }
 
     try {
       if (action === "createEvent") {
@@ -410,6 +441,8 @@ export async function runSync(
       eventUpdated: e.updated ?? null,
       contentEqual: false,
     });
+
+    if (action === "deleteEvent" && !spendWrite()) continue;
 
     try {
       if (action === "deleteEvent") {

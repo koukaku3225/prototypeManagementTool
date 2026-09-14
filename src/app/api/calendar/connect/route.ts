@@ -2,7 +2,8 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { requireAuthIfEnabled } from "@/lib/require-auth";
 import { CALENDAR_SCOPE } from "@/lib/calendar/google";
-import { STATE_COOKIE } from "@/lib/calendar/oauth-state";
+import { encodeStateCookie, STATE_COOKIE } from "@/lib/calendar/oauth-state";
+import { currentUserId } from "@/lib/calendar/link";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -20,7 +21,8 @@ export async function GET(req: Request) {
   // 戻ってきたときに「自分が始めた往復か」を確かめるための合言葉
   const state = crypto.randomUUID();
   const jar = await cookies();
-  jar.set(STATE_COOKIE, state, {
+  // 始めた利用者も一緒に覚える。戻ってきたときに別人なら保存しない
+  jar.set(STATE_COOKIE, encodeStateCookie(state, await currentUserId().catch(() => null)), {
     httpOnly: true,
     secure: origin.startsWith("https://"),
     sameSite: "lax",

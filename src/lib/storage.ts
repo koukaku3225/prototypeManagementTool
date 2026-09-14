@@ -344,7 +344,12 @@ const MIGRATIONS: Record<number, () => void> = {
 /** 現在の版。読めない・未設定なら 0（＝版番号を持たない古いデータ） */
 function currentVersion(): number {
   const v = read<number>(KEY.schemaVersion);
-  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+  /*
+   * 整数でなければ 0 とみなす。Number.isFinite だけだと -1e20 が通り、
+   * v + 1 === v になって runMigrations のループが終わらなくなる。
+   * 未来の版（現在より大きい）はそのまま返し、移行しない。
+   */
+  return typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : 0;
 }
 
 /**
@@ -1028,31 +1033,110 @@ export function captureState(): Record<string, string> {
  */
 export function restoreState(data: Record<string, string>): boolean {
   /*
+   * 消す前に中身を確かめる（セキュリティレビュー指摘9）。
+   * 以前は外側が「値がすべて文字列のオブジェクト」かしか見ておらず、
+   * 無関係な JSON を読み込んだだけで既存データが消え、
+   * 版番号 "-1e20" では移行のループが終わらなくなった。
+   */
+  if (!isRestorableData(data)) return false;
+
+  /*
    * 書き戻しの許可リストは、取り出しの対象（SNAPSHOT_TARGETS）より広く取る。
    * 古いスナップショットにはレガシーキー（gc.card など）が入りうるし、
    * それを弾いてしまうと移行の出番が来ないまま黙って消える。
    * 受け取ってから移行に通すほうが、失うものがない。
    */
-  for (const k of RESTORABLE_KEYS) remove(k);
-  let ok = true;
-  for (const [k, v] of Object.entries(data)) {
-    if (!RESTORABLE_KEYS.includes(k)) continue;
+  const previous: Record<string, string> = {};
+  for (const k of RESTORABLE_KEYS) {
     try {
-      localStorage.setItem(k, v);
-      if (lastFailure) setFailure(null);
-    } catch (err) {
-      ok = false;
-      setFailure({ key: k, at: new Date().toISOString(), quota: isQuotaError(err) });
+      const v = localStorage.getItem(k);
+      if (v !== null) previous[k] = v;
+    } catch {
+      /* 読めないキーは戻しようがない */
     }
   }
+
   /*
-   * 古いスナップショットには、古い形のデータと古い版番号が入っている。
-   * 書き戻した直後に移行をやり直さないと、現在のコードが読めない形のまま
-   * 画面に流れ込む。版番号ごと復元してあるので、ここから前に進められる。
+   * 復元の間はクラウド同期へ通知しない（セキュリティレビュー指摘8）。
+   * 以前は remove() が「消した」(null) だけを同期へ流し、書き戻した値は
+   * localStorage へ直接入れていたので、クラウドには削除だけが届いた。
+   * 終わってから、実際に書き戻せた値だけを通知する。
    */
-  migrated = false;
-  ensureMigrated();
+  const syncHook = onWriteHook;
+  onWriteHook = null;
+  let ok = true;
+  try {
+    for (const k of RESTORABLE_KEYS) remove(k);
+    for (const [k, v] of Object.entries(data)) {
+      if (!RESTORABLE_KEYS.includes(k)) continue;
+      try {
+        localStorage.setItem(k, v);
+        if (lastFailure) setFailure(null);
+      } catch (err) {
+        ok = false;
+        setFailure({ key: k, at: new Date().toISOString(), quota: isQuotaError(err) });
+        break;
+      }
+    }
+
+    if (!ok) {
+      // 半分だけ戻った状態で終わらせない。元の中身へ戻す
+      for (const k of RESTORABLE_KEYS) {
+        try {
+          if (k in previous) localStorage.setItem(k, previous[k]);
+          else localStorage.removeItem(k);
+        } catch {
+          /* 戻せなかったキーは失敗の帯で本人に伝わっている */
+        }
+      }
+    }
+
+    /*
+     * 古いスナップショットには、古い形のデータと古い版番号が入っている。
+     * 書き戻した直後に移行をやり直さないと、現在のコードが読めない形のまま
+     * 画面に流れ込む。版番号ごと復元してあるので、ここから前に進められる。
+     */
+    migrated = false;
+    ensureMigrated();
+  } finally {
+    onWriteHook = syncHook;
+  }
+
+  if (ok && syncHook) {
+    for (const k of RESTORABLE_KEYS) {
+      const v = read<unknown>(k);
+      if (v !== null) syncHook(k, v);
+    }
+  }
   return ok;
+}
+
+/**
+ * 復元に使ってよいデータか。消す前に呼ぶ。
+ *
+ * - このアプリのキーが1つ以上ある（無関係な JSON で既存データを消さない）
+ * - このアプリのキーの値は、どれも JSON として読める
+ * - 版番号があるなら 0 以上・現在の版以下の整数
+ */
+export function isRestorableData(data: Record<string, unknown>): boolean {
+  let appKeys = 0;
+  for (const [k, v] of Object.entries(data)) {
+    if (!RESTORABLE_KEYS.includes(k)) continue;
+    if (typeof v !== "string") return false;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(v);
+    } catch {
+      return false;
+    }
+    if (k === KEY.schemaVersion && !isKnownVersion(parsed)) return false;
+    appKeys++;
+  }
+  return appKeys > 0;
+}
+
+function isKnownVersion(v: unknown): v is number {
+  return typeof v === "number" && Number.isSafeInteger(v) && v >= 0 && v <= SCHEMA_VERSION;
 }
 
 export const listSnapshots = (): Snapshot[] =>

@@ -98,10 +98,13 @@ export default function SettingsPage() {
                 <div className="mt-3 rounded-lg border border-accent-line bg-accent-soft px-3 py-3">
                   <p className="text-[12.5px] leading-relaxed text-accent">
                     <strong className="block font-medium">
-                      この端末とクラウドの両方に、それぞれ中身があります。
+                      {sync.otherUser
+                        ? "この端末には、別のアカウントで使っていたデータが残っています。"
+                        : "この端末とクラウドの両方に、それぞれ中身があります。"}
                     </strong>
-                    どちらを残すか決まるまで、クラウドへの自動保存は止めています。
-                    片方を選ぶと、もう片方はその内容で上書きされます。
+                    {sync.otherUser
+                      ? "このアカウントへ引き継ぐか決まるまで、クラウドへの自動保存は止めています。自分のデータでなければ「クラウドを残す」を選んでください。"
+                      : "どちらを残すか決まるまで、クラウドへの自動保存は止めています。片方を選ぶと、もう片方はその内容で上書きされます。"}
                   </p>
                   <div className="mt-2.5 flex flex-col gap-2">
                     <button

@@ -91,7 +91,8 @@ export type SyncState =
   | { kind: "pulling" }
   | { kind: "pushing" }
   | { kind: "ready" }
-  | { kind: "conflict" }
+  /** otherUser: この端末のデータが別のアカウントのものだった（引き継ぐかを聞く） */
+  | { kind: "conflict"; otherUser?: boolean }
   | { kind: "failed"; message: string };
 
 let syncState: SyncState = { kind: "off" };
@@ -348,9 +349,19 @@ async function reconcileHabitLogs(userId: string, logs: HabitLog[]) {
  * 1回の書き込みぶんを Supabase へ反映する。
  * write() から渡ってくる value は「そのキーの localStorage の中身そのもの」。
  */
-export async function pushKey(key: string, value: unknown): Promise<void> {
+export async function pushKey(
+  key: string,
+  value: unknown,
+  /**
+   * この値を誰のものとして送るか。まとめて送る処理（backfillAll）が渡す。
+   * 途中でアカウントが切り替わったら、残りを新しいユーザーの名前で送らない
+   * （セキュリティレビュー指摘7）。
+   */
+  expectedUserId?: string,
+): Promise<void> {
   const userId = currentUserId;
   if (!userId) return; // ログインしていなければ何もしない
+  if (expectedUserId !== undefined && expectedUserId !== userId) return;
 
   const seenBefore = failureSeq;
   try {
@@ -554,7 +565,8 @@ export async function backfillAll(): Promise<{
   pushed: string[];
   failed: string[];
 }> {
-  if (!currentUserId) return { ok: false, pushed: [], failed: [] };
+  const userId = currentUserId;
+  if (!userId) return { ok: false, pushed: [], failed: [] };
   const snap = captureState();
   const pushed: string[] = [];
   const failed: string[] = [];
@@ -565,6 +577,8 @@ export async function backfillAll(): Promise<{
   const keys = [...order.filter((k) => k in snap), ...Object.keys(snap).filter((k) => !order.includes(k as (typeof order)[number]))];
 
   for (const key of keys) {
+    // 取り出したのは開始時のユーザーの状態。切り替わったら残りは送らない
+    if (currentUserId !== userId) return { ok: false, pushed, failed };
     const raw = snap[key];
     if (raw === undefined) continue;
     /*
@@ -575,7 +589,7 @@ export async function backfillAll(): Promise<{
      */
     const before = failureSeq;
     try {
-      await pushKey(key, JSON.parse(raw));
+      await pushKey(key, JSON.parse(raw), userId);
       if (failureSeq === before) pushed.push(key);
       else failed.push(key);
     } catch (err) {
@@ -629,6 +643,12 @@ export async function pullAll(): Promise<boolean> {
     for (const r of [big, profile, cards, habits, logs, boxes, sessions, checkpoints]) {
       if (r.error) throw r.error;
     }
+    /*
+     * 待っている間にログアウト・アカウント切り替えが起きていたら書き戻さない
+     * （セキュリティレビュー指摘7）。呼び出し側の比較は復元の後なので遅く、
+     * ログアウトした画面に前のユーザーのデータが戻っていた。
+     */
+    if (currentUserId !== userId) return false;
 
     // 未完了のうち一番新しいものを「進行中」とみなす。それ以外は archive
     const sessionRows = (sessions.data ?? []) as Record<string, unknown>[];
@@ -745,8 +765,11 @@ async function cloudHasContent(userId: string): Promise<boolean> {
 async function resolveInitialSync(userId: string): Promise<void> {
   setState({ kind: "checking" });
   try {
+    const syncedUser = readDeviceFlag(DEVICE_KEY.syncedUser);
     const inputs = {
-      alreadySynced: readDeviceFlag(DEVICE_KEY.syncedUser) === userId,
+      alreadySynced: syncedUser === userId,
+      // この端末のデータが別のアカウントのものとして同期されていた
+      localOwnedByOtherUser: Boolean(syncedUser) && syncedUser !== userId,
       localHasContent: hasUserContent(captureState()),
       cloudHasContent: await cloudHasContent(userId),
     };
@@ -802,7 +825,10 @@ async function resolveInitialSync(userId: string): Promise<void> {
 
       case "conflict":
         // 本人が選ぶまで push は繋がない（勝手に片方を消さない）
-        setState({ kind: "conflict" });
+        setState({
+          kind: "conflict",
+          otherUser: inputs.localHasContent && inputs.localOwnedByOtherUser,
+        });
         return;
     }
   } catch (err) {
@@ -825,6 +851,7 @@ export async function resolveConflict(direction: "pull" | "push"): Promise<boole
   if (direction === "pull") {
     setState({ kind: "pulling" });
     const ok = await pullAll();
+    if (currentUserId !== userId) return false;
     if (!ok) {
       setState({ kind: "failed", message: "取り込みに失敗しました" });
       return false;

@@ -519,6 +519,77 @@ t("importStateJson は形が違えば何も書かない", () => {
   assert.equal(S.loadCards()[0].id, "keep", "失敗したのにデータが変わっている");
 });
 
+// ---- セキュリティレビュー（2026-09-14）指摘8・9 ----
+
+t("【指摘9】このアプリのキーを含まない JSON では、既存データを消さない", () => {
+  reset({ "gc.cards": JSON.stringify([card("keep")]) });
+  S.loadCards();
+  assert.equal(S.importStateJson('{"unrelated":"not-an-app-backup"}'), false);
+  assert.equal(S.loadCards()[0]?.id, "keep", "無関係な JSON でデータが消えた");
+});
+
+t("【指摘9】中身が JSON として読めない値があれば、消す前に弾く", () => {
+  reset({ "gc.cards": JSON.stringify([card("keep")]) });
+  S.loadCards();
+  assert.equal(S.restoreState({ "gc.cards": "{壊れている" }), false);
+  assert.equal(S.loadCards()[0]?.id, "keep");
+});
+
+t("【指摘9】異常な版番号（-1e20・未来の版・小数）は受け付けず、移行が止まらなくならない", () => {
+  for (const v of ["-1e20", "1e20", "2.5", `${S.SCHEMA_VERSION + 1}`, '"3"']) {
+    reset({ "gc.cards": JSON.stringify([card("keep")]) });
+    S.loadCards();
+    assert.equal(S.importStateJson(JSON.stringify({ "gc.schemaVersion": v })), false, `版 ${v} を受け付けた`);
+    assert.equal(S.loadCards()[0]?.id, "keep");
+  }
+});
+
+t("【指摘9】保存済みの版番号が壊れていても、移行は有限回で終わる", () => {
+  reset({ "gc.schemaVersion": "-1e20", "gc.cards": JSON.stringify([card("a")]) });
+  S.__resetMigrationFlagForTest();
+  S.loadCards(); // ここで無限ループになると、テスト全体が終わらない
+  assert.equal(parsed("gc.schemaVersion"), S.SCHEMA_VERSION);
+});
+
+t("【指摘8】同期中の復元は、削除(null)ではなく復元した値を同期へ伝える", () => {
+  const profile = { lifePatterns: ["朝型"], pastFailures: [], valuesAccumulated: [] };
+  reset({ "gc.profile": JSON.stringify(profile) });
+  S.loadCards();
+  const snap = S.captureState();
+  const seen = [];
+  S.setSyncHook((key, value) => seen.push([key, value]));
+  try {
+    assert.equal(S.restoreState(snap), true);
+  } finally {
+    S.setSyncHook(null);
+  }
+  const forProfile = seen.filter(([k]) => k === "gc.profile");
+  assert.equal(forProfile.some(([, v]) => v === null), false, "削除の通知が流れた");
+  assert.deepEqual(forProfile.map(([, v]) => v), [profile], "復元した値が伝わっていない");
+});
+
+t("【指摘8】書き戻しに失敗した復元は、元のデータへ戻し、同期にも何も流さない", () => {
+  reset({ "gc.cards": JSON.stringify([card("keep")]) });
+  S.loadCards();
+  const seen = [];
+  S.setSyncHook((key, value) => seen.push([key, value]));
+  const realSet = store.setItem.bind(store);
+  let calls = 0;
+  // 1件目の書き戻しだけ失敗させる（戻す処理は成功させる）
+  store.setItem = (k, v) => {
+    if (calls++ === 0) throw new DOMException("quota exceeded", "QuotaExceededError");
+    realSet(k, v);
+  };
+  try {
+    assert.equal(S.restoreState({ "gc.cards": JSON.stringify([card("new")]) }), false);
+  } finally {
+    store.setItem = realSet;
+    S.setSyncHook(null);
+  }
+  assert.equal(S.loadCards()[0]?.id, "keep", "失敗したのに元のデータが消えた");
+  assert.equal(seen.length, 0, "失敗した復元が同期へ流れた");
+});
+
 t("resetAll はレガシーキーも含めて全部消す", () => {
   reset({
     "gc.card": "{}",

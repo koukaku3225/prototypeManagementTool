@@ -2,6 +2,12 @@ import { mkdir, readdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { LocalBackupSchema } from "@/lib/api-schema";
 import { hasUserContent } from "@/lib/storage-keys";
+import {
+  isCrossSiteRequest,
+  isJsonContentType,
+  isLoopbackHost,
+  readBodyLimited,
+} from "@/lib/request-guard";
 
 /**
  * ローカルディスクへのバックアップ。
@@ -32,25 +38,59 @@ async function ensureDir() {
   await mkdir(DIR, { recursive: true });
 }
 
+/**
+ * このPCのブラウザからの呼び出しだけを通す。通さないなら返す Response。
+ *
+ * 以前は認証も出どころの確認も無く、サーバーに届く人なら誰でも
+ * 対話全文を含むバックアップを読み書きできた（セキュリティレビュー指摘1）。
+ * 「送る側（LocalBackupBoot）が localhost でしか動かない」ことは、
+ * API を直接叩かれることを何も防いでいなかった。
+ *
+ * - 本番（production / Vercel）では存在しないことにする（404）
+ * - Host がこのPC自身でなければ 404
+ * - 別サイトのページからの送信は 403
+ * - 専用ヘッダを必須にする。別オリジンの fetch はプリフライトが必要になり、
+ *   CORS を許可していないので、Sec-Fetch-Site を送らない古いブラウザでも止まる
+ *
+ * Host ヘッダは書き換えられるので、これだけでは LAN 内からの直接アクセスを
+ * 防げない。そのため `npm run dev` は 127.0.0.1 にだけ待ち受ける（package.json）。
+ */
+// ルートファイルから export すると Next.js の export 検査に引っかかるので、
+// 送る側（LocalBackupBoot）には同じ文字列を直接書いている
+const LOCAL_BACKUP_HEADER = "x-gc-local-backup";
+
+function guard(req: Request): Response | null {
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
+    return new Response(null, { status: 404 });
+  }
+  if (!isLoopbackHost(req.headers.get("host"))) {
+    return new Response(null, { status: 404 });
+  }
+  if (isCrossSiteRequest(req) || req.headers.get(LOCAL_BACKUP_HEADER) !== "1") {
+    return Response.json({ error: "forbidden" }, { status: 403 });
+  }
+  return null;
+}
+
 export async function POST(req: Request) {
-  const ct = req.headers.get("content-type") ?? "";
-  if (!ct.includes("application/json")) {
+  const denied = guard(req);
+  if (denied) return denied;
+
+  if (!isJsonContentType(req.headers.get("content-type"))) {
     return Response.json({ error: "unsupported_media_type" }, { status: 415 });
   }
 
-  let raw: string;
-  try {
-    raw = await req.text();
-  } catch {
-    return Response.json({ error: "bad_request" }, { status: 400 });
-  }
-  if (raw.length > MAX_BODY_BYTES) {
-    return Response.json({ error: "too_large" }, { status: 413 });
+  const body = await readBodyLimited(req, MAX_BODY_BYTES);
+  if (!body.ok) {
+    return Response.json(
+      { error: body.status === 413 ? "too_large" : "bad_request" },
+      { status: body.status },
+    );
   }
 
   let json: unknown;
   try {
-    json = JSON.parse(raw);
+    json = JSON.parse(body.text);
   } catch {
     return Response.json({ error: "bad_request" }, { status: 400 });
   }
@@ -100,7 +140,9 @@ export async function POST(req: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = guard(req);
+  if (denied) return denied;
   try {
     const raw = await readFile(LATEST, "utf-8");
     return Response.json({ ok: true, data: JSON.parse(raw) });

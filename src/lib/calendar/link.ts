@@ -68,16 +68,27 @@ export async function loadLink(): Promise<CalendarLink | null> {
   };
 }
 
+/** いまログインしている利用者のID。未ログインなら null */
+export async function currentUserId(): Promise<string | null> {
+  const supabase = await supabaseServer();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user?.id ?? null;
+}
+
 /** 連携を作る／作り直す */
 export async function saveLink(v: {
   refreshToken: string;
   calendarId: string;
+  /** 連携を始めた利用者。保存する瞬間の利用者と違えば保存しない */
+  expectedUserId: string;
 }): Promise<boolean> {
   const supabase = await supabaseServer();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return false;
+  if (!user || user.id !== v.expectedUserId) return false;
 
   const { error } = await supabase.from("google_calendar_links").upsert({
     user_id: user.id,
