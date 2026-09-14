@@ -9,6 +9,12 @@ import { PhaseProgress } from "@/components/PhaseProgress";
 import { ThinkingTimer } from "@/components/ThinkingTimer";
 import { TipsBar } from "@/components/TipsBar";
 import { useConversation } from "@/hooks/useConversation";
+import {
+  REPHRASE_USER_TEXT,
+  canRephrase,
+  canSkipPhase,
+  skipTarget,
+} from "@/lib/conversation-controls";
 import { COACHES } from "@/lib/prompts/coaches";
 import { PHASE_META } from "@/lib/prompts/phases";
 import { loadBigStory, loadSession } from "@/lib/storage";
@@ -85,6 +91,11 @@ function Conversation({ initial }: { initial: Session }) {
   }, [status, router, session.mode]);
 
   const locked = lockUntil !== null && Date.now() < lockUntil;
+  const controlView = {
+    pendingPhase: conv.pendingPhase,
+    completedAt: session.completedAt,
+    messages: session.messages,
+  };
 
   // 理想を考える時間。big の最初の問いかけが終わり、まだ何も答えていない間だけ出す
   const firstCoachMsg = session.messages.find((m) => m.role === "assistant");
@@ -191,6 +202,16 @@ function Conversation({ initial }: { initial: Session }) {
           />
         )}
 
+        {!showThinking && (
+          <ConversationControls
+            canRephrase={!locked && canRephrase({ ...controlView, status })}
+            canSkip={canSkipPhase({ ...controlView, status })}
+            finishing={skipTarget(session.mode, session.currentPhase) === "done"}
+            onRephrase={() => void conv.send(REPHRASE_USER_TEXT, undefined, { rephrase: true })}
+            onSkip={conv.skipPhase}
+          />
+        )}
+
         <Composer
           disabled={status === "streaming" || status === "done" || showThinking}
           locked={locked}
@@ -240,6 +261,87 @@ function StepAdvance({
           ? "これで完了する →"
           : `次へ：${stepNo}/${order.length} ${PHASE_META[pending].label} →`}
       </button>
+    </div>
+  );
+}
+
+/**
+ * 対話の流れに割り込む2つの操作（R10、2026-09-14）。
+ *
+ * - 別の質問にする … 「なぜ？」を重ねて「したいから！」に行き着いたような、
+ *   答えようのない・くどい質問を、答えずに切り替えてもらう
+ * - 切り上げて次へ … 上限まで話さずにステップを終える。決まっていないことが
+ *   残ると目標カードが空欄になるので非推奨。押し間違えないよう確認を挟む
+ *
+ * どちらも主操作（返事を書く）の邪魔をしないよう、文字だけの控えめなボタンにする。
+ */
+function ConversationControls({
+  canRephrase,
+  canSkip,
+  finishing,
+  onRephrase,
+  onSkip,
+}: {
+  canRephrase: boolean;
+  canSkip: boolean;
+  /** 最後のステップ。切り上げると対話そのものが終わる */
+  finishing: boolean;
+  onRephrase: () => void;
+  onSkip: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  if (!canRephrase && !canSkip) return null;
+
+  if (confirming && canSkip) {
+    return (
+      <div className="rounded-lg border border-line bg-surface px-3.5 py-2.5">
+        <p className="text-[12px] leading-relaxed text-muted">
+          おすすめしません。まだ決まっていないことがあると、
+          {finishing ? "目標カードの一部が空欄のまま作られます。" : "次のステップや目標カードで空欄になります。"}
+        </p>
+        <div className="mt-2 flex gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setConfirming(false);
+              onSkip();
+            }}
+            className="rounded-lg border border-line px-3 py-1.5 text-[12px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            {finishing ? "ここで対話を終える" : "切り上げて次へ進む"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirming(false)}
+            className="rounded-lg bg-indigo px-3 py-1.5 text-[12px] text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            話を続ける
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-4 px-0.5">
+      {canRephrase && (
+        <button
+          type="button"
+          onClick={onRephrase}
+          className="text-[12px] text-muted underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          別の質問にする
+        </button>
+      )}
+      {canSkip && (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="ml-auto text-[11.5px] text-muted/80 underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          {finishing ? "ここで終える（非推奨）" : "切り上げて次へ（非推奨）"}
+        </button>
+      )}
     </div>
   );
 }

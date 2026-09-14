@@ -6,6 +6,7 @@ import {
   CLOSING_INSTRUCTION,
   COMMITMENT_INSTRUCTION,
   PHASE_INSTRUCTIONS,
+  REPHRASE_INSTRUCTION,
 } from "@/lib/prompts/phases";
 import {
   PHASE_TURN_LIMIT,
@@ -62,6 +63,8 @@ export interface ChatRequest {
   bigStory: BigStory | null;
   /** variant.commitmentStep。最終フェーズの締め方を切り替える（smallモードのみ） */
   commitmentStep: boolean;
+  /** ユーザーが「別の質問にする」を押した。直前と違う角度から聞き直させる */
+  rephrase?: boolean;
 }
 
 /**
@@ -170,7 +173,7 @@ export function instructionsFor(mode: StoryMode, phase: AnyPhaseId): string {
  *
  * 以前は turnsInPhase >= 3 の固定値だった。woop_wbs は障害→状況→If-Then→
  * タスク選び→いつ・どこで、の5手あり（phases.ts参照）、上限
- * PHASE_TURN_LIMIT.woop_wbs はそれを踏まえて7まで上げてある。
+ * PHASE_TURN_LIMIT.woop_wbs はそれを踏まえて10まで上げてある（R10）。
  * それなのに締めの指示（COMMITMENT_INSTRUCTION/CLOSING_INSTRUCTION）は
  * どちらも文面が「明日のタスクが決まった」と決めつけたうえで
  * 出力の最後に <<<PHASE:done>>> を付けさせる。3ターン目からこれが
@@ -230,6 +233,8 @@ export function buildSystem(body: ChatRequest): Anthropic.TextBlockParam[] {
           },
         ]
       : []),
+    // ボタンを押したときだけ現れる。境界の外、いちばん後ろに置く
+    ...(body.rephrase ? [{ type: "text" as const, text: REPHRASE_INSTRUCTION }] : []),
   ];
 }
 

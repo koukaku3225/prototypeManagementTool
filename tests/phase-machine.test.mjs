@@ -1,5 +1,5 @@
 import { PhaseTokenFilter, resolvePhase, nextPhase, invalidateFrom } from '../src/lib/phase-machine.ts';
-import { FLOW } from '../src/types/goal.ts';
+import { FLOW, PHASE_TURN_LIMIT } from '../src/types/goal.ts';
 let pass=0, fail=0;
 const eq=(a,b,m)=>{const ok=JSON.stringify(a)===JSON.stringify(b); ok?pass++:(fail++,console.log('FAIL',m,'got',JSON.stringify(a),'want',JSON.stringify(b)));};
 
@@ -112,6 +112,14 @@ eq(afterInvalidate.phaseStatus.woop_wbs, 'stale', 'woop_wbsもstaleになる');
 eq(afterInvalidate.phaseTurnCounts.smart, 0, '後続ステップのターン数は0にリセットされる');
 eq(afterInvalidate.messages[1].invalidated, true, '対象ステップ以降のメッセージはinvalidatedになる');
 eq(afterInvalidate.messages.length, 2, 'メッセージは削除されず残る');
+
+// --- R10（2026-09-14）: woop_wbs は問い直しを入れても「いつ・どこで」まで届く上限にする ---
+// 障害→状況→If-Then→タスク選び→いつ・どこで の5手＋口火1＋問い直しの余裕。
+// 7 だと問い直し1回で「どこで」を聞く前に打ち切られていた。
+eq(PHASE_TURN_LIMIT.woop_wbs, 10, 'woop_wbs の上限は10');
+eq(resolvePhase({mode:'small',current:'woop_wbs',claimed:'woop_wbs',turnsInPhase:9}),{phase:'woop_wbs',forced:false},'woop_wbs は9ターン目ではまだ打ち切らない');
+eq(resolvePhase({mode:'small',current:'woop_wbs',claimed:'woop_wbs',turnsInPhase:10}),{phase:'done',forced:true},'woop_wbs は上限10で完了へ');
+eq(FLOW.small.reduce((n,p)=>n+PHASE_TURN_LIMIT[p],0), 19, 'small 全体の最大は19ターン');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);

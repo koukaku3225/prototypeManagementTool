@@ -123,6 +123,8 @@ export const ChatRequestSchema = z
     profile: ProfileSchema.nullable(),
     bigStory: BigStorySchema.nullable(),
     commitmentStep: z.boolean(),
+    /** 「別の質問にする」を押したか。省略は false（古いクライアント互換） */
+    rephrase: z.boolean().optional(),
   })
   // phase はモードごとに取りうる値が違う。big の対話に small のフェーズを
   // 混ぜられると、噛み合わないプロンプトが組み上がる

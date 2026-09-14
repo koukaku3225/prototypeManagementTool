@@ -5,8 +5,12 @@ import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { Heatmap } from "@/components/Heatmap";
 import { useSupabaseUser } from "@/hooks/useSupabaseUser";
+import { today } from "@/lib/date";
+import { download } from "@/lib/export";
 import {
   activeHabits,
+  captureState,
+  hasUserContent,
   loadArchive,
   loadCardById,
   loadHabitLogs,
@@ -38,6 +42,8 @@ export default function MePage() {
   >([]);
   const [sessions, setSessions] = useState(0);
   const [ready, setReady] = useState(false);
+  const [hasContent, setHasContent] = useState(false);
+  const [exported, setExported] = useState(false);
   const { userId, email, loading: authLoading } = useSupabaseUser();
 
   useEffect(() => {
@@ -54,6 +60,7 @@ export default function MePage() {
       })),
     );
     setSessions(loadArchive().length);
+    setHasContent(hasUserContent(captureState()));
     setReady(true);
   }, []);
 
@@ -94,6 +101,42 @@ export default function MePage() {
               →
             </span>
           </Link>
+        )}
+        {/*
+          未ログインの間、データはこのブラウザの localStorage にしか無い。
+          デプロイ環境ではディスクへの自動バックアップ（LocalBackupBoot）も効かず、
+          安全網はゼロ。localStorage が丸ごと消えた実例もある（AGENTS.md）。
+          書き出しは設定画面の下にしか無く、4手先だったので、ここから1手で出せるようにする（R11）。
+          まだ何も作っていない人には、守るものが無いので出さない。
+        */}
+        {!authLoading && !userId && hasContent && (
+          <div className="-mt-2 mb-5 rounded-xl border border-line bg-surface px-4 py-3">
+            <p className="text-[12px] leading-relaxed text-muted">
+              データはこの端末のブラウザにしか残っていません。ブラウザのデータを消すと戻せないので、
+              ときどき書き出して保管してください。
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  download(
+                    `goal-coach-state-${today()}.json`,
+                    JSON.stringify(captureState(), null, 2),
+                    "application/json",
+                  );
+                  setExported(true);
+                }}
+                className="shrink-0 whitespace-nowrap rounded-lg border border-line bg-paper px-3 py-1.5 text-[12.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                いま書き出す
+              </button>
+              {exported && (
+                <span role="status" className="text-[11.5px] text-muted">
+                  書き出しました。ダウンロードフォルダを確認してください
+                </span>
+              )}
+            </div>
+          </div>
         )}
         {!authLoading && userId && (
           <p className="mb-5 text-[11.5px] text-muted">{email} でログイン中</p>

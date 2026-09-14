@@ -6,6 +6,7 @@ import {
   toCachedMessages,
   type ChatRequest,
 } from "@/lib/chat-prompt";
+import { turnsAfterReply } from "@/lib/conversation-controls";
 import { PhaseTokenFilter, resolvePhase } from "@/lib/phase-machine";
 import { requireAuthIfEnabled } from "@/lib/require-auth";
 import { checkRateLimit, getCallerId } from "@/lib/rate-limit";
@@ -101,7 +102,8 @@ export async function POST(req: Request) {
           mode: body.mode,
           current: body.phase,
           claimed: filter.phase,
-          turnsInPhase: body.turnsInPhase + 1,
+          // 「別の質問にする」の応答はターンに数えない（conversation-controls.ts）
+          turnsInPhase: turnsAfterReply(body.turnsInPhase, body.rephrase === true),
         });
 
         const final = await stream.finalMessage();

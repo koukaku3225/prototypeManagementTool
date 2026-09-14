@@ -9,6 +9,7 @@ import {
   type Session,
   type TokenUsage,
 } from "@/types/goal";
+import { canSkipPhase, skipTarget } from "@/lib/conversation-controls";
 import { loadBigStory, loadProfile, saveSession } from "@/lib/storage";
 
 export const LOCK_MS = 60_000;
@@ -47,19 +48,27 @@ export function useConversation(initial: Session) {
 
   const abortRef = useRef<AbortController | null>(null);
   /** 直前に送って失敗したユーザー発言。再送に使う */
-  const pendingRef = useRef<{ text: string; draft?: DraftEvents } | null>(null);
+  const pendingRef = useRef<{ text: string; draft?: DraftEvents; rephrase: boolean } | null>(
+    null,
+  );
 
   useEffect(() => {
     saveSession(state.session);
   }, [state.session]);
 
   const send = useCallback(
-    async (userText: string | null, draft?: DraftEvents) => {
+    async (
+      userText: string | null,
+      draft?: DraftEvents,
+      /** 「別の質問にする」ボタン。この応答はターンに数えない */
+      opts?: { rephrase?: boolean },
+    ) => {
       abortRef.current?.abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
+      const rephrase = opts?.rephrase === true;
 
-      if (userText !== null) pendingRef.current = { text: userText, draft };
+      if (userText !== null) pendingRef.current = { text: userText, draft, rephrase };
 
       let working: Session = state.session;
 
@@ -97,6 +106,7 @@ export function useConversation(initial: Session) {
             profile: loadProfile(),
             bigStory: working.mode === "small" ? loadBigStory() : null,
             commitmentStep: working.variant.commitmentStep,
+            rephrase,
           }),
         });
 
@@ -115,7 +125,7 @@ export function useConversation(initial: Session) {
           },
           onDone: ({ phase, forced, usage }) => {
             pendingRef.current = null;
-            setState((s) => finalize(s, working, phase, forced, usage));
+            setState((s) => finalize(s, working, phase, forced, usage, !rephrase));
           },
         });
       } catch (err) {
@@ -144,6 +154,41 @@ export function useConversation(initial: Session) {
         lockUntil: null,
         status: finished ? "done" : "idle",
         // 新しいステップの問いは、ユーザーに書かせるのではなくコーチから切り出す
+        autoSend: !finished,
+      };
+    });
+  }, []);
+
+  /**
+   * 上限まで話さずにステップを切り上げる（非推奨の逃げ道。R10）。
+   * 最後のステップなら完了させ、整理へ進む。
+   * 応答の途中は中途半端な発言が残るので受け付けない（canSkipPhase）。
+   */
+  const skipPhase = useCallback(() => {
+    abortRef.current?.abort();
+    pendingRef.current = null;
+    setState((s) => {
+      if (
+        !canSkipPhase({
+          status: s.status,
+          pendingPhase: s.pendingPhase,
+          completedAt: s.session.completedAt,
+          messages: s.session.messages,
+        })
+      ) {
+        return s;
+      }
+      const target = skipTarget(s.session.mode, s.session.currentPhase);
+      const finished = target === "done";
+      return {
+        ...s,
+        session: applyPhase(s.session, target, new Date().toISOString()),
+        streamingText: "",
+        error: null,
+        pendingPhase: null,
+        pendingForced: false,
+        lockUntil: null,
+        status: finished ? "done" : "idle",
         autoSend: !finished,
       };
     });
@@ -185,7 +230,7 @@ export function useConversation(initial: Session) {
         messages: state.session.messages.slice(0, -1),
       };
       setState((s) => ({ ...s, session: rolledBack }));
-      void send(p.text, p.draft);
+      void send(p.text, p.draft, { rephrase: p.rephrase });
     } else {
       // 自動送信の失敗。削るべきユーザー発言は無いので、そのまま同じ形で送り直す
       void send(null);
@@ -197,6 +242,7 @@ export function useConversation(initial: Session) {
     send,
     retry,
     advance,
+    skipPhase,
     markThinkingDone,
     isLocked: state.lockUntil !== null && Date.now() < state.lockUntil,
   };
@@ -215,6 +261,8 @@ function finalize(
   phase: AnyPhaseId | "done",
   forced: boolean,
   usage?: TokenUsage,
+  /** false なら、このステップのターン数を増やさない（「別の質問にする」の応答） */
+  countTurn = true,
 ): State {
   const text = s.streamingText;
   const prevPhase = working.currentPhase;
@@ -234,7 +282,7 @@ function finalize(
     messages: [...working.messages, assistantMsg],
     phaseTurnCounts: {
       ...working.phaseTurnCounts,
-      [prevPhase]: (working.phaseTurnCounts[prevPhase] ?? 0) + 1,
+      [prevPhase]: (working.phaseTurnCounts[prevPhase] ?? 0) + (countTurn ? 1 : 0),
     },
     // M8: 消えたら後から復元できないので、セッションと同じ場所に貯める
     ...(usage ? { usage: [...(working.usage ?? []), usage] } : {}),
