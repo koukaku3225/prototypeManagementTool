@@ -35,7 +35,7 @@ export const WARMUP_DAYS = 14;
  *   - 深夜〜朝に作った習慣が「はじめて1日目」から始まる（作った瞬間に1日目）
  *   - 同じ習慣でも、作った時刻しだいで作成日そのものが
  *     ストリークと達成率の対象に入ったり入らなかったりする
- *     （「作成日そのものも数えない」という下の意図と食い違う）
+ *     （作成日の扱いは下の computeStreak / computeRate を参照）
  *
  * AGENTS.md の「日付は date.ts のヘルパーを通す」はここにも掛かる。
  * 瞬間（UTC）を、この端末の暦の日に直してから比べる。
@@ -86,10 +86,19 @@ export function computeStreak(
   // 今日はまだやっていないだけかもしれないので、今日の未記録は途切れにしない
   for (let i = 0; i < 400; i++) {
     const date = addDays(-i, new Date(`${today}T00:00:00`));
-    // 作る前まで遡らない。作成日そのものも数えない（その日はもう終わりかけ）
-    if (date <= start) break;
+    // 作る前まで遡らない
+    if (date < start) break;
     if (!isScheduled(habit, date)) continue;
     const log = findLog(logs, habit.id, date);
+    /*
+     * 作成日は「やった記録があるときだけ」数える（R2' 案C）。
+     * 朝に作ってその日にやった人に手応えを返す一方、夜に作ってやらなかった日を
+     * 途切れや保険の消費にはしない。どちらにしても作成日より前は無いので止める。
+     */
+    if (date === start) {
+      if (log && kept(log.state)) streak++;
+      break;
+    }
 
     if (log && kept(log.state)) {
       streak++;
@@ -125,12 +134,21 @@ export function computeRate(
     const date = addDays(-i, base);
     /*
      * 始める前は数えない。作った瞬間に過去が全部 missed になるのを防ぐ。
-     * 作成日そのものも外す。夜に作った習慣を、その日のうちに
-     * 「できなかった」と数えるのは筋が通らない。
      */
-    if (date <= start) break;
+    if (date < start) break;
     if (!isScheduled(habit, date)) continue;
     const log = findLog(logs, habit.id, date);
+    /*
+     * 作成日は done / partial の記録があるときだけ分母・分子に入れる（R2' 案C）。
+     * 夜に作った習慣を、その日のうちに「できなかった」と数えるのは筋が通らない。
+     */
+    if (date === start) {
+      if (log && kept(log.state)) {
+        scheduled++;
+        achieved++;
+      }
+      break;
+    }
     if (log?.state === "skipped") continue;
     // 今日ぶんはまだ結果が出ていないので分母に入れない
     if (i === 0 && !log) continue;

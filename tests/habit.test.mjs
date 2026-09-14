@@ -305,12 +305,81 @@ t("作って翌日から1日目", () => {
   assert.equal(daysSinceStart(h, TODAY), 1);
 });
 
-t("【回帰】早朝に作った習慣の作成日を、ストリークに数え込まない", () => {
-  // 作成日そのものは数えない、というのが computeStreak の意図。
-  // 切り出しのままだと start が前日になり、作成日が数えられてしまう
+t("【回帰】早朝に作った習慣でも、作成日の前日をストリークに数え込まない", () => {
+  // 切り出しのままだと start が前日になり、作る前の日まで数えられてしまう
   const h = habit({ createdAt: "2026-08-26T22:00:00.000Z" }); // 8/27 07:00 JST
-  const logs = [{ habitId: h.id, date: TODAY, state: "done", at: "", note: null, mood: null }];
-  assert.equal(computeStreak(h, logs, TODAY).streak, 0);
+  const logs = [log(0, "done"), log(1, "done")];
+  assert.equal(computeStreak(h, logs, TODAY).streak, 1, "作る前の日まで数えている");
+});
+
+// ------------------------------------ 作成日の「できた」（R2' 案C、2026-09-14）
+//
+// 作成日は「done / partial の記録があるときだけ」数える。
+// 記録が無い・skipped・missed なら、分母にも入れず途切れにもしない
+// （夜に作ってその日やらなかった習慣を、いきなり達成率0%にしない）。
+
+t("作った当日に「できた」を押せば、連続1日になる", () => {
+  const h = habit({ createdAt: `${TODAY}T01:00:00.000Z` });
+  assert.equal(computeStreak(h, [log(0, "done")], TODAY).streak, 1);
+});
+
+t("作った当日の最小版（partial）も数える", () => {
+  const h = habit({ createdAt: `${TODAY}T01:00:00.000Z` });
+  assert.equal(computeStreak(h, [log(0, "partial")], TODAY).streak, 1);
+});
+
+t("作成日の done と翌日以降の done がつながる", () => {
+  const h = habit({ createdAt: `${ago(2)}T01:00:00.000Z` });
+  const r = computeStreak(h, [log(0, "done"), log(1, "done"), log(2, "done")], TODAY);
+  assert.equal(r.streak, 3);
+  assert.equal(r.freezeUsed, false);
+});
+
+t("作成日に記録が無ければ、途切れにも数えず保険も使わない", () => {
+  const h = habit({ createdAt: `${ago(2)}T01:00:00.000Z` });
+  const r = computeStreak(h, [log(0, "done"), log(1, "done")], TODAY);
+  assert.equal(r.streak, 2);
+  assert.equal(r.freezeUsed, false, "作成日の未記録で保険が消費されている");
+});
+
+t("作成日の skipped / missed は数えず、保険も使わない", () => {
+  for (const state of ["skipped", "missed"]) {
+    const h = habit({ createdAt: `${ago(1)}T01:00:00.000Z` });
+    const r = computeStreak(h, [log(0, "done"), log(1, state)], TODAY);
+    assert.equal(r.streak, 1, `${state}`);
+    assert.equal(r.freezeUsed, false, `${state} で保険が消費されている`);
+  }
+});
+
+t("作成日が予定日でなければ、done があっても数えない（ほかの日と同じ）", () => {
+  // 木曜だけの習慣を水曜（ago(1)）に作り、その日に押した
+  const h = habit({ schedule: { kind: "weekdays", days: [4] }, createdAt: `${ago(1)}T01:00:00.000Z` });
+  assert.equal(computeStreak(h, [log(1, "done")], TODAY).streak, 0);
+  assert.equal(computeRate(h, [log(1, "done")], TODAY).scheduled, 0);
+});
+
+t("作った当日に押せば、達成率の分母と分子に入る", () => {
+  const h = habit({ createdAt: `${TODAY}T01:00:00.000Z` });
+  const r = computeRate(h, [log(0, "done")], TODAY);
+  assert.equal(r.scheduled, 1);
+  assert.equal(r.rate, 1);
+});
+
+t("作成日の done は達成率に入り、未記録の作成日は分母に入らない", () => {
+  const withLog = habit({ createdAt: `${ago(2)}T01:00:00.000Z` });
+  const a = computeRate(withLog, [log(1, "done"), log(2, "done")], TODAY);
+  assert.equal(a.scheduled, 2);
+  assert.equal(a.rate, 1);
+  const b = computeRate(withLog, [log(1, "done")], TODAY);
+  assert.equal(b.scheduled, 1, "未記録の作成日が分母に入っている");
+  assert.equal(b.rate, 1);
+});
+
+t("作成日の missed は分母に入れない（夜に作った日を0%にしない）", () => {
+  const h = habit({ createdAt: `${ago(1)}T12:00:00.000Z` });
+  const r = computeRate(h, [log(1, "missed")], TODAY);
+  assert.equal(r.scheduled, 0);
+  assert.equal(r.rate, 0);
 });
 
 t("2週間たつまでは warming up のまま", () => {

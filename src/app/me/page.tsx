@@ -181,10 +181,10 @@ function HabitRecord({
         <p className="mt-3 rounded-lg border border-accent-line bg-accent-soft px-3 py-2.5 text-[12.5px] leading-relaxed text-accent">
           {/*
             作った当日は「はじめて0日目」になっていた。日本語として言わない
-            数え方で、しかも当日は仕様上まだ1日も数えていない（下の
-            computeStreak が作成日を対象から外す）ので、
-            「0日目」と言っても中身が無い。当日だけ別の言い方にする。
+            数え方なので、当日だけ別の言い方にする。
             日数の数え方そのもの（作成日を0日目とする）は変えていない。
+            作成日に「できた」を押していれば、下の連続日数には1日として入る
+            （computeStreak は作成日を、やった記録があるときだけ数える）。
           */}
           {days <= 0
             ? "今日つくったばかりです。"
