@@ -16,6 +16,11 @@ export type SyncDirection =
   | "pull"
   /** この端末を正として、クラウドへ送る */
   | "push"
+  /**
+   * クラウドとこの端末を合体（mergeSnapshots）してから、両方をその結果にそろえる。
+   * 突合済みの端末で、両方に中身があるとき。
+   */
+  | "merge"
   /** どちらが正か決められない。本人に選ばせる。この間 push は繋がない */
   | "conflict"
   /** どちらにも中身が無い。そのまま繋いでよい */
@@ -85,9 +90,82 @@ export function decideSyncDirection(i: SyncInputs): SyncDirection {
     return i.localHasContent ? "push" : "ready";
   }
 
-  // 3. ここへ来るのは「両方に中身がある」場合だけ
-  //    突き合わせ済みの端末は、いつもどおり送ってよい
-  return i.alreadySynced ? "push" : "conflict";
+  /*
+   * 3. ここへ来るのは「両方に中身がある」場合だけ。
+   *
+   * 以前は突合済みなら push（この端末を正として全部送る）だった。
+   * ところが送信は「手元に無い行はクラウドから消す」なので、**しばらく開いていなかった
+   * 端末を開いた瞬間に、別の端末で足したものがクラウドから消える**。
+   * 2026-09-14 本番で、古いスマホを開いて PC の目標1件と予定14件が消えた。
+   * 突合済みでも中身が最新とは限らないので、合体してから送る。
+   */
+  return i.alreadySynced ? "merge" : "conflict";
+}
+
+/** 配列で持つキーと、1件を見分けるキー */
+const MERGE_COLLECTIONS: Record<string, (x: Record<string, unknown>) => string> = {
+  [KEY.cards]: (x) => String(x.id),
+  [KEY.habits]: (x) => String(x.id),
+  [KEY.timeboxes]: (x) => String(x.id),
+  [KEY.checkpoints]: (x) => String(x.id),
+  [KEY.archive]: (x) => String(x.id),
+  [KEY.habitLogs]: (x) => `${String(x.habitId)}|${String(x.date)}`,
+};
+
+function parseArray(raw: string | undefined): Record<string, unknown>[] | null {
+  if (raw === undefined) return null;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * この端末（local）とクラウド（cloud）の中身を合体する。どちらも captureState() と同じ形。
+ *
+ * - 配列（目標・習慣・記録・予定・中間目標・対話の履歴）は、片方にしか無いものも両方残す
+ * - 両方にあれば updatedAt が新しいほう。同じ・不明ならこの端末（いま見ている画面と食い違わせない）
+ * - 1件だけのもの（大きな物語・プロフィール・進行中の対話）と端末固有のキーは、
+ *   この端末にあればこの端末、無ければクラウド
+ *
+ * ■ 分かっている限界
+ * 削除の記録（墓標）を持っていないので、**別の端末で消したものが、
+ * それを持っている端末を開いたときに戻ってくる**ことがある。
+ * 消えるより戻るほうが取り返しがつくので、こちらに倒している。
+ */
+export function mergeSnapshots(
+  local: Record<string, string | undefined>,
+  cloud: Record<string, string | undefined>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const keys = new Set([...Object.keys(cloud), ...Object.keys(local)]);
+  for (const k of keys) {
+    const keyOf = MERGE_COLLECTIONS[k];
+    if (!keyOf) {
+      const v = local[k] ?? cloud[k];
+      if (v !== undefined) out[k] = v;
+      continue;
+    }
+    const l = parseArray(local[k]);
+    const c = parseArray(cloud[k]);
+    if (!l && !c) {
+      const v = local[k] ?? cloud[k];
+      if (v !== undefined) out[k] = v;
+      continue;
+    }
+    const byKey = new Map<string, Record<string, unknown>>();
+    for (const x of c ?? []) byKey.set(keyOf(x), x);
+    for (const x of l ?? []) {
+      const other = byKey.get(keyOf(x));
+      const mine = typeof x.updatedAt === "string" ? x.updatedAt : "";
+      const theirs = other && typeof other.updatedAt === "string" ? other.updatedAt : "";
+      if (!other || mine >= theirs) byKey.set(keyOf(x), x);
+    }
+    out[k] = JSON.stringify([...byKey.values()]);
+  }
+  return out;
 }
 
 /**

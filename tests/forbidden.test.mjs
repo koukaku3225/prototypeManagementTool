@@ -109,7 +109,9 @@ for (const file of walk(SRC)) {
   const text = readFileSync(syncFile, "utf8");
   const lines = text.split("\n");
   /** setSyncHook を呼んでよい関数 */
-  const ALLOWED = ["enablePush", "disablePush", "pullAll"];
+  // writeLocalWithoutPush は pullAll の書き戻しを切り出したもの（取り込みと合体で共用）。
+  // 止めて書いて「もともと繋がっていたときだけ」繋ぎ直すので、向きの決まる前に繋ぐことはない
+  const ALLOWED = ["enablePush", "disablePush", "pullAll", "writeLocalWithoutPush"];
   let current = null;
   lines.forEach((line, i) => {
     const trimmed = line.trim();

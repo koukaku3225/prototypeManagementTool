@@ -28,6 +28,7 @@ import {
   decideSyncDirection,
   isForeignKeyViolation,
   mergeCheckpoints,
+  mergeSnapshots,
   sendableCheckpoint,
 } from "./sync-decision";
 import { isValidUuid } from "@/lib/uuid";
@@ -623,9 +624,43 @@ export async function backfillAll(): Promise<{
 export async function pullAll(): Promise<boolean> {
   const userId = currentUserId;
   if (!userId) return false;
-  const supabase = supabaseBrowser();
-
   try {
+    const cloud = await fetchCloudSnapshot(userId);
+    if (!cloud) return false;
+    return writeLocalWithoutPush(cloud.data);
+  } catch (err) {
+    noteFailure("クラウドからの取り込みに失敗しました", err);
+    return false;
+  }
+}
+
+/**
+ * localStorage を丸ごと書き換える。書いている間は同期フックを止める。
+ *
+ * restoreState() は対象キーを一度 remove() するので、フックが繋がっていると
+ * 読み込んでいるだけなのに Supabase 側を消しにいく。待ち行列に残っている
+ * 「書き換え前の値」も、後から押し戻すと意味が消えるので捨てる。
+ */
+function writeLocalWithoutPush(data: Record<string, string>): boolean {
+  setSyncHook(null);
+  pushQueue.cancel();
+  const ok = restoreState(data);
+  // 書き換え前に push が繋がっていたときだけ繋ぎ直す。
+  // まだ向きが決まっていない段階で勝手に繋がないようにする
+  if (pushEnabled) setSyncHook((key, value) => pushQueue.push(key, value));
+  return ok;
+}
+
+/**
+ * クラウドの中身を、captureState() と同じ形（キー → JSON文字列）で取ってくる。
+ * 端末固有のキーと、まだクラウドに上がっていない中間目標は、この端末の値を持ち越してある。
+ * ログアウト・切り替えが挟まったら null。
+ */
+async function fetchCloudSnapshot(
+  userId: string,
+): Promise<{ data: Record<string, string> } | null> {
+  const supabase = supabaseBrowser();
+  {
     const [big, profile, cards, habits, logs, boxes, sessions, checkpoints] = await Promise.all([
       supabase.from("big_stories").select("*").eq("user_id", userId).maybeSingle(),
       supabase.from("user_profiles").select("*").eq("user_id", userId).maybeSingle(),
@@ -648,7 +683,7 @@ export async function pullAll(): Promise<boolean> {
      * （セキュリティレビュー指摘7）。呼び出し側の比較は復元の後なので遅く、
      * ログアウトした画面に前のユーザーのデータが戻っていた。
      */
-    if (currentUserId !== userId) return false;
+    if (currentUserId !== userId) return null;
 
     // 未完了のうち一番新しいものを「進行中」とみなす。それ以外は archive
     const sessionRows = (sessions.data ?? []) as Record<string, unknown>[];
@@ -682,23 +717,28 @@ export async function pullAll(): Promise<boolean> {
     }
     if (currentRow) data[KEY.session] = JSON.stringify(sessionFromRow(currentRow));
     data[KEY.archive] = JSON.stringify(archiveRows.map(sessionFromRow));
-
-    setSyncHook(null);
-    /*
-     * 待ち行列に残っているのは「取り込み前のローカルの値」である。
-     * 取り込みはクラウドを正とみなす操作なので、それを後から
-     * 押し戻すと取り込んだ意味が消える。送らずに捨てる。
-     */
-    pushQueue.cancel();
-    const ok = restoreState(data);
-    // 取り込み前に push が繋がっていたときだけ繋ぎ直す。
-    // まだ向きが決まっていない段階で勝手に繋がないようにする
-    if (pushEnabled) setSyncHook((key, value) => pushQueue.push(key, value));
-    return ok;
-  } catch (err) {
-    noteFailure("クラウドからの取り込みに失敗しました", err);
-    return false;
+    return { data };
   }
+}
+
+/**
+ * 突合済みの端末を開いたとき、クラウドと合体してから送る（2026-09-14）。
+ *
+ * 以前はこの場面で backfillAll（この端末を正として全部送る）をしていた。
+ * 送信は「手元に無い行はクラウドから消す」ので、しばらく開いていなかった端末を
+ * 開くと、別の端末で足したものがクラウドから消えた（本番で実際に起きた）。
+ * 合体した結果をまずこの端末に書き、それを送る。どちらの端末のものも消えない。
+ *
+ * 戻り値は「この端末の中身が変わったか」。変わったら画面を読み直させる。
+ */
+async function mergeWithCloud(userId: string): Promise<{ ok: boolean; changed: boolean }> {
+  const cloud = await fetchCloudSnapshot(userId);
+  if (!cloud || currentUserId !== userId) return { ok: false, changed: false };
+  const local = captureState();
+  const merged = mergeSnapshots(local, cloud.data);
+  const changed = Object.keys(merged).some((k) => merged[k] !== local[k]);
+  if (changed && !writeLocalWithoutPush(merged)) return { ok: false, changed: false };
+  return { ok: true, changed };
 }
 
 /**
@@ -811,6 +851,37 @@ async function resolveInitialSync(userId: string): Promise<void> {
         await backfillAll();
         if (currentUserId !== userId) return;
         setState({ kind: "ready" });
+        return;
+      }
+
+      case "merge": {
+        setState({ kind: "pulling" });
+        let merged: { ok: boolean; changed: boolean };
+        try {
+          merged = await mergeWithCloud(userId);
+        } catch (err) {
+          noteFailure("クラウドと合わせられませんでした", err);
+          merged = { ok: false, changed: false };
+        }
+        if (currentUserId !== userId) return;
+        if (!merged.ok) {
+          // 合わせられないまま送ると、別端末のものを消す。送信は繋がない
+          setState({ kind: "failed", message: "クラウドと合わせられませんでした" });
+          return;
+        }
+        enablePush();
+        writeDeviceFlag(DEVICE_KEY.syncedUser, userId);
+        await ensureCheckpointsMerged(userId);
+        if (currentUserId !== userId) return;
+        // 合体した結果を送る。クラウドにしか無かったものも localStorage に入っているので消えない
+        await backfillAll();
+        if (currentUserId !== userId) return;
+        setState({ kind: "ready" });
+        /*
+         * 画面は合体前の localStorage を読み終えている。増えたものを出すには読み直しが要る。
+         * 読み直した後は合体しても変化が無いので、繰り返しにはならない。
+         */
+        if (merged.changed && typeof location !== "undefined") location.reload();
         return;
       }
 

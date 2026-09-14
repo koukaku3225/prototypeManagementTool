@@ -12,7 +12,11 @@
  * 実行は `npm test`。
  */
 import assert from "node:assert/strict";
-import { decideSyncDirection, isForeignKeyViolation } from "../src/lib/supabase/sync-decision.ts";
+import {
+  decideSyncDirection,
+  isForeignKeyViolation,
+  mergeSnapshots,
+} from "../src/lib/supabase/sync-decision.ts";
 
 let passed = 0;
 let failed = 0;
@@ -39,7 +43,9 @@ const TABLE = [
   [true, false, false, "ready", "突合済みで、両方とも空"],
   [true, false, true, "conflict", "すべて消してやり直した／サイトデータが消えた"],
   [true, true, false, "push", "突合済み。クラウド側が空になった"],
-  [true, true, true, "push", "いつもの状態。ふつうに送る"],
+  // 2026-09-14 本番：古いスマホを開いた瞬間に、PCで足した目標と予定がクラウドから消えた。
+  // 突合済みでも、端末の中身が最新とは限らない。合わせてから送る
+  [true, true, true, "merge", "いつもの状態。クラウドと合わせてから送る（どちらかで上書きしない）"],
 ];
 
 for (const [alreadySynced, localHasContent, cloudHasContent, expected, note] of TABLE) {
@@ -226,6 +232,89 @@ t("送れる中間目標：id・目標ID が uuid、日付が YYYY-MM-DD、種�
   assert.equal(sendableCheckpoint(full(U3, "x", { period: { kind: "week", start: "来週", end: "2026-09-20" } })), false);
   assert.equal(sendableCheckpoint(full(U3, "x", { period: { kind: "day", start: "2026-09-14", end: "2026-09-20" } })), false);
   assert.equal(sendableCheckpoint(full(U3, "x", { status: "paused" })), false);
+});
+
+// ---- 開いたときの合体（merge）。2026-09-14 本番のデータ消失の再発防止 ----
+//
+// 古いスマホを開いた瞬間、その中身がクラウドへ「正」として送られ、
+// PC で足した目標1件と予定14件がクラウドから消えた。
+// クラウドには逆に、PC に無い予定13件（スマホで作ったもの）が残っていた。
+// どちらで上書きしても片方が消えるので、合体してから送る。
+
+const box = (id, updatedAt, over = {}) => ({ id, title: id, updatedAt, ...over });
+const snap = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, JSON.stringify(v)]));
+const parse = (m, k) => JSON.parse(m[k]);
+
+t("片方にしか無い目標・予定・習慣は、両方残す（再現：PCの目標とスマホの予定の両方が残る）", () => {
+  const local = snap({
+    "gc.cards": [box("card-pc", "2026-09-14T00:00:00Z")],
+    "gc.timeboxes": [box("today-pc", "2026-09-14T01:00:00Z")],
+    "gc.habits": [{ id: "h-pc" }],
+  });
+  const cloud = snap({
+    "gc.cards": [box("card-phone", "2026-09-05T00:00:00Z")],
+    "gc.timeboxes": [box("run-phone", "2026-09-13T10:00:00Z")],
+    "gc.habits": [],
+  });
+  const m = mergeSnapshots(local, cloud);
+  assert.deepEqual(parse(m, "gc.cards").map((c) => c.id).sort(), ["card-pc", "card-phone"]);
+  assert.deepEqual(parse(m, "gc.timeboxes").map((c) => c.id).sort(), ["run-phone", "today-pc"]);
+  assert.deepEqual(parse(m, "gc.habits").map((c) => c.id), ["h-pc"]);
+});
+
+t("両方にある予定は、更新が新しいほうを採る。同じか不明ならこの端末", () => {
+  const local = snap({ "gc.timeboxes": [box("a", "2026-09-14T05:00:00Z", { title: "ローカル" }), box("b", "2026-09-14T05:00:00Z", { title: "ローカル" }), box("c", undefined, { title: "ローカル" })] });
+  const cloud = snap({ "gc.timeboxes": [box("a", "2026-09-14T09:00:00Z", { title: "別端末" }), box("b", "2026-09-14T01:00:00Z", { title: "古い" }), box("c", undefined, { title: "クラウド" })] });
+  const byId = Object.fromEntries(parse(mergeSnapshots(local, cloud), "gc.timeboxes").map((b) => [b.id, b.title]));
+  assert.deepEqual(byId, { a: "別端末", b: "ローカル", c: "ローカル" });
+});
+
+t("習慣の記録は（習慣, 日付）で1件にまとめる", () => {
+  const log = (habitId, date, state) => ({ habitId, date, state });
+  const m = mergeSnapshots(
+    snap({ "gc.habitlogs": [log("h", "2026-09-14", "done")] }),
+    snap({ "gc.habitlogs": [log("h", "2026-09-14", "skipped"), log("h", "2026-09-13", "done")] }),
+  );
+  const logs = parse(m, "gc.habitlogs");
+  assert.equal(logs.length, 2);
+  assert.equal(logs.find((l) => l.date === "2026-09-14").state, "done", "この端末の記録を採る");
+});
+
+t("対話の履歴（archive）も id でまとめる", () => {
+  const m = mergeSnapshots(snap({ "gc.sessions": [{ id: "s1" }] }), snap({ "gc.sessions": [{ id: "s2" }, { id: "s1" }] }));
+  assert.deepEqual(parse(m, "gc.sessions").map((s) => s.id).sort(), ["s1", "s2"]);
+});
+
+t("大きな物語・プロフィール・進行中の対話は、この端末にあればこの端末、無ければクラウド", () => {
+  const m = mergeSnapshots(
+    snap({ "gc.bigstory": { id: "local" } }),
+    snap({ "gc.bigstory": { id: "cloud" }, "gc.profile": { name: "cloud" } }),
+  );
+  assert.equal(parse(m, "gc.bigstory").id, "local");
+  assert.equal(parse(m, "gc.profile").name, "cloud");
+});
+
+t("端末固有のキー（版番号・A/B・打刻）はこの端末の値を残す", () => {
+  const m = mergeSnapshots(
+    { "gc.schemaVersion": "5", "gc.variant": '"a"', "gc.running": '{"title":"x"}' },
+    { "gc.cards": "[]" },
+  );
+  assert.equal(m["gc.schemaVersion"], "5");
+  assert.equal(m["gc.variant"], '"a"');
+  assert.equal(m["gc.running"], '{"title":"x"}');
+});
+
+t("【不変条件】合体の結果は、どちらか片方にあった目標・予定を1件も落とさない", () => {
+  const local = snap({ "gc.cards": [box("1"), box("2")], "gc.timeboxes": [box("x"), box("y")] });
+  const cloud = snap({ "gc.cards": [box("2"), box("3")], "gc.timeboxes": [box("y"), box("z")] });
+  const m = mergeSnapshots(local, cloud);
+  assert.equal(parse(m, "gc.cards").length, 3);
+  assert.equal(parse(m, "gc.timeboxes").length, 3);
+});
+
+t("壊れたJSONがあっても落ちず、読めるほうを残す", () => {
+  const m = mergeSnapshots({ "gc.cards": "{壊れた" }, snap({ "gc.cards": [box("c")] }));
+  assert.deepEqual(parse(m, "gc.cards").map((c) => c.id), ["c"]);
 });
 
 console.log(`${passed} passed, ${failed} failed`);
