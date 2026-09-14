@@ -28,7 +28,7 @@ import {
   decideSyncDirection,
   isForeignKeyViolation,
   mergeCheckpoints,
-  mergeSnapshots,
+  mergeWithReport,
   sendableCheckpoint,
 } from "./sync-decision";
 import { isValidUuid } from "@/lib/uuid";
@@ -734,9 +734,7 @@ async function fetchCloudSnapshot(
 async function mergeWithCloud(userId: string): Promise<{ ok: boolean; changed: boolean }> {
   const cloud = await fetchCloudSnapshot(userId);
   if (!cloud || currentUserId !== userId) return { ok: false, changed: false };
-  const local = captureState();
-  const merged = mergeSnapshots(local, cloud.data);
-  const changed = Object.keys(merged).some((k) => merged[k] !== local[k]);
+  const { data: merged, changed } = mergeWithReport(captureState(), cloud.data);
   if (changed && !writeLocalWithoutPush(merged)) return { ok: false, changed: false };
   return { ok: true, changed };
 }
@@ -881,7 +879,19 @@ async function resolveInitialSync(userId: string): Promise<void> {
          * 画面は合体前の localStorage を読み終えている。増えたものを出すには読み直しが要る。
          * 読み直した後は合体しても変化が無いので、繰り返しにはならない。
          */
-        if (merged.changed && typeof location !== "undefined") location.reload();
+        /*
+         * 念のための歯止め。万一 changed が収束しなくても、30秒以内の2回目は読み直さない
+         * （2026-09-14 に1秒ごとの再読み込みを本番で起こした）。
+         */
+        if (merged.changed && typeof location !== "undefined") {
+          const last = Number(readDeviceFlag(DEVICE_KEY.lastMergeReloadAt) ?? 0);
+          if (Date.now() - last > 30_000) {
+            writeDeviceFlag(DEVICE_KEY.lastMergeReloadAt, String(Date.now()));
+            location.reload();
+          } else {
+            console.warn("[supabase sync] 合体後の再読み込みを見送りました（直前に読み直したばかり）");
+          }
+        }
         return;
       }
 

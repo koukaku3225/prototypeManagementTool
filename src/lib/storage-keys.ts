@@ -70,6 +70,8 @@ export const DEVICE_KEY = {
    * 端末ごとに最初の1回だけ合わせてから送る（sync.ts の ensureCheckpointsMerged）。
    */
   checkpointsMerged: "gc.checkpointsMerged",
+  /** 開いたときの合体で最後に画面を読み直した時刻（ミリ秒）。再読み込みの繰り返しを止める歯止め */
+  lastMergeReloadAt: "gc.lastMergeReloadAt",
 } as const;
 
 /**

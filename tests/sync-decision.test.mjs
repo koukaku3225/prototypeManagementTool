@@ -16,6 +16,7 @@ import {
   decideSyncDirection,
   isForeignKeyViolation,
   mergeSnapshots,
+  mergeWithReport,
 } from "../src/lib/supabase/sync-decision.ts";
 
 let passed = 0;
@@ -310,6 +311,38 @@ t("【不変条件】合体の結果は、どちらか片方にあった目標�
   const m = mergeSnapshots(local, cloud);
   assert.equal(parse(m, "gc.cards").length, 3);
   assert.equal(parse(m, "gc.timeboxes").length, 3);
+});
+
+t("【無限再読み込みの再発防止】中身が同じなら、並び順や表現が違っても changed=false", () => {
+  // 2026-09-14 本番：クラウド順に並べた結果を文字列比較していたため毎回「変わった」になり、
+  // 合体 → 送信 → 再読み込みを1秒ごとに繰り返した
+  const local = snap({
+    "gc.cards": [box("a", "2026-09-14T00:00:00Z"), box("b", "2026-09-14T00:00:00Z")],
+    "gc.timeboxes": [box("x", "2026-09-14T01:00:00Z")],
+    "gc.sessions": [{ id: "s1", title: "ローカル表現" }],
+  });
+  const cloud = snap({
+    "gc.cards": [box("b", "2026-09-14T00:00:00Z", { extra: null }), box("a", "2026-09-14T00:00:00Z")],
+    "gc.timeboxes": [box("x", "2026-09-14T01:00:00Z", { color: null })],
+    "gc.sessions": [{ id: "s1", title: "クラウド表現" }],
+  });
+  const r = mergeWithReport(local, cloud);
+  assert.equal(r.changed, false);
+  assert.equal(r.data["gc.cards"], local["gc.cards"], "この端末の並びと表現をそのまま残す");
+});
+
+t("クラウドにしか無いもの・クラウドが新しいものがあれば changed=true。書き込んだ後にもう一度合わせると false（収束する）", () => {
+  const local = snap({ "gc.timeboxes": [box("x", "2026-09-14T01:00:00Z")] });
+  const cloud = snap({ "gc.timeboxes": [box("x", "2026-09-14T05:00:00Z", { title: "別端末" }), box("y", "2026-09-14T01:00:00Z")] });
+  const first = mergeWithReport(local, cloud);
+  assert.equal(first.changed, true);
+  const second = mergeWithReport(first.data, cloud);
+  assert.equal(second.changed, false, "書き込み後も changed のままだと再読み込みが止まらない");
+});
+
+t("この端末に無い1件もの（プロフィール等）をクラウドから足したら changed=true", () => {
+  assert.equal(mergeWithReport({}, snap({ "gc.profile": { name: "x" } })).changed, true);
+  assert.equal(mergeWithReport(snap({ "gc.profile": { name: "y" } }), snap({ "gc.profile": { name: "x" } })).changed, false);
 });
 
 t("壊れたJSONがあっても落ちず、読めるほうを残す", () => {

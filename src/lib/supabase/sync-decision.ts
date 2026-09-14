@@ -103,7 +103,7 @@ export function decideSyncDirection(i: SyncInputs): SyncDirection {
 }
 
 /** 配列で持つキーと、1件を見分けるキー */
-const MERGE_COLLECTIONS: Record<string, (x: Record<string, unknown>) => string> = {
+const MERGE_COLLECTIONS: Partial<Record<string, (x: Record<string, unknown>) => string>> = {
   [KEY.cards]: (x) => String(x.id),
   [KEY.habits]: (x) => String(x.id),
   [KEY.timeboxes]: (x) => String(x.id),
@@ -139,33 +139,68 @@ export function mergeSnapshots(
   local: Record<string, string | undefined>,
   cloud: Record<string, string | undefined>,
 ): Record<string, string> {
+  return mergeWithReport(local, cloud).data;
+}
+
+const stamp = (x: Record<string, unknown> | undefined): string =>
+  x && typeof x.updatedAt === "string" ? x.updatedAt : "";
+
+/**
+ * mergeSnapshots の本体。**この端末の中身が実際に変わったか**も返す。
+ *
+ * changed を文字列の比較で出すと、並び順やクラウド側の表現（null の有無など）の違いだけで
+ * 毎回「変わった」になり、合体 → 送信 → 再読み込みが止まらなくなる（2026-09-14 本番で発生）。
+ * そこで、この端末の並びと表現をそのまま残し、変わったと言うのは次のときだけにする。
+ *   - クラウドにしか無いものを足した
+ *   - 両方にあって、クラウドのほうが新しかったので置き換えた
+ *   - この端末に無い1件もの・キーをクラウドから足した
+ * 置き換えた後にもう一度合わせると更新時刻が同じになるので、必ず changed=false に収束する。
+ */
+export function mergeWithReport(
+  local: Record<string, string | undefined>,
+  cloud: Record<string, string | undefined>,
+): { data: Record<string, string>; changed: boolean } {
   const out: Record<string, string> = {};
-  const keys = new Set([...Object.keys(cloud), ...Object.keys(local)]);
+  let changed = false;
+  const keys = new Set([...Object.keys(local), ...Object.keys(cloud)]);
   for (const k of keys) {
     const keyOf = MERGE_COLLECTIONS[k];
-    if (!keyOf) {
-      const v = local[k] ?? cloud[k];
-      if (v !== undefined) out[k] = v;
+    const l = keyOf ? parseArray(local[k]) : null;
+    const c = keyOf ? parseArray(cloud[k]) : null;
+    if (!keyOf || (!l && !c)) {
+      if (local[k] !== undefined) out[k] = local[k] as string;
+      else if (cloud[k] !== undefined) {
+        out[k] = cloud[k] as string;
+        changed = true;
+      }
       continue;
     }
-    const l = parseArray(local[k]);
-    const c = parseArray(cloud[k]);
-    if (!l && !c) {
-      const v = local[k] ?? cloud[k];
-      if (v !== undefined) out[k] = v;
+    if (!l) {
+      out[k] = cloud[k] as string;
+      if ((c ?? []).length > 0) changed = true;
       continue;
     }
-    const byKey = new Map<string, Record<string, unknown>>();
-    for (const x of c ?? []) byKey.set(keyOf(x), x);
-    for (const x of l ?? []) {
-      const other = byKey.get(keyOf(x));
-      const mine = typeof x.updatedAt === "string" ? x.updatedAt : "";
-      const theirs = other && typeof other.updatedAt === "string" ? other.updatedAt : "";
-      if (!other || mine >= theirs) byKey.set(keyOf(x), x);
+    const cloudBy = new Map((c ?? []).map((x) => [keyOf(x), x]));
+    let keyChanged = false;
+    // この端末の並びを保つ。クラウドが新しいものだけ差し替える
+    const merged = l.map((x) => {
+      const other = cloudBy.get(keyOf(x));
+      cloudBy.delete(keyOf(x));
+      if (other && stamp(other) > stamp(x)) {
+        keyChanged = true;
+        return other;
+      }
+      return x;
+    });
+    // クラウドにしか無いものは後ろに足す
+    for (const x of cloudBy.values()) {
+      merged.push(x);
+      keyChanged = true;
     }
-    out[k] = JSON.stringify([...byKey.values()]);
+    out[k] = keyChanged ? JSON.stringify(merged) : (local[k] as string);
+    if (keyChanged) changed = true;
   }
-  return out;
+  return { data: out, changed };
 }
 
 /**
