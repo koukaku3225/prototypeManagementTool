@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>目標ページ改善案</title>
+<style>
+:root{--bg:#f4f5f8;--surface:#fff;--ink:#1f2430;--muted:#6b7385;--line:#d9dde6;--accent:#a8650b;--accent-soft:#fbf2e4;--good:#2f7a4f;--del:#b3413a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15171c;--surface:#1f222a;--ink:#e6e8ee;--muted:#9aa1b1;--line:#343945;--accent:#e0a14a;--accent-soft:#2c2418;--good:#6cc08f;--del:#e07a72}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.7 "Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:24px;margin:0 0 4px}
+h2{font-size:19px;margin:44px 0 8px;padding-top:12px;border-top:1px solid var(--line)}
+h3{font-size:15px;margin:18px 0 6px}
+.lead{color:var(--muted);margin:0 0 20px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:12px 0}
+.tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted);margin-right:6px}
+.tag.rec{border-color:var(--accent);color:var(--accent)}
+ul{margin:6px 0;padding-left:1.3em}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin-top:14px}
+.phone{background:var(--bg);border:1px solid var(--line);border-radius:18px;padding:10px;font-size:11.5px;line-height:1.45}
+.phone .cap{font-weight:600;font-size:12px;margin-bottom:6px}
+.b{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin:5px 0}
+.b.acc{border-color:var(--accent);background:var(--accent-soft)}
+.b.fold{border-style:dashed;color:var(--muted)}
+.b.gone{border-style:dashed;color:var(--del);text-decoration:line-through;opacity:.7}
+.b.tall{min-height:70px}
+.h{color:var(--muted);font-size:10px;letter-spacing:.08em}
+.tabs{display:flex;gap:4px;margin:5px 0}
+.tabs span{flex:1;text-align:center;border:1px solid var(--line);border-radius:6px;padding:3px 0;background:var(--surface)}
+.tabs span.on{border-color:var(--accent);color:var(--accent);font-weight:600}
+.meter{height:6px;border-radius:3px;background:var(--line);margin-top:6px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--accent)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{border-bottom:1px solid var(--line);padding:7px 6px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600}
+.note{font-size:13px;color:var(--muted)}
+code{font-size:12.5px;background:var(--accent-soft);padding:0 4px;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>目標ページ（/goal/[id]）縦スクロール改善案</h1>
+<p class="lead">2026-09-14 ／ 対象: <code>src/app/goal/[id]/page.tsx</code>。まだ実装していません。案を選んでもらってから直します。</p>
+
+<h2>0. いただいた指示（どの案でも共通で入れる）</h2>
+<div class="card">
+<ul>
+<li><b>「短い呼び名」ブロックを削除</b>。保存済みの呼び名データは消さない（時間割の表示は <code>goalCardLabel</code> が引き続き使う。空なら自動短縮）。</li>
+<li><b>「大きな物語とのつながり」「これが大事な理由」を一番下へ</b>。初期状態は<b>畳んで非表示</b>、「背景を表示」ボタンで開く。</li>
+</ul>
+</div>
+
+<h2>1. いまの並びと問題</h2>
+<div class="grid">
+<div class="phone">
+<div class="cap">現状（上から）</div>
+<div class="b tall">木の図＋凡例文</div>
+<div class="b gone">短い呼び名＋説明文</div>
+<div class="b">なりたい姿</div>
+<div class="b">大きな物語とのつながり</div>
+<div class="b">目標（何を／どれくらい／いつまでに）</div>
+<div class="b">これが大事な理由</div>
+<div class="b tall">つまずきそうなこと（if-then 枠つき×件数）</div>
+<div class="b">中間目標</div>
+<div class="b">予定した時間（全件）</div>
+<div class="b">繰り返すこと</div>
+<div class="b">完了／MD保存／JSON保存／削除</div>
+</div>
+<div class="card" style="margin:0">
+<h3>長く見える原因</h3>
+<ul>
+<li><b>毎日触る「予定・習慣・中間目標」が一番下</b>。一度決めたら読み返さない「物語・理由」が上にいる。</li>
+<li><b>ブロックがすべて同じ重さ</b>で並ぶので、どこが大事か目が止まらない。</li>
+<li>説明文（呼び名の例、木の凡例）が常に出ている。</li>
+<li>つまずき1件ごとに「障害文＋if枠＋then枠＋消すリンク」で縦に大きい。</li>
+<li>「予定した時間」が過去の完了分も全件並ぶ。</li>
+<li>MD / JSON 保存や削除など、めったに使わない操作が大きなボタンで占有。</li>
+</ul>
+</div>
+</div>
+
+<h2>2. 改善案</h2>
+
+<div class="grid">
+<div class="phone">
+<div class="cap">案A 並べ替え＋畳む <span class="tag rec">おすすめ</span></div>
+<div class="b acc"><span class="h">なりたい姿</span><br>1〜2行＋「いつまでに」バッジ</div>
+<div class="b"><span class="h">木（小さめ・タップで拡大）</span></div>
+<div class="b acc"><span class="h">今やること</span><br>予定（今後3件）／習慣</div>
+<div class="b">中間目標</div>
+<div class="b">つまずき→こうする（1行ずつ）</div>
+<div class="b">目標の数値（何を/どれくらい）</div>
+<div class="b fold">▸ 背景を表示（物語・理由）</div>
+<div class="b fold">⋯ その他（保存・完了・削除）</div>
+</div>
+
+<div class="phone">
+<div class="cap">案B タブで分ける</div>
+<div class="b acc"><span class="h">なりたい姿</span>＋期限</div>
+<div class="tabs"><span class="on">進める</span><span>計画</span><span>背景</span></div>
+<div class="b">予定（今後）</div>
+<div class="b">繰り返すこと</div>
+<div class="b">中間目標</div>
+<div class="note" style="margin-top:6px">計画タブ＝目標の数値・つまずき<br>背景タブ＝木・物語・理由・書き出し</div>
+</div>
+
+<div class="phone">
+<div class="cap">案C 木を目次にする</div>
+<div class="b tall acc"><span class="h">木</span><br>根＝物語・理由<br>小枝＝中間目標<br>葉＝習慣<br>（タップで下から詳細シート）</div>
+<div class="b">なりたい姿</div>
+<div class="b">予定（今後3件）</div>
+<div class="note" style="margin-top:6px">物語・理由は「根」を押したときだけ出る＝ツリー表示に統合</div>
+</div>
+
+<div class="phone">
+<div class="cap">案D 読むモード／編集モード</div>
+<div class="b acc">なりたい姿（文字だけ）</div>
+<div class="b">何を・どれくらい・期限を1ブロックに</div>
+<div class="b">つまずき: もし○○→△△</div>
+<div class="b">予定・習慣</div>
+<div class="note" style="margin-top:6px">各「編集」ボタンや枠を消し、右上の「編集」で全項目が入力欄に変わる。空の項目は読むモードで非表示。</div>
+</div>
+</div>
+
+<h3>各案の中身</h3>
+<div class="card">
+<p><span class="tag rec">おすすめ</span><b>案A 並べ替え＋畳む（変更小・今の画面の延長）</b></p>
+<ul>
+<li>頻度順に並べ替え: なりたい姿 → 木 → 予定・習慣 → 中間目標 → つまずき → 目標の数値 → 背景（畳む）→ その他（畳む）。</li>
+<li>予定は「今日以降の未完了3件＋もっと見る」。過去・完了分は畳む。</li>
+<li>木は高さを抑え、凡例文は「？」アイコンに格納。</li>
+<li>保存（MD/JSON）・完了・削除は末尾の「その他の操作」に畳む。</li>
+<li>長所: データ構造もコンポーネントもそのまま。1ファイル中心の変更で済む。 短所: 1ページの縦長自体は残る（ただし見る範囲は上半分で完結）。</li>
+</ul>
+</div>
+<div class="card">
+<p><b>案B タブ（進める／計画／背景）</b></p>
+<ul>
+<li>ページ上部に「なりたい姿」を固定し、下をタブで切替。タブ位置はURL（<code>?tab=</code>）で覚える。</li>
+<li>長所: 1画面の長さが3分の1程度になる。 短所: 別タブの内容が見えないので「つまずき」を忘れやすい。タブ操作が1回増える。</li>
+</ul>
+</div>
+<div class="card">
+<p><b>案C 木を目次にする（ツリー表示に統合）</b></p>
+<ul>
+<li>木の「根」を押すと大きな物語・理由、「小枝」で中間目標、「葉」で習慣をボトムシートで開く。</li>
+<li>長所: 木が飾りでなく操作の入口になり、面白さがある。 短所: <code>GoalForest</code> にタップ判定を足す必要があり実装が一番重い。キーボード操作・読み上げの配慮も要る。</li>
+</ul>
+</div>
+<div class="card">
+<p><b>案D 読むモード／編集モード</b></p>
+<ul>
+<li>普段は文章として詰めて表示（編集ボタン・入力枠なし、if-then は「もし○○ → △△」の1行）。編集時だけ今のUI。</li>
+<li>長所: 同じ情報量でも高さが大きく減る。案A・Bと組み合わせられる。 短所: 「すぐ直したい」ときに1手増える。<code>EditableField</code> の全箇所に表示切替が要る。</li>
+</ul>
+</div>
+
+<h3>どの案にも足せる小さな改善</h3>
+<div class="card">
+<ul>
+<li>上部に<b>ジャンプ用チップ</b>（予定／習慣／つまずき／背景）を横並びで固定。</li>
+<li>「何を・どれくらい・いつまでに」を3行の見出しから<b>1枚の要約</b>に（期限は残り日数も表示）。</li>
+<li>空のブロックは「＋ 追加」の1行だけにする（「まだありません」＋ボタンで2行使っている）。</li>
+<li>ブロック間の余白と内側 padding を少し詰める（16px→12px）。</li>
+</ul>
+</div>
+
+<h2>3. 比較</h2>
+<div class="card" style="overflow-x:auto">
+<table>
+<tr><th>案</th><th>縦の短さ</th><th>実装の重さ</th><th>毎日の見やすさ</th><th>リスク</th></tr>
+<tr><td>A 並べ替え＋畳む</td><td>△〜○</td><td>軽い</td><td>○</td><td>ほぼなし</td></tr>
+<tr><td>B タブ</td><td>◎</td><td>中</td><td>○</td><td>別タブの内容を見落とす</td></tr>
+<tr><td>C 木を目次</td><td>◎</td><td>重い</td><td>△〜○</td><td>操作が分かりにくい可能性</td></tr>
+<tr><td>D 読む／編集</td><td>○</td><td>中</td><td>◎</td><td>編集が1手増える</td></tr>
+</table>
+<p class="note">おすすめの進め方: まず<b>A＋小さな改善</b>を入れて本番で使ってみる。まだ長ければ <b>D</b> を重ねる。B・C はその後に判断。</p>
+</div>
+</div>
+</body>
+</html>

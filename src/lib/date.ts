@@ -79,6 +79,18 @@ export function dueLabel(date: string): string {
   return date;
 }
 
+/**
+ * 目標の期限までの残りを短く言う。「あと12日」「今日まで」「3日過ぎ」。
+ * 目標ページ先頭のバッジ用。基準日は引数で渡せる（テストのため）。
+ */
+export function deadlineCountdown(deadline: string, base: string = today()): string {
+  if (!deadline) return "期限なし";
+  const d = diffDays(base, deadline);
+  if (Number.isNaN(d)) return "期限なし";
+  if (d === 0) return "今日まで";
+  return d > 0 ? `あと${d}日` : `${-d}日過ぎ`;
+}
+
 /** a から b までの日数。どちらも YYYY-MM-DD */
 export function diffDays(a: string, b: string): number {
   const ms = Date.parse(`${b}T00:00:00`) - Date.parse(`${a}T00:00:00`);

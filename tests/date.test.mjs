@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import {
   addDays,
+  deadlineCountdown,
   diffDays,
   dueLabel,
   isDueBy,
@@ -177,6 +178,18 @@ t("isThisWeek は月曜から日曜までを含む", () => {
 
 t("isThisWeek は空文字を false にする（期限なしを今週に数えない）", () => {
   assert.equal(isThisWeek("", new Date("2026-09-01T10:00:00")), false);
+});
+
+t("deadlineCountdown は残り・当日・超過・空を言い分ける", () => {
+  assert.equal(deadlineCountdown("2026-09-26", "2026-09-14"), "あと12日");
+  assert.equal(deadlineCountdown("2026-09-14", "2026-09-14"), "今日まで");
+  assert.equal(deadlineCountdown("2026-09-11", "2026-09-14"), "3日過ぎ");
+  assert.equal(deadlineCountdown("", "2026-09-14"), "期限なし");
+  assert.equal(deadlineCountdown("未定", "2026-09-14"), "期限なし");
+});
+
+t("deadlineCountdown は月をまたいでも日数がずれない", () => {
+  assert.equal(deadlineCountdown("2026-10-01", "2026-09-30"), "あと1日");
 });
 
 console.log(`${passed} passed, ${failed} failed`);
