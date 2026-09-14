@@ -9,11 +9,14 @@ export function EditableField({
   value,
   label,
   multiline,
+  type = "text",
   onSave,
 }: {
   value: string;
   label: string;
   multiline?: boolean;
+  /** "date" はクラウドの date 列に入る YYYY-MM-DD しか作らせないために使う */
+  type?: "text" | "date";
   onSave: (next: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -86,6 +89,7 @@ export function EditableField({
       ) : (
         <input
           ref={ref as React.RefObject<HTMLInputElement>}
+          type={type}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && commit()}

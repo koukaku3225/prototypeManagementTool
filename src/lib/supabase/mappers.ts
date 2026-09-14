@@ -14,6 +14,19 @@ import type {
 import type { Habit, HabitLog } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
 
+/**
+ * date 列に入る値（実在する YYYY-MM-DD）だけを通し、それ以外は null にする。
+ *
+ * 手入力の期限に「3年後」と書かれた目標が 22007 で拒否され、
+ * それを参照する習慣・予定まで外部キー違反で止まったことがある。
+ * ローカルの文章はそのまま残る（クラウドには期限なしとして届く）。
+ */
+function toDateColumn(v: string | null | undefined): string | null {
+  if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v ? v : null;
+}
+
 export function bigStoryToRow(b: BigStory, userId: string) {
   return {
     id: b.id,
@@ -75,7 +88,7 @@ export function goalCardToRow(c: GoalCard, userId: string) {
     smart_measurable: c.smart.measurable,
     smart_metric_unit: c.smart.metricUnit,
     smart_metric_target: c.smart.metricTarget,
-    smart_deadline: c.smart.deadline || null,
+    smart_deadline: toDateColumn(c.smart.deadline),
     smart_achievable_note: c.smart.achievableNote,
     woop_wish: c.woop.wish,
     woop_outcome: c.woop.outcome,

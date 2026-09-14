@@ -334,38 +334,11 @@ const MIGRATIONS: Record<number, () => void> = {
     if (fixed > 0) write(KEY.timeboxes, next);
   },
 
-  /**
-   * v3 → v4。目標が無い習慣（孤児）を消す。
-   *
-   * クラウド側の `habits_card_id_fkey` は CASCADE なので、目標を消せば
-   * クラウドの習慣も連鎖で消える。ところがローカルは deleteCard() を
-   * 通ったときしか一緒に消えない。過去のバグや取り込みの取りこぼしで
-   * 目標だけが先に無くなると、参照先の無い習慣が gc.habits に残る。
-   *
-   * この状態で同期すると、その習慣を送るたびに Postgres が
-   * `insert or update on table "habits" violates foreign key constraint
-   * "habits_card_id_fkey"` で拒否する。相手の目標はローカルにも無いので
-   * healIfDanglingReference() の送り直しでは直らず、**同期の失敗が
-   * 消えないまま残り続ける**（実際に画面上部の帯が消えなくなった）。
-   *
-   * deleteHabitsOfCard() と同じ考えで、習慣とその記録を一緒に消す。
+  /*
+   * v4 は欠番。2026-09-14 に「目標が無い習慣を消す」移行として入れたが、
+   * 本番の実データで原因が違うと分かったので中身を取り消した。
+   * 既に版4になった端末があるので、番号は戻さない（次の移行は 5 から）。
    */
-  4: () => {
-    const cardIds = new Set((read<GoalCard[]>(KEY.cards) ?? []).map((c) => c.id));
-    const habits = read<Habit[]>(KEY.habits) ?? [];
-    const orphanIds = new Set(
-      habits.filter((h) => !cardIds.has(h.cardId)).map((h) => h.id),
-    );
-    if (orphanIds.size === 0) return;
-
-    write(
-      KEY.habits,
-      habits.filter((h) => !orphanIds.has(h.id)),
-    );
-    const logs = read<HabitLog[]>(KEY.habitLogs) ?? [];
-    const keptLogs = logs.filter((l) => !orphanIds.has(l.habitId));
-    if (keptLogs.length !== logs.length) write(KEY.habitLogs, keptLogs);
-  },
 };
 
 /** 現在の版。読めない・未設定なら 0（＝版番号を持たない古いデータ） */

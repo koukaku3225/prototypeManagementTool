@@ -303,6 +303,7 @@ export default function GoalDetailPage({
               <Row label="いつまでに">
                 <EditableField
                   label="いつまでに"
+                  type="date"
                   value={card.smart.deadline}
                   onSave={(v) =>
                     update("smart.deadline", (c) => ({

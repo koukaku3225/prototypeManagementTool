@@ -62,6 +62,12 @@ ESLint は導入していない。1ルールのために eslint-config-next 一�
 
 `npm test` で全部走る。新しい純粋関数を書いたら `tests/` に足すこと。
 
+## 修正の完了条件（厳守）
+
+- **テストとビルドが通っただけでは完了にしない。** 報告された症状が消えたことを実際に見て確かめる。
+- 本番でしか再現しない不具合（クラウド同期・ログイン・本番DB）は、push → Vercel のビルド完了を待つ → 本番URL（https://prototype-management-tool.vercel.app）をブラウザで開き、症状が消えたことを確認してから報告する。
+- 原因は推測で決めず、本番DB（Supabase）やブラウザの localStorage の実データで裏付けてから直す。2026-09-14 に「孤児の習慣」と推測して直し、本番で症状が残ったことがある。
+
 ## 作業完了時のMarkdown解説
 
 ユーザーから実装・修正・設定変更・設計・調査を依頼されたら、作業開始時に [task-report スキル](.agents/skills/task-report/SKILL.md) を読み、最終回答の前に日本語のMarkdown解説を保存する。小さな修正・コード変更のない調査も対象。既定の保存先は `docs/reports/YYYY-MM-DD-短い内容.md`。
