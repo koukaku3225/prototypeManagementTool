@@ -17,7 +17,8 @@ import {
   nextReconnectFlag,
   type ReconnectEvent,
 } from "@/lib/calendar/reconnect";
-import { isFromGoogle, mergePrimary, type PrimaryFetch } from "@/lib/calendar/primary";
+import { mergePrimary, type PrimaryFetch } from "@/lib/calendar/primary";
+import { buildSyncBoxes } from "@/lib/calendar/payload";
 import { DEVICE_KEY } from "@/lib/storage-keys";
 import { getSyncState } from "@/lib/supabase/sync";
 
@@ -171,21 +172,8 @@ export function CalendarSyncBoot({
     const from = addDays(SEND_FROM_DAYS);
     const to = addDays(SEND_TO_DAYS);
     // 上でIDを落としてあるので、ここで読み直せば「現在のカレンダーのIDだけ」になる
-    const boxes = loadTimeBoxes()
-      // 全件送るとAPIスキーマの上限（500件）を超えて弾かれ、以後同期が
-      // 恒久的に止まる（レビューで指摘）。期間で絞って送信する
-      .filter((b) => b.date >= from && b.date <= to)
-      // メインカレンダーから取り込んだ枠は送らない。送ると専用カレンダーに
-      // 同じ予定が写り、Google 上で二重に並ぶ
-      .filter((b) => !isFromGoogle(b))
-      .map((b) => ({
-        id: b.id,
-        date: b.date,
-        start: b.start,
-        end: b.end,
-        title: b.title,
-        googleEventId: b.googleEventId ?? null,
-      }));
+    // 期間・出どころの絞り込みと本文の形は payload.ts（API スキーマとのかみ合わせをテストで固定）
+    const boxes = buildSyncBoxes(loadTimeBoxes(), from, to);
 
     const res = await fetch("/api/calendar/sync", {
       method: "POST",
@@ -196,6 +184,8 @@ export function CalendarSyncBoot({
     if (!res) return;
     const data = await res.json().catch(() => null);
     if (!data?.ok) {
+      // 黙って戻ると、400 で毎回弾かれていても誰も気づけない（2026-09-15 に実際そうだった）
+      console.warn("[calendar] 専用カレンダーへの同期に失敗しました", res.status, data?.message ?? "");
       // 連携し直さないと直らない失敗だけ案内する。混雑・通信断では印を付けない
       if (data?.reason === "reconnect_required") {
         markReconnect("sync_reconnect");

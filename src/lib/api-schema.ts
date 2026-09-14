@@ -163,8 +163,10 @@ export const CalendarSyncRequestSchema = z.object({
         end: z.string().regex(/^\d{2}:\d{2}$/),
         title: z.string().max(300),
         googleEventId: z.string().max(1024).nullable().optional(),
+        // 一方向になってから（2026-09-14）画面は送らない。古い画面が送ってきても弾かないよう任意で残す。
+        // 必須のままにしていたせいで、枠が1件でもあると 400 になり同期が止まっていた
         updatedAt: z.string().max(40).optional(),
-        hasNotes: z.boolean(),
+        hasNotes: z.boolean().optional(),
       }),
     )
     // 1件約150バイトとして500件で約75KB。MAX_BODY_BYTES(200,000)に収まる
