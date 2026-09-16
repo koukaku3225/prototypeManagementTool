@@ -144,6 +144,21 @@ export function hasNotesOrDone(b: TimeBox): boolean {
 export const isFromGoogle = (b: Pick<TimeBox, "source">): boolean => b.source === "google";
 
 /**
+ * ブレーキで「Googleで削除済み」のまま残った枠のうち、まとめて片付けてよいもの。
+ *
+ * ブレーキは一度に多く消えたときに消さずに留めるだけで、次の同期でも同じ判定になるので
+ * 自動では二度と消えない。1件ずつ消す手段しか無いと、繰り返し予定を消しただけで
+ * 何十件もの薄い枠が時間割に残り続ける（2026-09-16 本番で65件）。画面から本人に
+ * まとめて片付けてもらう。書き込み・完了のある枠は残す（mergePrimary と同じ基準）。
+ * Google に予定が戻っていれば、次の取り込みで作り直されるので取り返しはつく。
+ */
+export function goneLeftovers(all: readonly TimeBox[]): TimeBox[] {
+  return all.filter(
+    (b) => isFromGoogle(b) && Boolean(b.sourceGoneAt) && !b.hiddenAt && !hasNotesOrDone(b),
+  );
+}
+
+/**
  * Google の予定と、アプリの取り込み枠を突き合わせる。
  *
  * `all` には**非表示の枠も含めた全件**を渡すこと。非表示の枠が見えないと

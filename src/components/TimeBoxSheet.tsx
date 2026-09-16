@@ -13,7 +13,7 @@ import {
   toTimeInputValue,
 } from "@/lib/timebox";
 import { isGhost } from "@/lib/habit-plan";
-import { isFromGoogle } from "@/lib/calendar/primary";
+import { hasNotesOrDone, isFromGoogle } from "@/lib/calendar/primary";
 import { goalSelectOptions } from "@/lib/goal-card";
 import { loadTimeBoxes } from "@/lib/storage";
 import { emptyReview, type TimeBox } from "@/types/timebox";
@@ -246,7 +246,9 @@ export function TimeBoxSheet({
                       role="status"
                       className="mt-1.5 text-[12px] leading-relaxed text-[var(--c-rose-fg)]"
                     >
-                      Google カレンダーでは削除済みです。書いた内容を残すため、ここにだけ残しています。
+                      {hasNotesOrDone(draft)
+                        ? "Google カレンダーでは削除済みです。書いた内容を残すため、ここにだけ残しています。"
+                        : "Google カレンダーでは削除済みです。一度に多くの予定が消えていたため、念のため残しています。不要なら消してください。"}
                     </p>
                   )}
                 </div>
@@ -505,7 +507,9 @@ export function TimeBoxSheet({
                     (confirmDelete ? (
                       <div className="rounded-lg border border-line bg-surface px-3 py-2.5">
                         <p className="text-[12.5px] leading-relaxed">
-                          {fromGoogle
+                          {fromGoogle && draft.sourceGoneAt
+                            ? "この予定をアプリから消します。Google カレンダーではすでに削除されています。振り返りは見えなくなります。"
+                            : fromGoogle
                             ? "この予定をアプリから消します。Google カレンダーの予定は残り、次の同期でも戻ってきません。振り返りは見えなくなります。"
                             : "この予定を消します。振り返りも一緒に消えます。"}
                         </p>

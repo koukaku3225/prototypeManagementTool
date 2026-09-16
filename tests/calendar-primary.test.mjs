@@ -9,6 +9,7 @@ process.env.TZ = "UTC";
 
 import assert from "node:assert/strict";
 import {
+  goneLeftovers,
   hasNotesOrDone,
   mergePrimary,
   normalizePrimaryEvents,
@@ -286,6 +287,57 @@ t("hasNotesOrDone: 振り返りの中身だけでも書き込みあり", () => {
   assert.equal(hasNotesOrDone(gbox({ review: { good: "", bad: "", next: "", score: null } })), false);
   assert.equal(hasNotesOrDone(gbox({ review: { good: "", bad: "", next: "", score: 0 } })), true);
   assert.equal(hasNotesOrDone(gbox({ review: { good: "", bad: "x", next: "", score: null } })), true);
+});
+
+// ---------------------------------------------------------------- ブレーキの後始末
+
+/*
+ * 2026-09-16 本番：Google で毎日の繰り返し予定を消したら、取り込み済みの65件が
+ * ブレーキで「Googleで削除済み」のまま残った。画面には1件ずつ消す手段しか無く、
+ * 次の同期でもブレーキがかかり続けるので、ずっと時間割に薄い枠が並んでいた。
+ */
+t("本番の再現：繰り返し予定を消すとブレーキで残り、次の同期でも残り続ける", () => {
+  const n = 65;
+  const boxes = Array.from({ length: n }, (_, i) =>
+    gbox({ id: primaryBoxId(`r${i}`), sourceEventId: `r${i}` }),
+  );
+  const first = mergePrimary(boxes, { ...WINDOW, events: [] }, NOW);
+  assert.equal(first.braked, true);
+  assert.equal(first.deletes.length, 0);
+  const after = boxes.map((b) => ({ ...b, sourceGoneAt: NOW }));
+  const second = mergePrimary(after, { ...WINDOW, events: [] }, NOW);
+  assert.equal(second.deletes.length, 0, "自動では消えない（だから片付ける入口が要る）");
+  assert.equal(goneLeftovers(after).length, n, "片付けの対象として全部拾える");
+});
+
+t("goneLeftovers: 書き込み・完了のある枠は片付けの対象にしない", () => {
+  const boxes = [
+    gbox({ id: primaryBoxId("a"), sourceEventId: "a", sourceGoneAt: NOW }),
+    gbox({ id: primaryBoxId("b"), sourceEventId: "b", sourceGoneAt: NOW, completedAt: NOW }),
+    gbox({ id: primaryBoxId("c"), sourceEventId: "c", sourceGoneAt: NOW, meta: { why: "x", obstacle: "", counter: "" } }),
+    gbox({ id: primaryBoxId("d"), sourceEventId: "d", sourceGoneAt: NOW, review: { good: "", bad: "", next: "", score: 3 } }),
+  ];
+  assert.deepEqual(goneLeftovers(boxes).map((b) => b.id), [primaryBoxId("a")]);
+});
+
+t("goneLeftovers: Googleにまだある枠・非表示の枠・アプリの枠は対象にしない", () => {
+  const boxes = [
+    gbox({ id: primaryBoxId("live"), sourceEventId: "live" }),
+    gbox({ id: primaryBoxId("hid"), sourceEventId: "hid", sourceGoneAt: NOW, hiddenAt: NOW }),
+    gbox({ id: "11111111-1111-4111-8111-111111111111", source: "app", sourceEventId: null, sourceGoneAt: NOW }),
+  ];
+  assert.deepEqual(goneLeftovers(boxes), []);
+});
+
+t("goneLeftovers: 取り込み期間より前の日付の枠も拾う（期間外は同期では二度と触られない）", () => {
+  const old = gbox({ id: primaryBoxId("old"), sourceEventId: "old", date: "2026-08-01", sourceGoneAt: NOW });
+  assert.equal(goneLeftovers([old]).length, 1);
+});
+
+t("片付けたあと Google に予定が戻っていれば、次の取り込みで作り直される", () => {
+  const r = mergePrimary([], { ...WINDOW, events: [ev()] }, NOW);
+  assert.equal(r.upserts.length, 1);
+  assert.equal(r.upserts[0].id, primaryBoxId("e1"));
 });
 
 console.log(`${passed} passed, ${failed} failed`);

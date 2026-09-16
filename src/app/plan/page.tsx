@@ -12,6 +12,8 @@ import {
   activeHabits,
   clearHabitLogFromBox,
   deleteTimeBox,
+  deleteTimeBoxes,
+  loadAllTimeBoxes,
   loadBigStory,
   readDeviceFlag,
   writeDeviceFlag,
@@ -22,8 +24,9 @@ import {
   timeBoxesOn,
   undoDeleteTimeBox,
   upsertTimeBox,
+  upsertTimeBoxes,
 } from "@/lib/storage";
-import { isFromGoogle } from "@/lib/calendar/primary";
+import { goneLeftovers, isFromGoogle } from "@/lib/calendar/primary";
 import { habitBoxesOn, habitsOfActiveCards, isGhost, materializeHabitBox } from "@/lib/habit-plan";
 import {
   currentBox,
@@ -113,6 +116,12 @@ export default function PlanPage() {
     setReconnectSource(reconnectBannerSource(next));
   }, []);
   useEffect(() => readReconnect(), [readReconnect]);
+  /**
+   * ブレーキで「Googleで削除済み」のまま残った、書き込みの無い枠の数（calendar/primary.ts）。
+   * 自動では二度と消えないので、ここでまとめて片付けてもらう。
+   */
+  const [goneCount, setGoneCount] = useState(0);
+  const [confirmGone, setConfirmGone] = useState(false);
   /** 直前の操作。取り消しに使う */
   const [undo, setUndo] = useState<{ message: string; revert: () => void } | null>(
     null,
@@ -125,6 +134,7 @@ export default function PlanPage() {
    * ここで混ぜておけば、時間割の描画もドラッグも実体と同じ扱いで済む。
    */
   const reload = useCallback((d: string) => {
+    setGoneCount(goneLeftovers(loadAllTimeBoxes()).length);
     const real = timeBoxesOn(d);
     // cards state に頼らず毎回読み直す。reload は cards のセット前にも呼ばれる
     const habits = habitsOfActiveCards(activeHabits(), loadCards());
@@ -378,6 +388,60 @@ export default function PlanPage() {
               設定から連携し直す
             </Link>
           </p>
+        )}
+        {/*
+          Google で繰り返し予定を消すと、取り込んだ枠が一度に何十件も消える。
+          ブレーキで消さずに留めた枠は同期では二度と消えないので、ここで片付けてもらう。
+          書き込み・完了のある枠は数えない（本人の記録なので1件ずつ判断してもらう）。
+        */}
+        {goneCount > 0 && (
+          <div
+            role="status"
+            className="mb-3 rounded-xl border border-line bg-surface px-4 py-3 text-[12.5px] leading-relaxed"
+          >
+            <p>
+              Google カレンダーで削除された予定が {goneCount} 件、時間割に残っています。
+              一度に多く消えていたので、念のため自動では消していません。
+            </p>
+            {confirmGone ? (
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const removed = goneLeftovers(loadAllTimeBoxes());
+                    deleteTimeBoxes(removed.map((b) => b.id));
+                    setConfirmGone(false);
+                    reload(date);
+                    setUndo({
+                      message: `削除済みの予定を${removed.length}件片付けました`,
+                      revert: () => {
+                        upsertTimeBoxes(removed);
+                        reload(date);
+                      },
+                    });
+                  }}
+                  className="min-h-11 flex-1 rounded-lg border border-[var(--c-rose-line)] bg-[var(--c-rose-bg)] px-3 text-[13px] text-[var(--c-rose-fg)]"
+                >
+                  {goneCount}件を片付ける
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmGone(false)}
+                  className="min-h-11 flex-1 rounded-lg border border-line px-3 text-[13px] text-muted"
+                >
+                  やめる
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmGone(true)}
+                className="mt-1 min-h-9 text-[12.5px] underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                まとめて片付ける
+              </button>
+            )}
+          </div>
         )}
         {/*
           初めて使う人への案内。
