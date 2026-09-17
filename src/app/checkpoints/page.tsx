@@ -12,6 +12,8 @@ import {
   formatProgressValue,
   measureOf,
   pendingReviews,
+  periodLabel,
+  withManualCountDelta,
   type CarryOverChoice,
 } from "@/lib/checkpoint";
 import { goalCardLabel } from "@/lib/goal-card";
@@ -52,7 +54,8 @@ export default function CheckpointsPage() {
   const [cards, setCards] = useState<GoalCard[]>([]);
   const [list, setList] = useState<Checkpoint[]>([]);
   const [boxes, setBoxes] = useState<TimeBox[]>([]);
-  const [adding, setAdding] = useState(false);
+  /** 足すシートを開いているか。文字列なら、その目標を選んだ状態で開く */
+  const [adding, setAdding] = useState<string | boolean>(false);
   const now = today();
 
   const reload = useCallback(() => {
@@ -152,9 +155,17 @@ export default function CheckpointsPage() {
                     </Link>
                   </h2>
                   {mine.length === 0 ? (
-                    <p className="rounded-xl border border-dashed border-line px-3 py-2.5 text-[12.5px] text-muted">
-                      この期間の中間目標はまだありません
-                    </p>
+                    /*
+                      目標を選び直させない。下の「中間目標を足す」は先頭の目標から始まるので、
+                      そのまま足すと別の目標にぶら下がる
+                    */
+                    <button
+                      type="button"
+                      onClick={() => setAdding(card.id)}
+                      className="min-h-11 w-full rounded-xl border border-dashed border-line px-3 text-left text-[12.5px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    >
+                      この期間の中間目標はまだありません ・ <span className="underline">この目標に足す</span>
+                    </button>
                   ) : (
                     <ul className="flex flex-col gap-2">
                       {mine.map((c) => (
@@ -186,6 +197,7 @@ export default function CheckpointsPage() {
       {adding && (
         <AddSheet
           cards={liveCards}
+          initialCardId={typeof adding === "string" ? adding : undefined}
           onClose={() => setAdding(false)}
           onAdd={(c) => {
             upsertCheckpoint(c);
@@ -281,10 +293,21 @@ function CheckpointRow({
                 ? ""
                 : "この先の予定はまだありません"}
         </span>
+        {/* 押し間違いを戻せるように。手で足したぶんがあるときだけ出す */}
+        {measure === "count" && (c.manualCount ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={() => onSave(withManualCountDelta(c, -1))}
+            aria-label={`${c.title}を1回戻す`}
+            className="min-h-8 shrink-0 rounded-lg border border-line bg-paper px-2.5 text-[11.5px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            −1
+          </button>
+        )}
         {measure === "count" && (
           <button
             type="button"
-            onClick={() => onSave({ ...c, manualCount: (c.manualCount ?? 0) + 1 })}
+            onClick={() => onSave(withManualCountDelta(c, 1))}
             aria-label={`${c.title}を1回足す`}
             className="min-h-8 shrink-0 rounded-lg border border-line bg-paper px-2.5 text-[11.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
@@ -306,14 +329,19 @@ function CheckpointRow({
 
 function AddSheet({
   cards,
+  initialCardId,
   onClose,
   onAdd,
 }: {
   cards: GoalCard[];
+  /** 目標の欄から開いたときの目標 */
+  initialCardId?: string;
   onClose: () => void;
   onAdd: (c: Checkpoint) => void;
 }) {
-  const [cardId, setCardId] = useState(cards[0]?.id ?? "");
+  const [cardId, setCardId] = useState(
+    initialCardId && cards.some((c) => c.id === initialCardId) ? initialCardId : (cards[0]?.id ?? ""),
+  );
   const [title, setTitle] = useState("");
   const [measure, setMeasure] = useState<CheckpointMeasure>("time");
   const [target, setTarget] = useState("5");
@@ -543,13 +571,15 @@ function ReviewSection({
     onDone(changed);
   }
 
-  const range = `${fmtDay(reviews[0].period.start)} 〜 ${fmtDay(reviews[reviews.length - 1].period.end)}`;
-
   return (
     <section className="mb-6" aria-label="期間が終わった中間目標の振り返り">
+      {/*
+        期間は1件ずつ出す。週と月が混ざると、先頭と末尾をつないだ範囲（8/1〜9/13 など）は
+        どの中間目標の期間でもなくなる
+      */}
       <div className="rounded-xl border border-accent-line bg-accent-soft px-3.5 py-3 text-[12.5px] leading-relaxed text-accent">
         <h2 className="font-serif text-[16px] font-bold text-ink">期間が終わった中間目標</h2>
-        {range}。続けるか、変えるか、終わりにするかを選ぶと、今の期間の中間目標ができます。
+        結果を見て、続けるか、変えるか、終わりにするかを選ぶと、今の期間の中間目標ができます。
       </div>
       <ul className="mt-2 flex flex-col gap-2">
         {reviews.map((c) => {
@@ -559,7 +589,10 @@ function ReviewSection({
           const pick = picks[c.id];
           return (
             <li key={c.id} className="rounded-xl border border-line bg-surface px-3 py-2.5">
-              {card && <p className="truncate text-[11.5px] text-muted">{goalCardLabel(card)}</p>}
+              <p className="flex gap-2 text-[11.5px] text-muted">
+                {card && <span className="min-w-0 truncate">{goalCardLabel(card)}</span>}
+                <span className="ml-auto shrink-0 font-mono">{periodLabel(c.period)}</span>
+              </p>
               <p className="text-[14px] leading-snug">{c.title || "（未記入）"}</p>
               <div className="mt-1 flex items-baseline gap-1.5">
                 {measure !== "done" && (

@@ -35,7 +35,7 @@ export function TodayCheckpoints({
           return (
             <li key={c.id}>
               <Link
-                href={`/goal/${c.cardId}`}
+                href="/checkpoints"
                 className={`flex items-center gap-3 rounded-xl border px-3.5 py-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
                   over ? "border-accent-line bg-accent-soft" : "border-line bg-surface"
                 }`}
@@ -84,7 +84,7 @@ export function TodayCheckpoints({
       </ul>
       {rest > 0 && (
         <Link
-          href="/goals"
+          href="/checkpoints"
           className="mt-1.5 inline-block text-[12px] text-muted underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           ほか{rest}件 →

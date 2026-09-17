@@ -411,6 +411,31 @@ t("振り返り：今の期間に同じ目標・同じタイトルの中間目�
   assert.equal(changed.next.target, 8);
 });
 
+t("振り返り：今の期間に同じものがあっても、終わりにした（abandoned）ものは数えずに新しく作る", () => {
+  // 見えない行の目安を変えて「何も起きない」になっていた（2026-09-17 レビュー）
+  const gaveUp = cpOf({ id: "gave-up", period: WEEK, status: "abandoned" });
+  const r = P.closeAndCarryOver(cpOf({ id: "last", period: LAST }), [], { kind: "change", target: 8 }, NOW_DATE, [gaveUp]);
+  assert.notEqual(r.next.id, "gave-up");
+  assert.equal(r.next.status, "active");
+  assert.equal(r.next.target, 8);
+});
+
+t("回数を1つ戻す：手で足したぶんだけ減らし、0より下げない", () => {
+  assert.equal(P.withManualCountDelta(cpOf({ manualCount: 2 }), -1).manualCount, 1);
+  assert.equal(P.withManualCountDelta(cpOf({ manualCount: 0 }), -1).manualCount, 0);
+  assert.equal(P.withManualCountDelta(cpOf({}), 1).manualCount, 1);
+});
+
+t("予定がその中間目標の期間外なら、紐づけても数えないことが分かる", () => {
+  assert.equal(P.boxInPeriod(cpOf(), { date: "2026-09-15" }), true);
+  assert.equal(P.boxInPeriod(cpOf(), { date: "2026-09-21" }), false);
+});
+
+t("期間の見せ方：週は「今週／先週」ではなく日付、月は「9月」", () => {
+  assert.equal(P.periodLabel({ kind: "week", start: "2026-09-07", end: "2026-09-13" }), "9/7〜9/13");
+  assert.equal(P.periodLabel({ kind: "month", start: "2026-08-01", end: "2026-08-31" }), "2026年8月");
+});
+
 t("振り返り：終わりにするなら次は作らない", () => {
   const r = P.closeAndCarryOver(cpOf({ period: LAST }), [], { kind: "end" }, NOW_DATE);
   assert.equal(r.next, null);

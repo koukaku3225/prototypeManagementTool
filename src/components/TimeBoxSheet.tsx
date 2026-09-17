@@ -17,6 +17,8 @@ import { hasNotesOrDone, isFromGoogle } from "@/lib/calendar/primary";
 import { goalSelectOptions } from "@/lib/goal-card";
 import { loadCheckpoints, loadTimeBoxes } from "@/lib/storage";
 import {
+  boxInPeriod,
+  periodLabel,
   checkpointOptionsForBox,
   checkpointProgress,
   formatProgressValue,
@@ -170,6 +172,10 @@ export function TimeBoxSheet({
     if (!cp) return null;
     const measure = measureOf(cp);
     if (measure === "done") return null;
+    // 期間の外なら数えない。「5.5 → 5.5」だと、数えたのに増えないように見える
+    if (!boxInPeriod(cp, draft)) {
+      return `この予定の日付は中間目標の期間（${periodLabel(cp.period)}）の外なので、数には入りません`;
+    }
     // 保存済みの自分を除いて、いまの下書きを足した姿で数える
     const others = loadTimeBoxes().filter((b) => b.id !== draft.id);
     const before = checkpointProgress(cp, others);

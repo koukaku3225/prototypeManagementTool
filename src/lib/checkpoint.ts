@@ -183,6 +183,22 @@ export function checkpointProgress(
   return { measure, value, doneValue, target, ratio, met: target !== null && value >= target };
 }
 
+/** 手で足した回数を増減する。押し間違いを戻せるように。手で足したぶんより下げない */
+export function withManualCountDelta(c: Checkpoint, delta: number): Checkpoint {
+  return { ...c, manualCount: Math.max(0, (c.manualCount ?? 0) + delta) };
+}
+
+/** 予定の日付が中間目標の期間に入っているか。外なら紐づけても数えない */
+export const boxInPeriod = (c: Pick<Checkpoint, "period">, box: Pick<TimeBox, "date">): boolean =>
+  c.period.start <= box.date && box.date <= c.period.end;
+
+/** 期間の見せ方。週は「9/7〜9/13」、月は「2026年8月」 */
+export function periodLabel(p: Checkpoint["period"]): string {
+  const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+  if (p.kind === "month") return `${p.start.slice(0, 4)}年${Number(p.start.slice(5, 7))}月`;
+  return `${md(p.start)}〜${md(p.end)}`;
+}
+
 /** 数の見せ方。時間は小数1桁（整数ならそのまま）、回数は整数 */
 export function formatProgressValue(measure: CheckpointMeasure, v: number): string {
   if (measure !== "time") return String(Math.round(v));
@@ -244,6 +260,8 @@ export function closeAndCarryOver(
   const dup = existing.find(
     (x) =>
       x.id !== c.id &&
+      // 終わりにしたものは一覧に出ない。それを「もうある」と数えると、選んでも何も起きない
+      x.status !== "abandoned" &&
       x.cardId === c.cardId &&
       x.title.trim() === c.title.trim() &&
       x.period.kind === period.kind &&
