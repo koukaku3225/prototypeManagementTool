@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 
 const { goalCardToRow, checkpointToRow, checkpointFromRow } = await import("../src/lib/supabase/mappers.ts");
+const mappersForBox = await import("../src/lib/supabase/mappers.ts");
 
 let passed = 0;
 let failed = 0;
@@ -88,7 +89,21 @@ t("中間目標を行にして、行から戻すと元に戻る", () => {
   assert.equal(row.period_kind, "week");
   assert.equal(row.period_start, "2026-09-14");
   assert.equal(row.period_end, "2026-09-20");
-  assert.deepEqual(checkpointFromRow(row), c);
+  // 測り方の無い既存の中間目標は、目安なし・手の回数0・引き継ぎ元なしとして戻る
+  assert.deepEqual(checkpointFromRow(row), { ...c, target: null, manualCount: 0, previousId: null });
+});
+
+t("中間目標の測り方・目安・手の回数・引き継ぎ元を送って戻せる（numeric は文字列でも数にする）", () => {
+  const c = cpLocal({ measure: "time", target: 10, manualCount: 2, previousId: "0b0f2a4e-1111-4a4a-8a8a-000000000009" });
+  const row = checkpointToRow(c, "u");
+  assert.equal(row.measure, "time");
+  assert.equal(row.target, 10);
+  assert.equal(row.manual_count, 2);
+  const back = checkpointFromRow({ ...row, target: "10" });
+  assert.equal(back.measure, "time");
+  assert.equal(back.target, 10);
+  assert.equal(back.manualCount, 2);
+  assert.equal(back.previousId, c.previousId);
 });
 
 t("評価の無い中間目標は evaluation を null で送り、null で戻す", () => {
@@ -145,6 +160,19 @@ t("アプリの枠は source を app で送り、null の非表示を明示す�
   assert.equal(row.source_gone_at, null);
   const back = timeBoxFromRow({ ...row, start_time: "12:00:00", end_time: "13:00:00", source: null });
   assert.equal(back.source, "app", "列が無い古い行はアプリの枠として読む");
+});
+
+t("予定の中間目標を送って戻せる。UUIDでない値は null にして全件の拒否を防ぐ", () => {
+  const { timeBoxToRow, timeBoxFromRow } = mappersForBox;
+  const base = {
+    id: "00000000-0000-4000-8000-000000000001", date: "2026-09-15", start: "20:00", end: "21:00", title: "LP",
+    cardId: null, meta: { why: "", obstacle: "", counter: "" }, completedAt: null, review: null, createdAt: "2026-09-14T00:00:00.000Z",
+  };
+  const row = timeBoxToRow({ ...base, checkpointId: "0b0f2a4e-1111-4a4a-8a8a-000000000001" }, "u");
+  assert.equal(row.checkpoint_id, "0b0f2a4e-1111-4a4a-8a8a-000000000001");
+  assert.equal(timeBoxFromRow({ ...row, start_time: "20:00:00", end_time: "21:00:00" }).checkpointId, row.checkpoint_id);
+  assert.equal(timeBoxToRow({ ...base, checkpointId: "not-uuid" }, "u").checkpoint_id, null);
+  assert.equal(timeBoxToRow(base, "u").checkpoint_id, null);
 });
 
 console.log(`${passed} passed, ${failed} failed`);

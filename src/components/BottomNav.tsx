@@ -18,6 +18,8 @@ import { usePathname } from "next/navigation";
 const NAV = [
   // 「今日」の既定は時間割。タスクリスト（/list）は時間割から切り替える
   { href: "/plan", label: "今日", icon: TodayIcon },
+  // 目標と今日の予定の間。目標を今週の測れる目安に分ける（2026-09-17）
+  { href: "/checkpoints", label: "中間目標", icon: CheckpointIcon },
   { href: "/goals", label: "目標", icon: GoalIcon },
   { href: "/me", label: "わたし", icon: MeIcon },
 ] as const;
@@ -86,6 +88,17 @@ function TodayIcon({ active }: { active: boolean }) {
       <path d="M3.5 9.5h17" stroke="currentColor" strokeWidth={stroke(active)} />
       <path d="M8 3.5v3M16 3.5v3" stroke="currentColor" strokeWidth={stroke(active)} strokeLinecap="round" />
       {active && <circle cx="12" cy="14.5" r="2.2" fill="currentColor" />}
+    </svg>
+  );
+}
+
+function CheckpointIcon({ active }: { active: boolean }) {
+  // 的。目標（幹）より手前の、狙いを定める段
+  return (
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth={stroke(active)} />
+      <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth={stroke(active)} />
+      <circle cx="12" cy="12" r="1.3" fill="currentColor" />
     </svg>
   );
 }

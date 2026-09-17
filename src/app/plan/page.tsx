@@ -18,6 +18,7 @@ import {
   readDeviceFlag,
   writeDeviceFlag,
   loadCards,
+  loadCheckpoints,
   loadTimeBoxes,
   removeTimeBox,
   setHabitLog,
@@ -41,6 +42,7 @@ import { addDays, dueLabel, today } from "@/lib/date";
 import { DEVICE_KEY } from "@/lib/storage-keys";
 import { shouldShowOnboarding } from "@/lib/onboarding";
 import { presetCardIdFrom } from "@/lib/goal-card";
+import { presetCheckpointFrom } from "@/lib/checkpoint";
 import type { OverlayEvent } from "@/lib/calendar/overlay";
 import {
   nextReconnectFlag,
@@ -151,6 +153,33 @@ export default function PlanPage() {
      * （CalendarLink も同じやり方で `?calendar=` を読んでいる）。
      */
     setPresetCardId(presetCardIdFrom(location.search, all));
+    /*
+     * 中間目標タブの「予定に入れる」から来た（`?checkpoint=<id>`）。
+     * 目標と中間目標を入れた新しい予定を、いまの空きですぐ開く。
+     * 再読み込みで開き直さないよう、読んだら URL から外す。
+     */
+    const cp = presetCheckpointFrom(location.search, loadCheckpoints(), all);
+    if (cp) {
+      setPresetCardId(cp.cardId);
+      history.replaceState(null, "", "/plan");
+      const d = new Date();
+      const slot = slotFromNow(d.getHours() * 60 + d.getMinutes());
+      setEditing({
+        id: crypto.randomUUID(),
+        date: today(),
+        start: slot.start,
+        end: slot.end,
+        title: cp.title,
+        cardId: cp.cardId,
+        checkpointId: cp.id,
+        color: null,
+        meta: emptyMeta(),
+        completedAt: null,
+        review: null,
+        createdAt: new Date().toISOString(),
+      });
+      setIsNew(true);
+    }
     setShowIntro(
       shouldShowOnboarding({
         hasBigStory: loadBigStory() !== null,

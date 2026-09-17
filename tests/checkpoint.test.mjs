@@ -264,5 +264,194 @@ t("1件も無ければ空で、落ちない", () => {
   assert.deepEqual(todayCheckpoints([], ["card-1"], NOW), { shown: [], rest: 0 });
 });
 
+// ---------------------------------------------------------------- 中間目標タブ（2026-09-17）
+
+const P = await import("../src/lib/checkpoint.ts");
+
+const WEEK = { kind: "week", start: "2026-09-14", end: "2026-09-20" };
+const cpOf = (over = {}) => ({
+  id: "cp-1",
+  cardId: "card-1",
+  title: "副業に週10時間使う",
+  period: WEEK,
+  status: "active",
+  measure: "time",
+  target: 10,
+  createdAt: "2026-09-14T00:00:00.000Z",
+  updatedAt: "2026-09-14T00:00:00.000Z",
+  ...over,
+});
+const boxOf = (over = {}) => ({
+  id: `b-${Math.random()}`,
+  date: "2026-09-15",
+  start: "20:00",
+  end: "21:30",
+  title: "LP",
+  cardId: "card-1",
+  checkpointId: "cp-1",
+  meta: { why: "", obstacle: "", counter: "" },
+  completedAt: null,
+  review: null,
+  createdAt: "2026-09-14T00:00:00.000Z",
+  ...over,
+});
+
+t("測り方が無い既存の中間目標は「達成」として扱う", () => {
+  assert.equal(P.measureOf(cpOf({ measure: undefined })), "done");
+});
+
+t("時間：紐づけた予定の時間を合計し、完了した時間も別に返す", () => {
+  const r = P.checkpointProgress(cpOf(), [
+    boxOf(), // 1.5h 未完了
+    boxOf({ start: "09:00", end: "12:00", completedAt: "x" }), // 3h 完了
+  ]);
+  assert.equal(r.value, 4.5);
+  assert.equal(r.doneValue, 3);
+  assert.equal(r.target, 10);
+  assert.equal(r.ratio, 0.45);
+  assert.equal(r.met, false);
+});
+
+t("時間：期間外・別の中間目標・非表示の予定は数えない", () => {
+  const r = P.checkpointProgress(cpOf(), [
+    boxOf({ date: "2026-09-13" }),
+    boxOf({ date: "2026-09-21" }),
+    boxOf({ checkpointId: "other" }),
+    boxOf({ hiddenAt: "2026-09-15T00:00:00Z" }),
+    boxOf({ start: "10:00", end: "11:00" }),
+  ]);
+  assert.equal(r.value, 1);
+});
+
+t("時間：目安に届いたら met、割合は1で止める", () => {
+  const r = P.checkpointProgress(cpOf({ target: 2 }), [boxOf({ start: "08:00", end: "11:00" })]);
+  assert.equal(r.met, true);
+  assert.equal(r.ratio, 1);
+});
+
+t("回数：完了した予定の数＋手で足した数", () => {
+  const r = P.checkpointProgress(cpOf({ measure: "count", target: 3, manualCount: 1 }), [
+    boxOf({ completedAt: "x" }),
+    boxOf(), // 未完了は数えない
+  ]);
+  assert.equal(r.value, 2);
+  assert.equal(r.met, false);
+});
+
+t("達成：status が done なら値1・met", () => {
+  assert.equal(P.checkpointProgress(cpOf({ measure: "done", target: null, status: "done" }), []).met, true);
+  const r = P.checkpointProgress(cpOf({ measure: "done", target: null }), []);
+  assert.equal(r.value, 0);
+  assert.equal(r.met, false);
+});
+
+t("目安が無い（0や未設定）時間・回数でも割合は0で落ちない", () => {
+  const r = P.checkpointProgress(cpOf({ target: null }), [boxOf()]);
+  assert.equal(r.ratio, 0);
+  assert.equal(r.met, false);
+});
+
+t("今の期間の中間目標：期間が今日を含む・生きている目標。できた（done）は残し、終わりにした（abandoned）は出さない", () => {
+  // チェックした「達成」が一覧から消えると、取り消せず、できたことも見えなくなる
+  const list = [
+    cpOf({ id: "a" }),
+    cpOf({ id: "ended", period: { kind: "week", start: "2026-09-07", end: "2026-09-13" } }),
+    cpOf({ id: "future", period: { kind: "week", start: "2026-09-21", end: "2026-09-27" } }),
+    cpOf({ id: "checked", measure: "done", status: "done" }),
+    cpOf({ id: "gave-up", status: "abandoned" }),
+    cpOf({ id: "orphan", cardId: "gone" }),
+    cpOf({ id: "month", period: { kind: "month", start: "2026-09-01", end: "2026-09-30" } }),
+  ];
+  assert.deepEqual(
+    P.currentCheckpoints(list, ["card-1"], "2026-09-17").map((c) => c.id),
+    ["a", "checked", "month"],
+  );
+});
+
+t("振り返り待ち：活動中のまま期間が終わったもの", () => {
+  const list = [
+    cpOf({ id: "a" }),
+    cpOf({ id: "ended", period: { kind: "week", start: "2026-09-07", end: "2026-09-13" } }),
+    cpOf({ id: "ended-closed", status: "abandoned", period: { kind: "week", start: "2026-09-07", end: "2026-09-13" } }),
+  ];
+  assert.deepEqual(P.pendingReviews(list, ["card-1"], "2026-09-17").map((c) => c.id), ["ended"]);
+});
+
+const LAST = { kind: "week", start: "2026-09-07", end: "2026-09-13" };
+const NOW_DATE = new Date("2026-09-17T10:00:00");
+
+t("振り返り：目安に届いていたら done で閉じ、同じ目安で次の週を作る", () => {
+  const c = cpOf({ period: LAST, target: 2 });
+  const r = P.closeAndCarryOver(c, [boxOf({ date: "2026-09-08", start: "08:00", end: "11:00" })], { kind: "same" }, NOW_DATE);
+  assert.equal(r.closed.status, "done");
+  assert.equal(r.next.status, "active");
+  assert.deepEqual(r.next.period, { kind: "week", start: "2026-09-14", end: "2026-09-20" });
+  assert.equal(r.next.target, 2);
+  assert.equal(r.next.title, c.title);
+  assert.equal(r.next.measure, "time");
+  assert.equal(r.next.previousId, c.id);
+  assert.notEqual(r.next.id, c.id);
+  assert.equal(r.next.manualCount ?? 0, 0, "手で足した回数は引き継がない");
+});
+
+t("振り返り：届いていなければ abandoned で閉じ、目安を変えて続けられる", () => {
+  const r = P.closeAndCarryOver(cpOf({ period: LAST }), [], { kind: "change", target: 8 }, NOW_DATE);
+  assert.equal(r.closed.status, "abandoned");
+  assert.equal(r.next.target, 8);
+});
+
+t("振り返り：今の期間に同じ目標・同じタイトルの中間目標がもうあれば、二重に作らない", () => {
+  const existing = cpOf({ id: "this-week", period: WEEK });
+  const same = P.closeAndCarryOver(cpOf({ id: "last", period: LAST }), [], { kind: "same" }, NOW_DATE, [existing]);
+  assert.equal(same.closed.status, "abandoned");
+  assert.equal(same.next, null);
+  // 目安を変えるなら、既にあるほうの目安を変える（選んだのに何も起きない、にしない）
+  const changed = P.closeAndCarryOver(cpOf({ id: "last", period: LAST }), [], { kind: "change", target: 8 }, NOW_DATE, [existing]);
+  assert.equal(changed.next.id, "this-week");
+  assert.equal(changed.next.target, 8);
+});
+
+t("振り返り：終わりにするなら次は作らない", () => {
+  const r = P.closeAndCarryOver(cpOf({ period: LAST }), [], { kind: "end" }, NOW_DATE);
+  assert.equal(r.next, null);
+});
+
+t("振り返り：月の中間目標は今月として続く", () => {
+  const c = cpOf({ period: { kind: "month", start: "2026-08-01", end: "2026-08-31" } });
+  const r = P.closeAndCarryOver(c, [], { kind: "same" }, NOW_DATE);
+  assert.deepEqual(r.next.period, { kind: "month", start: "2026-09-01", end: "2026-09-30" });
+});
+
+t("予定シートの選択肢：同じ目標・日付を含む・活動中。今選んでいるものは条件外でも残す", () => {
+  const list = [
+    cpOf({ id: "ok" }),
+    cpOf({ id: "other-card", cardId: "card-2" }),
+    cpOf({ id: "ended", period: LAST }),
+    cpOf({ id: "closed", status: "done" }),
+  ];
+  assert.deepEqual(P.checkpointOptionsForBox(list, { cardId: "card-1", date: "2026-09-15", checkpointId: null }).map((c) => c.id), ["ok"]);
+  assert.deepEqual(
+    P.checkpointOptionsForBox(list, { cardId: "card-1", date: "2026-09-15", checkpointId: "closed" }).map((c) => c.id),
+    ["ok", "closed"],
+  );
+  assert.deepEqual(P.checkpointOptionsForBox(list, { cardId: null, date: "2026-09-15", checkpointId: null }), []);
+});
+
+t("?checkpoint= から中間目標を引く。無い・閉じた・目標が完了なら null", () => {
+  const list = [cpOf({ id: "a" }), cpOf({ id: "closed", status: "done" }), cpOf({ id: "done-card", cardId: "card-done" })];
+  const cards = [{ id: "card-1" }, { id: "card-done", status: "done" }];
+  assert.equal(P.presetCheckpointFrom("?checkpoint=a", list, cards)?.id, "a");
+  assert.equal(P.presetCheckpointFrom("?checkpoint=closed", list, cards), null);
+  assert.equal(P.presetCheckpointFrom("?checkpoint=done-card", list, cards), null);
+  assert.equal(P.presetCheckpointFrom("?checkpoint=nope", list, cards), null);
+  assert.equal(P.presetCheckpointFrom("", list, cards), null);
+});
+
+t("進み具合の表示：時間は小数1桁（整数なら小数なし）、回数は整数", () => {
+  assert.equal(P.formatProgressValue("time", 4.25), "4.3");
+  assert.equal(P.formatProgressValue("time", 4), "4");
+  assert.equal(P.formatProgressValue("count", 2), "2");
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

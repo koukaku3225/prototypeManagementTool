@@ -204,9 +204,23 @@ export interface Checkpoint {
   status: CheckpointStatus;
   /** 任意。建て方を評価したときだけ入る */
   evaluation?: CheckpointEvaluation | null;
+  /**
+   * 進み具合の測り方（中間目標タブ、2026-09-17）。無ければ "done"（それまでの中間目標）。
+   * 目標を今日の予定までつなげるには、「どこまで進んだか」が数で見える必要がある。
+   */
+  measure?: CheckpointMeasure;
+  /** 目安。time は時間数、count は回数。done では使わない */
+  target?: number | null;
+  /** 回数を手で＋1したぶん（予定にしない行動を数えるため） */
+  manualCount?: number;
+  /** 振り返りで続けたときの、引き継ぎ元の中間目標 */
+  previousId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+/** time: 紐づけた予定の時間／count: 完了した予定の数＋手で足した数／done: できたかどうか */
+export type CheckpointMeasure = "time" | "count" | "done";
 
 export interface Obstacle {
   id: string;

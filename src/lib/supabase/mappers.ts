@@ -14,6 +14,7 @@ import type {
 } from "@/types/goal";
 import type { Habit, HabitLog } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
+import { isValidUuid } from "@/lib/uuid";
 
 /**
  * date 列に入る値（実在する YYYY-MM-DD）だけを通し、それ以外は null にする。
@@ -207,6 +208,8 @@ export function timeBoxToRow(b: TimeBox, userId: string) {
     id: b.id,
     user_id: userId,
     card_id: b.cardId,
+    // uuid 列。形の違う値が1件でも混ざると全件の書き込みが拒否されるので、形を確かめてから送る
+    checkpoint_id: isValidUuid(b.checkpointId) ? b.checkpointId : null,
     habit_id: b.habitId ?? null,
     date: b.date,
     start_time: b.start,
@@ -235,6 +238,7 @@ export function timeBoxFromRow(r: Record<string, unknown>): TimeBox {
     end: (r.end_time as string).slice(0, 5),
     title: r.title as string,
     cardId: (r.card_id as string | null) ?? null,
+    checkpointId: (r.checkpoint_id as string | null) ?? null,
     color: (r.color as string | null) ?? null,
     habitId: (r.habit_id as string | null) ?? null,
     meta: r.meta as TimeBox["meta"],
@@ -343,6 +347,11 @@ export function checkpointToRow(c: Checkpoint, userId: string) {
     period_end: c.period.end,
     status: c.status,
     evaluation: c.evaluation ?? null,
+    // 測り方と目安（中間目標タブ）。null も明示して送る（外した目安がクラウドに残らないように）
+    measure: c.measure ?? null,
+    target: c.target ?? null,
+    manual_count: c.manualCount ?? 0,
+    previous_id: c.previousId ?? null,
     created_at: c.createdAt,
     updated_at: c.updatedAt,
   };
@@ -360,6 +369,11 @@ export function checkpointFromRow(r: Record<string, unknown>): Checkpoint {
     },
     status: r.status as Checkpoint["status"],
     evaluation: (r.evaluation as Checkpoint["evaluation"]) ?? null,
+    ...(r.measure ? { measure: r.measure as Checkpoint["measure"] } : {}),
+    // numeric 列は文字列で返ることがあるので数にしてから持つ
+    target: r.target === null || r.target === undefined ? null : Number(r.target),
+    manualCount: Number(r.manual_count ?? 0),
+    previousId: (r.previous_id as string | null) ?? null,
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
   };

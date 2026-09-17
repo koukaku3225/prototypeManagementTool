@@ -15,7 +15,13 @@ import {
 import { isGhost } from "@/lib/habit-plan";
 import { hasNotesOrDone, isFromGoogle } from "@/lib/calendar/primary";
 import { goalSelectOptions } from "@/lib/goal-card";
-import { loadTimeBoxes } from "@/lib/storage";
+import { loadCheckpoints, loadTimeBoxes } from "@/lib/storage";
+import {
+  checkpointOptionsForBox,
+  checkpointProgress,
+  formatProgressValue,
+  measureOf,
+} from "@/lib/checkpoint";
 import { emptyReview, type TimeBox } from "@/types/timebox";
 import type { GoalCard } from "@/types/goal";
 
@@ -148,6 +154,34 @@ export function TimeBoxSheet({
     () => goalSelectOptions(cards, draft.cardId),
     [cards, draft.cardId],
   );
+
+  // 中間目標は開いたときに1回だけ読む（シートを開いている間に増えることはない）
+  const checkpoints = useMemo(() => loadCheckpoints(), []);
+  const checkpointOptions = useMemo(
+    () => checkpointOptionsForBox(checkpoints, draft),
+    [checkpoints, draft],
+  );
+  /**
+   * 紐づけたときの進み具合の見込み。「入れたら何時間になるか」が見えると、
+   * 目安に対してどれだけ時間を押さえればよいかがその場で分かる。
+   */
+  const checkpointHint = useMemo(() => {
+    const cp = checkpoints.find((c) => c.id === draft.checkpointId);
+    if (!cp) return null;
+    const measure = measureOf(cp);
+    if (measure === "done") return null;
+    // 保存済みの自分を除いて、いまの下書きを足した姿で数える
+    const others = loadTimeBoxes().filter((b) => b.id !== draft.id);
+    const before = checkpointProgress(cp, others);
+    const after = checkpointProgress(cp, [...others, draft]);
+    const unit = measure === "time" ? "時間" : "回";
+    const t = after.target ?? "—";
+    if (measure === "count" && !draft.completedAt) {
+      return `完了にすると ${formatProgressValue(measure, before.value)} → ${formatProgressValue(measure, before.value + 1)} / ${t}${unit}`;
+    }
+    return `${formatProgressValue(measure, before.value)} → ${formatProgressValue(measure, after.value)} / ${t}${unit}`;
+    // draft 全体を見るのは時刻・日付・完了で数が変わるため
+  }, [checkpoints, draft]);
 
   const lastAdvice = useMemo(
     () => lastAdviceFor({ id: draft.id, cardId: draft.cardId, date: draft.date }, loadTimeBoxes()),
@@ -303,7 +337,14 @@ export function TimeBoxSheet({
                 <p className="mb-1 text-[11.5px] text-muted">どの目標のためか</p>
                 <select
                   value={draft.cardId ?? ""}
-                  onChange={(e) => patch({ cardId: e.target.value || null })}
+                  onChange={(e) => {
+                    const cardId = e.target.value || null;
+                    // 目標を変えたら、その目標にぶら下がらない中間目標は外す
+                    const keep =
+                      draft.checkpointId &&
+                      checkpoints.find((c) => c.id === draft.checkpointId)?.cardId === cardId;
+                    patch({ cardId, checkpointId: keep ? draft.checkpointId : null });
+                  }}
                   className="min-h-11 w-full rounded-lg border border-line bg-surface px-3 text-[14px]"
                   aria-label="紐づける目標"
                 >
@@ -315,6 +356,37 @@ export function TimeBoxSheet({
                   ))}
                 </select>
               </div>
+
+              {/*
+                どの中間目標か（中間目標タブ、2026-09-17）。
+                中間目標の「時間」「回数」はこの紐づけで数える。
+                目標を選び、その期間に当たる中間目標があるときだけ出す（空の欄を増やさない）
+              */}
+              {checkpointOptions.length > 0 && (
+                <div className="mt-3">
+                  <p className="mb-1 text-[11.5px] text-muted">どの中間目標か</p>
+                  <select
+                    value={draft.checkpointId ?? ""}
+                    onChange={(e) => patch({ checkpointId: e.target.value || null })}
+                    className={`min-h-11 w-full rounded-lg border px-3 text-[14px] ${
+                      draft.checkpointId
+                        ? "border-accent-line bg-accent-soft text-accent"
+                        : "border-line bg-surface"
+                    }`}
+                    aria-label="紐づける中間目標"
+                  >
+                    <option value="">（紐づけない）</option>
+                    {checkpointOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title || "（未記入）"}
+                      </option>
+                    ))}
+                  </select>
+                  {checkpointHint && (
+                    <p className="mt-1 text-[11.5px] text-muted">{checkpointHint}</p>
+                  )}
+                </div>
+              )}
 
               {/*
                 色。既定では目標ごとに自動で決まる。

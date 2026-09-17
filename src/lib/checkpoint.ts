@@ -1,5 +1,12 @@
 import { addDays, diffDays, startOfWeek, today, toLocalDate } from "@/lib/date";
-import type { Checkpoint, CheckpointEvaluation, CheckpointPeriodKind } from "@/types/goal";
+import { durationMin } from "@/lib/timebox";
+import type {
+  Checkpoint,
+  CheckpointEvaluation,
+  CheckpointMeasure,
+  CheckpointPeriodKind,
+} from "@/types/goal";
+import type { TimeBox } from "@/types/timebox";
 
 /**
  * 中間目標（週/月）の計算。
@@ -120,6 +127,197 @@ export function emptyCheckpoint(cardId: string, kind: CheckpointPeriodKind = "we
     createdAt: now,
     updatedAt: now,
   };
+}
+
+// ---------------------------------------------------------------- 進み具合と引き継ぎ（中間目標タブ）
+
+export const measureOf = (c: Pick<Checkpoint, "measure">): CheckpointMeasure => c.measure ?? "done";
+
+export interface CheckpointProgress {
+  measure: CheckpointMeasure;
+  /** time は予定の合計時間（時間）、count は回数、done は 0/1 */
+  value: number;
+  /** time のうち完了した時間。それ以外は value と同じ */
+  doneValue: number;
+  /** 目安。done と、目安が無いときは null */
+  target: number | null;
+  /** 0〜1。目安が無ければ done 以外は 0 */
+  ratio: number;
+  met: boolean;
+}
+
+/**
+ * 中間目標の進み具合。
+ *
+ * 紐づけた予定のうち、非表示でなく、日付が期間内のものだけを数える。
+ * 時間は「予定を入れた時点」で数える（竜一の選択、2026-09-17）。
+ * 確保した時間が見えることを優先し、実際にやった時間は doneValue で添える。
+ */
+export function checkpointProgress(
+  c: Checkpoint,
+  boxes: readonly TimeBox[],
+): CheckpointProgress {
+  const measure = measureOf(c);
+  if (measure === "done") {
+    const met = c.status === "done";
+    return { measure, value: met ? 1 : 0, doneValue: met ? 1 : 0, target: null, ratio: met ? 1 : 0, met };
+  }
+  const linked = boxes.filter(
+    (b) =>
+      b.checkpointId === c.id &&
+      !b.hiddenAt &&
+      b.date >= c.period.start &&
+      b.date <= c.period.end,
+  );
+  let value: number;
+  let doneValue: number;
+  if (measure === "time") {
+    value = linked.reduce((s, b) => s + durationMin(b), 0) / 60;
+    doneValue = linked.filter((b) => b.completedAt).reduce((s, b) => s + durationMin(b), 0) / 60;
+  } else {
+    value = linked.filter((b) => b.completedAt).length + (c.manualCount ?? 0);
+    doneValue = value;
+  }
+  const target = c.target && c.target > 0 ? c.target : null;
+  const ratio = target ? Math.min(1, value / target) : 0;
+  return { measure, value, doneValue, target, ratio, met: target !== null && value >= target };
+}
+
+/** 数の見せ方。時間は小数1桁（整数ならそのまま）、回数は整数 */
+export function formatProgressValue(measure: CheckpointMeasure, v: number): string {
+  if (measure !== "time") return String(Math.round(v));
+  const r = Math.round(v * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
+/**
+ * 今の期間の中間目標。期間が今日を含み、生きている目標にぶら下がる。
+ * できた（done）も残す。チェックした「達成」が消えると、取り消せず、できたことも見えなくなる。
+ * 終わりにした（abandoned）は出さない。
+ */
+export function currentCheckpoints(
+  list: readonly Checkpoint[],
+  liveCardIds: readonly string[],
+  now: string = today(),
+): Checkpoint[] {
+  const live = new Set(liveCardIds);
+  return list.filter(
+    (c) =>
+      c.status !== "abandoned" && live.has(c.cardId) && c.period.start <= now && now <= c.period.end,
+  );
+}
+
+/** 振り返り待ち。活動中のまま期間が終わったもの */
+export function pendingReviews(
+  list: readonly Checkpoint[],
+  liveCardIds: readonly string[],
+  now: string = today(),
+): Checkpoint[] {
+  const live = new Set(liveCardIds);
+  return list
+    .filter((c) => c.status === "active" && live.has(c.cardId) && isPeriodOver(c, now))
+    .sort((a, b) => a.period.end.localeCompare(b.period.end));
+}
+
+export type CarryOverChoice = { kind: "same" } | { kind: "change"; target: number } | { kind: "end" };
+
+/**
+ * 期間が終わった中間目標を閉じ、続けるなら今の期間で新しく作る。
+ *
+ * 閉じるときの status は結果で決める（達成 → done、未達 → abandoned）。
+ * abandoned は既存の「今回は終わりにする」で、失敗ではない（goal.ts の CheckpointStatus 参照）。
+ * 手で足した回数は新しい期間に持ち越さない。
+ */
+export function closeAndCarryOver(
+  c: Checkpoint,
+  boxes: readonly TimeBox[],
+  choice: CarryOverChoice,
+  now: Date = new Date(),
+  /** 既にある中間目標。今の期間に同じものがあれば作らない（手で先に足していた場合） */
+  existing: readonly Checkpoint[] = [],
+): { closed: Checkpoint; next: Checkpoint | null } {
+  const at = now.toISOString();
+  const { met } = checkpointProgress(c, boxes);
+  const closed: Checkpoint = { ...c, status: met ? "done" : "abandoned", updatedAt: at };
+  if (choice.kind === "end") return { closed, next: null };
+  const period = { kind: c.period.kind, ...defaultPeriod(c.period.kind, now) };
+  const dup = existing.find(
+    (x) =>
+      x.id !== c.id &&
+      x.cardId === c.cardId &&
+      x.title.trim() === c.title.trim() &&
+      x.period.kind === period.kind &&
+      x.period.start === period.start,
+  );
+  if (dup) {
+    // 目安を変えるなら既にあるほうを変える。選んだのに何も起きない、にしない
+    return {
+      closed,
+      next: choice.kind === "change" ? { ...dup, target: choice.target, updatedAt: at } : null,
+    };
+  }
+  const next: Checkpoint = {
+    id: crypto.randomUUID(),
+    cardId: c.cardId,
+    title: c.title,
+    period,
+    status: "active",
+    measure: measureOf(c),
+    target: choice.kind === "change" ? choice.target : (c.target ?? null),
+    manualCount: 0,
+    previousId: c.id,
+    createdAt: at,
+    updatedAt: at,
+  };
+  return { closed, next };
+}
+
+/**
+ * 予定シートの「どの中間目標か」に並べるもの。
+ * 予定の目標にぶら下がり、予定の日付を期間に含む活動中のもの。
+ * 今選んでいるものは、条件から外れていても残す（黙って外れて見えないように）。
+ */
+export function checkpointOptionsForBox(
+  list: readonly Checkpoint[],
+  box: Pick<TimeBox, "cardId" | "date" | "checkpointId">,
+): Checkpoint[] {
+  const out = box.cardId
+    ? list.filter(
+        (c) =>
+          c.cardId === box.cardId &&
+          c.status === "active" &&
+          c.period.start <= box.date &&
+          box.date <= c.period.end,
+      )
+    : [];
+  if (box.checkpointId && !out.some((c) => c.id === box.checkpointId)) {
+    const cur = list.find((c) => c.id === box.checkpointId);
+    if (cur) out.push(cur);
+  }
+  return out;
+}
+
+/**
+ * `/plan?checkpoint=<id>` で渡された中間目標。
+ * 実在しない・閉じた・目標が完了した中間目標は無視する（古いリンクを踏むことがある）。
+ */
+export function presetCheckpointFrom(
+  search: string,
+  list: readonly Checkpoint[],
+  cards: readonly { id: string; status?: string }[],
+): Checkpoint | null {
+  let id: string | null = null;
+  try {
+    id = new URLSearchParams(search).get("checkpoint");
+  } catch {
+    return null;
+  }
+  if (!id) return null;
+  const cp = list.find((c) => c.id === id);
+  if (!cp || cp.status !== "active") return null;
+  const card = cards.find((c) => c.id === cp.cardId);
+  if (!card || (card.status ?? "active") === "done") return null;
+  return cp;
 }
 
 // ---------------------------------------------------------------- 建て方の評価
