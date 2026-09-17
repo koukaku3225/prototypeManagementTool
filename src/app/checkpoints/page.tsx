@@ -11,14 +11,16 @@ import {
   daysLeft,
   formatProgressValue,
   measureOf,
+  parseCheckpointTarget,
   pendingReviews,
   periodLabel,
+  reviewPickReady,
   withManualCountDelta,
   type CarryOverChoice,
 } from "@/lib/checkpoint";
 import { goalCardLabel } from "@/lib/goal-card";
 import { diffDays, today } from "@/lib/date";
-import { loadCards, loadCheckpoints, loadTimeBoxes, upsertCheckpoint } from "@/lib/storage";
+import { deleteCheckpoint, loadCards, loadCheckpoints, loadTimeBoxes, upsertCheckpoint } from "@/lib/storage";
 import type {
   Checkpoint,
   CheckpointMeasure,
@@ -176,6 +178,10 @@ export default function CheckpointsPage() {
                           boxes={boxes}
                           now={now}
                           onSave={save}
+                          onDelete={(x) => {
+                            deleteCheckpoint(x.id);
+                            reload();
+                          }}
                         />
                       ))}
                     </ul>
@@ -218,13 +224,17 @@ function CheckpointRow({
   boxes,
   now,
   onSave,
+  onDelete,
 }: {
   c: Checkpoint;
   color: string;
   boxes: TimeBox[];
   now: string;
   onSave: (c: Checkpoint) => void;
+  onDelete: (c: Checkpoint) => void;
 }) {
+  /** 間違えて足したものを片付ける。押し間違いで消えないよう、開いてから選ぶ */
+  const [menu, setMenu] = useState<"closed" | "open" | "confirmDelete">("closed");
   const p = checkpointProgress(c, boxes);
   const measure = measureOf(c);
   // 次に入っている紐づけた予定。いまより後のうち、いちばん近いもの
@@ -271,6 +281,16 @@ function CheckpointRow({
             {c.period.kind === "week" ? "週" : "月"}
           </span>
         )}
+        {/* 行の下段は予定の案内とボタンで埋まっているので、上段の右端に置く */}
+        <button
+          type="button"
+          onClick={() => setMenu(menu === "closed" ? "open" : "closed")}
+          aria-expanded={menu !== "closed"}
+          aria-label={`${c.title || "中間目標"}のほかの操作`}
+          className="flex -my-1.5 -mr-1.5 min-h-8 min-w-8 shrink-0 items-center justify-center rounded-lg text-[15px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          ⋯
+        </button>
       </div>
 
       {measure !== "done" && (
@@ -321,6 +341,46 @@ function CheckpointRow({
           ＋予定に入れる
         </Link>
       </div>
+
+      {menu !== "closed" && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line-soft pt-2 text-[11.5px]">
+          {menu === "open" ? (
+            <>
+              {/* abandoned は既存の「今回は終わりにする」。目標の詳細から「続きから戻す」で戻せる */}
+              <button
+                type="button"
+                onClick={() => onSave({ ...c, status: "abandoned" })}
+                className="min-h-8 text-muted underline"
+              >
+                今回は終わりにする
+              </button>
+              <button
+                type="button"
+                onClick={() => setMenu("confirmDelete")}
+                className="min-h-8 text-muted underline"
+              >
+                消す
+              </button>
+              <Link href={`/goal/${c.cardId}#sec-checkpoint`} className="inline-flex min-h-8 items-center text-muted underline">
+                目安を直す
+              </Link>
+            </>
+          ) : (
+            <>
+              <span>
+                消しますか？
+                {boxes.some((b) => b.checkpointId === c.id) && "（紐づけた予定は残ります）"}
+              </span>
+              <button type="button" onClick={() => onDelete(c)} className="min-h-8 text-accent underline">
+                消す
+              </button>
+              <button type="button" onClick={() => setMenu("closed")} className="min-h-8 text-muted underline">
+                やめる
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </li>
   );
 }
@@ -354,8 +414,8 @@ function AddSheet({
   }, [onClose]);
 
   const period = defaultPeriod(kind);
-  const n = Number(target);
-  const targetOk = measure === "done" || (Number.isFinite(n) && n > 0);
+  const n = parseCheckpointTarget(measure, target);
+  const targetOk = measure === "done" || n !== null;
   const canAdd = Boolean(cardId && title.trim() && targetOk);
 
   return (
@@ -479,7 +539,7 @@ function AddSheet({
                 period: { kind, ...period },
                 status: "active",
                 measure,
-                target: measure === "done" ? null : n,
+                target: n,
                 manualCount: 0,
                 previousId: null,
                 createdAt: at,
@@ -552,7 +612,7 @@ function ReviewSection({
 }) {
   const [picks, setPicks] = useState<Record<string, Pick3>>({});
   const [targets, setTargets] = useState<Record<string, string>>({});
-  const allPicked = reviews.every((c) => picks[c.id]);
+  const allPicked = reviews.every((c) => reviewPickReady(c, picks[c.id], targets[c.id]));
 
   function apply() {
     const changed: Checkpoint[] = [];
@@ -561,8 +621,9 @@ function ReviewSection({
       let choice: CarryOverChoice = { kind: "end" };
       if (pick === "same") choice = { kind: "same" };
       if (pick === "change") {
-        const n = Number(targets[c.id]);
-        choice = Number.isFinite(n) && n > 0 ? { kind: "change", target: n } : { kind: "same" };
+        // reviewPickReady で弾いているので、ここで null になることは無い
+        const n = parseCheckpointTarget(measureOf(c), targets[c.id] ?? "");
+        if (n !== null) choice = { kind: "change", target: n };
       }
       const { closed, next } = closeAndCarryOver(c, boxes, choice, new Date(), [...all, ...changed]);
       changed.push(closed);
@@ -669,7 +730,11 @@ function ReviewSection({
         onClick={apply}
         className="mt-2 min-h-[48px] w-full rounded-xl bg-indigo px-4 text-[14.5px] font-medium text-surface disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
-        {allPicked ? "この内容で始める" : `あと${reviews.filter((c) => !picks[c.id]).length}件選んでください`}
+        {allPicked
+          ? "この内容で始める"
+          : reviews.some((c) => picks[c.id] === "change" && !reviewPickReady(c, "change", targets[c.id]))
+            ? "次の目安を数で入れてください"
+            : `あと${reviews.filter((c) => !picks[c.id]).length}件選んでください`}
       </button>
     </section>
   );

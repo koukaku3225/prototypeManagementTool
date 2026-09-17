@@ -8,7 +8,7 @@ import { NowBar } from "@/components/NowBar";
 import { RunningBar } from "@/components/RunningBar";
 import { TimeBoxSheet } from "@/components/TimeBoxSheet";
 import { TodayCheckpoints } from "@/components/TodayCheckpoints";
-import { todayCheckpoints } from "@/lib/checkpoint";
+import { progressSummary, todayCheckpoints } from "@/lib/checkpoint";
 import {
   activeHabits,
   cancelRunning,
@@ -69,6 +69,8 @@ import {
 export default function TodayPage() {
   const [cards, setCards] = useState<GoalCard[]>([]);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
+  /** 中間目標の進み具合を数えるための全予定（boxes は今日の分だけ） */
+  const [allBoxes, setAllBoxes] = useState<TimeBox[]>([]);
   const [boxes, setBoxes] = useState<TimeBox[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
   const [logs, setLogs] = useState<HabitLog[]>([]);
@@ -91,11 +93,13 @@ export default function TodayPage() {
      * 時間割と同じ基準で「終わった目標の習慣は出さない」が揃う。
      */
     const hs = habitsOfActiveCards(activeHabits(), allCards);
+    const all = loadTimeBoxes();
+    setAllBoxes(all);
     // 足しただけだと習慣の枠が必ず後ろに来る。時刻順に並べ直す
     setBoxes(
       sortByStart([
         ...timeBoxesOn(today()),
-        ...habitBoxesOn(today(), hs, loadTimeBoxes()),
+        ...habitBoxesOn(today(), hs, all),
       ]),
     );
     setHabits(hs);
@@ -282,6 +286,7 @@ export default function TodayPage() {
           shown={nowCheckpoints.shown}
           rest={nowCheckpoints.rest}
           cards={cards}
+          progressOf={(c) => progressSummary(c, allBoxes)}
         />
 
         {nothingYet ? (

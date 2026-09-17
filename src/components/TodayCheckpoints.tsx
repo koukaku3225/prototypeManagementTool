@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { TodayCheckpoint } from "@/lib/checkpoint";
 import { goalCardLabel } from "@/lib/goal-card";
-import type { GoalCard } from "@/types/goal";
+import type { Checkpoint, GoalCard } from "@/types/goal";
 
 /**
  * 今日の画面の先頭に出す、いまの中間目標（R19、2026-09-14）。
@@ -17,10 +17,13 @@ export function TodayCheckpoints({
   shown,
   rest,
   cards,
+  progressOf = () => null,
 }: {
   shown: TodayCheckpoint[];
   rest: number;
   cards: GoalCard[];
+  /** 「5.5 / 10時間」のような進み具合。達成（数の無いもの）は null */
+  progressOf?: (c: Checkpoint) => string | null;
 }) {
   if (shown.length === 0) return null;
 
@@ -32,6 +35,7 @@ export function TodayCheckpoints({
       <ul className="mt-2 flex flex-col gap-2">
         {shown.map(({ checkpoint: c, over, left }) => {
           const card = cards.find((x) => x.id === c.cardId);
+          const progress = progressOf(c);
           return (
             <li key={c.id}>
               <Link
@@ -58,9 +62,10 @@ export function TodayCheckpoints({
                     </span>
                     {c.title}
                   </span>
-                  {card && (
-                    <span className="mt-0.5 block truncate text-[11px] text-muted">
-                      {goalCardLabel(card)}
+                  {(card || progress) && (
+                    <span className="mt-0.5 flex gap-2 text-[11px] text-muted">
+                      {progress && <span className="shrink-0 tabular-nums text-ink">{progress}</span>}
+                      {card && <span className="min-w-0 truncate">{goalCardLabel(card)}</span>}
                     </span>
                   )}
                 </span>

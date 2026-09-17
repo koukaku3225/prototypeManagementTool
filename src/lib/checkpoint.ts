@@ -207,6 +207,51 @@ export function formatProgressValue(measure: CheckpointMeasure, v: number): stri
 }
 
 /**
+ * 入力欄の目安を数にする。正しくなければ null。
+ * `Number("")` は 0 なので、空欄を「0時間」と読まないよう先に弾く。回数は整数だけ
+ */
+export function parseCheckpointTarget(measure: CheckpointMeasure, raw: string): number | null {
+  if (measure === "done" || raw.trim() === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (measure === "count" && !Number.isInteger(n)) return null;
+  return n;
+}
+
+/**
+ * 振り返りの1件が選び終わっているか。
+ * 「目安を変えて続ける」で数が正しくないのに始められると、黙って同じ目安で続いてしまう
+ */
+export function reviewPickReady(
+  c: Pick<Checkpoint, "measure">,
+  pick: "same" | "change" | "end" | undefined,
+  rawTarget: string | undefined,
+): boolean {
+  if (!pick) return false;
+  if (pick !== "change") return true;
+  return parseCheckpointTarget(measureOf(c), rawTarget ?? "") !== null;
+}
+
+/** 今日の画面に添える進み具合。「5.5 / 10時間」「2 / 3回」。達成は数が無いので null */
+export function progressSummary(c: Checkpoint, boxes: readonly TimeBox[]): string | null {
+  const p = checkpointProgress(c, boxes);
+  if (p.measure === "done") return null;
+  const unit = p.measure === "time" ? "時間" : "回";
+  const v = formatProgressValue(p.measure, p.value);
+  return p.target === null ? `${v}${unit}` : `${v} / ${formatProgressValue(p.measure, p.target)}${unit}`;
+}
+
+/**
+ * 測り方と目安を変える（目標の詳細の編集欄）。
+ * 時間・回数で目安が正しくないときは変えない。入力途中の空欄で「目安なし」を保存しない
+ */
+export function withMeasure(c: Checkpoint, measure: CheckpointMeasure, target: number | null): Checkpoint {
+  if (measure === "done") return { ...c, measure, target: null };
+  if (target === null) return c;
+  return { ...c, measure, target };
+}
+
+/**
  * 今の期間の中間目標。期間が今日を含み、生きている目標にぶら下がる。
  * できた（done）も残す。チェックした「達成」が消えると、取り消せず、できたことも見えなくなる。
  * 終わりにした（abandoned）は出さない。

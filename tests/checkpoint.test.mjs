@@ -478,5 +478,49 @@ t("進み具合の表示：時間は小数1桁（整数なら小数なし）、�
   assert.equal(P.formatProgressValue("count", 2), "2");
 });
 
+
+t("目安の読み取り：時間は0より大きい数、回数は1以上の整数、達成は常に null", () => {
+  assert.equal(P.parseCheckpointTarget("time", "7.5"), 7.5);
+  assert.equal(P.parseCheckpointTarget("time", "0"), null);
+  assert.equal(P.parseCheckpointTarget("time", ""), null); // Number("") は 0。空欄を0時間と読まない
+  assert.equal(P.parseCheckpointTarget("time", "abc"), null);
+  assert.equal(P.parseCheckpointTarget("count", "3"), 3);
+  assert.equal(P.parseCheckpointTarget("count", "2.5"), null);
+  assert.equal(P.parseCheckpointTarget("count", "-1"), null);
+  assert.equal(P.parseCheckpointTarget("done", "5"), null);
+});
+
+t("振り返り：目安を変えるを選んで数が正しくないうちは、始められない（黙って同じ目安で続けない）", () => {
+  const c = cpOf({ period: LAST });
+  assert.equal(P.reviewPickReady(c, "change", ""), false);
+  assert.equal(P.reviewPickReady(c, "change", "0"), false);
+  assert.equal(P.reviewPickReady(c, "change", "8"), true);
+  assert.equal(P.reviewPickReady(c, "same", ""), true);
+  assert.equal(P.reviewPickReady(c, "end", undefined), true);
+  assert.equal(P.reviewPickReady(c, undefined, "8"), false);
+});
+
+t("今日の画面の進み具合：時間は「5.5 / 10時間」、回数は「2 / 3回」、達成は出さない", () => {
+  const boxes = [boxOf({ start: "10:00", end: "15:30" })];
+  assert.equal(P.progressSummary(cpOf(), boxes), "5.5 / 10時間");
+  assert.equal(P.progressSummary(cpOf({ measure: "count", target: 3, manualCount: 2 }), []), "2 / 3回");
+  assert.equal(P.progressSummary(cpOf({ target: null }), boxes), "5.5時間");
+  assert.equal(P.progressSummary(cpOf({ measure: "done", target: null }), boxes), null);
+  assert.equal(P.progressSummary(cpOf({ measure: undefined }), boxes), null); // 既存データは達成
+});
+
+t("測り方を変える：達成にすると目安は消え、時間・回数にすると渡した目安が入る", () => {
+  const toDone = P.withMeasure(cpOf(), "done", 5);
+  assert.equal(toDone.measure, "done");
+  assert.equal(toDone.target, null);
+  const toCount = P.withMeasure(cpOf({ measure: "done", target: null }), "count", 3);
+  assert.equal(toCount.measure, "count");
+  assert.equal(toCount.target, 3);
+  // 目安が正しくないなら変えない（空欄の途中で「0回」を保存しない）
+  const bad = P.withMeasure(cpOf(), "count", null);
+  assert.equal(bad.measure, "time");
+  assert.equal(bad.target, 10);
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

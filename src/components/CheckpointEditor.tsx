@@ -10,9 +10,17 @@ import {
   evaluationSummary,
   isEvaluated,
   isPeriodOver,
+  measureOf,
+  parseCheckpointTarget,
+  withMeasure,
 } from "@/lib/checkpoint";
 import { deleteCheckpoint, upsertCheckpoint } from "@/lib/storage";
-import type { Checkpoint, CheckpointEvaluation, CheckpointPeriodKind } from "@/types/goal";
+import type {
+  Checkpoint,
+  CheckpointEvaluation,
+  CheckpointMeasure,
+  CheckpointPeriodKind,
+} from "@/types/goal";
 
 /**
  * 目標にぶら下がる中間目標（週/月）の編集。
@@ -109,6 +117,19 @@ export function CheckpointEditor({
                 onSave={(v) => patch(c, { title: v })}
               />
             </div>
+
+            {/*
+              測り方と目安（中間目標タブ、2026-09-17）。タブで足したものしか持っていなかったので、
+              ここで作った中間目標にも時間・回数の目安を付けられるようにする。下書きはまだ対象が無い
+            */}
+            {!isDraft && (
+              <MeasureField
+                key={`${c.id}-${measureOf(c)}-${c.target ?? ""}`}
+                name={name}
+                c={c}
+                onSave={(next) => patch(c, { measure: next.measure, target: next.target })}
+              />
+            )}
 
             {/* 進捗。達成率ではなく期間の消化率。中身の達成度は本人が状態で申告する */}
             {c.status === "active" && !isDraft && (
@@ -272,5 +293,90 @@ function Kind({
     >
       {children}
     </button>
+  );
+}
+
+const MEASURES: [CheckpointMeasure, string, string][] = [
+  ["time", "時間", "時間"],
+  ["count", "回数", "回"],
+  ["done", "達成", ""],
+];
+
+/**
+ * 測り方と目安。目安は打ち終わり（フォーカスを外す・Enter）で保存する。
+ * 1文字ごとに保存すると「1」を打った瞬間に目安1時間が同期に乗る。
+ * 時間・回数へ切り替えたときは、目安を入れて初めて保存する（目安の無い「時間」を作らない）
+ */
+function MeasureField({
+  name,
+  c,
+  onSave,
+}: {
+  name: string;
+  c: Checkpoint;
+  onSave: (next: Checkpoint) => void;
+}) {
+  const saved = measureOf(c);
+  const [measure, setMeasure] = useState<CheckpointMeasure>(saved);
+  const [raw, setRaw] = useState(c.target != null ? String(c.target) : "");
+  const target = parseCheckpointTarget(measure, raw);
+  const unit = MEASURES.find(([m]) => m === measure)?.[2] ?? "";
+
+  function commit(m: CheckpointMeasure, t: number | null) {
+    const next = withMeasure(c, m, t);
+    // 目安が正しくないと withMeasure は元のまま返す。変わっていなければ保存しない
+    if (measureOf(next) === saved && (next.target ?? null) === (c.target ?? null)) {
+      // 測り方は同じまま空欄・0で抜けたら、保存されている目安に戻す（空欄なのに目安が残って見えないように）
+      if (m === saved) setRaw(c.target != null ? String(c.target) : "");
+      return;
+    }
+    onSave(next);
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <span className="text-[11px] text-muted" aria-hidden="true">
+        測り方
+      </span>
+      <div role="group" aria-label={`${name}の測り方`} className="flex gap-1">
+        {MEASURES.map(([m, label]) => (
+          <Kind
+            key={m}
+            on={measure === m}
+            onClick={() => {
+              setMeasure(m);
+              if (m === "done") commit("done", null);
+              else commit(m, parseCheckpointTarget(m, raw));
+            }}
+          >
+            {label}
+          </Kind>
+        ))}
+      </div>
+      {measure !== "done" && (
+        <label className="ml-auto flex items-center gap-1 text-[11.5px] text-muted">
+          目安
+          <input
+            type="number"
+            inputMode="decimal"
+            min={measure === "time" ? 0.5 : 1}
+            step={measure === "time" ? 0.5 : 1}
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+            onBlur={() => commit(measure, target)}
+            onKeyDown={(e) => e.key === "Enter" && commit(measure, target)}
+            aria-label={`${name}の目安（${unit}）`}
+            aria-invalid={raw !== "" && target === null}
+            className="min-h-8 w-16 rounded-md border border-line bg-surface px-2 text-right text-[12.5px] tabular-nums text-ink"
+          />
+          {unit}
+        </label>
+      )}
+      {measure !== saved && measure !== "done" && target === null && (
+        <p className="w-full text-[11px] text-accent">
+          目安を{measure === "count" ? "1以上の整数で" : "数で"}入れると保存されます
+        </p>
+      )}
+    </div>
   );
 }
