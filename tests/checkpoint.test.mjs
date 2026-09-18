@@ -345,6 +345,52 @@ t("達成：status が done なら値1・met", () => {
   assert.equal(r.met, false);
 });
 
+t("時間：Google で消された予定は数えない（時間割には薄く残るが、押さえた時間はもう無い）", () => {
+  const r = P.checkpointProgress(cpOf(), [
+    boxOf({ start: "09:00", end: "12:00" }), // 3h 生きている
+    boxOf({ start: "13:00", end: "16:00", source: "google", sourceEventId: "ev-1", sourceGoneAt: "2026-09-18T10:00:00.000Z" }),
+  ]);
+  assert.equal(r.value, 3);
+});
+
+t("時間：Google で消されても、完了にしてあれば実際にやった記録なので数える", () => {
+  const r = P.checkpointProgress(cpOf(), [
+    boxOf({
+      start: "13:00",
+      end: "16:00",
+      source: "google",
+      sourceEventId: "ev-1",
+      sourceGoneAt: "2026-09-18T10:00:00.000Z",
+      completedAt: "2026-09-18T07:00:00.000Z",
+    }),
+  ]);
+  assert.equal(r.value, 3);
+  assert.equal(r.doneValue, 3);
+});
+
+t("回数：Google で消された未完了の予定は、手で足した数を巻き込まない", () => {
+  const r = P.checkpointProgress(cpOf({ measure: "count", target: 3, manualCount: 1 }), [
+    boxOf({ completedAt: "x" }),
+    boxOf({ completedAt: null, source: "google", sourceEventId: "ev-2", sourceGoneAt: "2026-09-18T10:00:00.000Z" }),
+  ]);
+  assert.equal(r.value, 2);
+});
+
+t("進み具合の1行も、Google で消された予定を数えない", () => {
+  const boxes = [
+    boxOf({ start: "09:00", end: "12:00" }),
+    boxOf({ start: "13:00", end: "16:00", source: "google", sourceEventId: "ev-1", sourceGoneAt: "2026-09-18T10:00:00.000Z" }),
+  ];
+  assert.equal(P.progressSummary(cpOf(), boxes), "3 / 10時間");
+});
+
+t("countsForCheckpoint：非表示と、Google で消された未完了だけを落とす", () => {
+  assert.equal(P.countsForCheckpoint(boxOf()), true);
+  assert.equal(P.countsForCheckpoint(boxOf({ hiddenAt: "x" })), false);
+  assert.equal(P.countsForCheckpoint(boxOf({ sourceGoneAt: "x" })), false);
+  assert.equal(P.countsForCheckpoint(boxOf({ sourceGoneAt: "x", completedAt: "y" })), true);
+});
+
 t("目安が無い（0や未設定）時間・回数でも割合は0で落ちない", () => {
   const r = P.checkpointProgress(cpOf({ target: null }), [boxOf()]);
   assert.equal(r.ratio, 0);

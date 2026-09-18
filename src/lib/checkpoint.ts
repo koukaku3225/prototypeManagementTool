@@ -1,5 +1,5 @@
 import { addDays, diffDays, startOfWeek, today, toLocalDate } from "@/lib/date";
-import { durationMin } from "@/lib/timebox";
+import { countsAsPlanned, durationMin } from "@/lib/timebox";
 import type {
   Checkpoint,
   CheckpointEvaluation,
@@ -147,9 +147,20 @@ export interface CheckpointProgress {
 }
 
 /**
+ * 中間目標の数に入れてよい予定か。
+ *
+ * 非表示（アプリで消した取り込み枠）は最初から見えないので数えない。
+ * Google 側で消された予定の扱いは時間割の合計とそろえる（`countsAsPlanned`）。
+ */
+export const countsForCheckpoint = (
+  b: Pick<TimeBox, "hiddenAt" | "sourceGoneAt" | "completedAt">,
+): boolean => !b.hiddenAt && countsAsPlanned(b);
+
+/**
  * 中間目標の進み具合。
  *
- * 紐づけた予定のうち、非表示でなく、日付が期間内のものだけを数える。
+ * 紐づけた予定のうち、数に入れてよく（countsForCheckpoint）、
+ * 日付が期間内のものだけを数える。
  * 時間は「予定を入れた時点」で数える（竜一の選択、2026-09-17）。
  * 確保した時間が見えることを優先し、実際にやった時間は doneValue で添える。
  */
@@ -165,7 +176,7 @@ export function checkpointProgress(
   const linked = boxes.filter(
     (b) =>
       b.checkpointId === c.id &&
-      !b.hiddenAt &&
+      countsForCheckpoint(b) &&
       b.date >= c.period.start &&
       b.date <= c.period.end,
   );

@@ -310,10 +310,22 @@ export function applyEndInput(
   return { start: toTime(s), end: toTime(Math.min(DAY_MINUTES, v)) };
 }
 
+/**
+ * 時間の合計に入れてよい予定か（2026-09-19）。
+ *
+ * Google 側で消された予定（`sourceGoneAt`）は、時間割に「Googleで削除済み」と
+ * 薄く残るだけで、押さえていた時間はもう無い。数えたままにすると、
+ * 「まとめて片付ける」を押した瞬間に今日の合計・今週の時間・中間目標の進み具合が
+ * 黙って減る（本人の本番データでは今週6件・1時間ずつ入っていた）。
+ * ただし完了にしてあるものは実際にやった記録なので、消されても数える。
+ */
+export const countsAsPlanned = (b: Pick<TimeBox, "sourceGoneAt" | "completedAt">): boolean =>
+  !b.sourceGoneAt || Boolean(b.completedAt);
+
 /** その日の合計時間（分）。完了ぶんだけ数えることもできる */
 export function totalMinutes(boxes: TimeBox[], onlyDone = false): number {
   return boxes
-    .filter((b) => (onlyDone ? Boolean(b.completedAt) : true))
+    .filter((b) => (onlyDone ? Boolean(b.completedAt) : countsAsPlanned(b)))
     .reduce((sum, b) => sum + durationMin(b), 0);
 }
 
@@ -494,6 +506,8 @@ export interface CardShare {
 export function shareByCard(boxes: TimeBox[]): CardShare[] {
   const byCard = new Map<string, number>();
   for (const b of boxes) {
+    // Google で消された予定は時間の合計に入れない（totalMinutes と同じ基準）
+    if (!countsAsPlanned(b)) continue;
     // Map のキーに null は使いにくいので、空文字を「紐づけなし」に充てる
     const key = b.cardId ?? "";
     byCard.set(key, (byCard.get(key) ?? 0) + durationMin(b));

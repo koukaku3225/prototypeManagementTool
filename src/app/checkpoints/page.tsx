@@ -6,6 +6,7 @@ import { AppHeader } from "@/components/AppHeader";
 import {
   checkpointProgress,
   closeAndCarryOver,
+  countsForCheckpoint,
   currentCheckpoints,
   defaultPeriod,
   daysLeft,
@@ -237,9 +238,18 @@ function CheckpointRow({
   const [menu, setMenu] = useState<"closed" | "open" | "confirmDelete">("closed");
   const p = checkpointProgress(c, boxes);
   const measure = measureOf(c);
-  // 次に入っている紐づけた予定。いまより後のうち、いちばん近いもの
+  /*
+   * 本人が「完了にする」を押した中間目標。達成（done）はチェック欄で分かるが、
+   * 時間・回数は目標の詳細からしか完了にできず、このタブでは何も変わらないのに
+   * 今日の画面からは消えていた（`todayCheckpoints` は active だけを出す）。
+   * 予定シートも開かない（`presetCheckpointFrom` が active だけを通す）ので、
+   * 完了なら完了と見せ、取り消せるようにする。
+   */
+  const finished = c.status === "done";
+  // 次に入っている紐づけた予定。いまより後のうち、いちばん近いもの。
+  // Google で消された予定は数にも入らないので、ここでも案内しない
   const next = boxes
-    .filter((b) => b.checkpointId === c.id && !b.hiddenAt && !b.completedAt && b.date >= now)
+    .filter((b) => b.checkpointId === c.id && countsForCheckpoint(b) && !b.completedAt && b.date >= now)
     .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))[0];
   const left = daysLeft(c, now);
 
@@ -264,11 +274,16 @@ function CheckpointRow({
             {MEASURE_LABEL[measure]}
           </span>
         )}
-        <span className={`min-w-0 flex-1 text-[14px] leading-snug ${measure === "done" && p.met ? "text-muted line-through" : ""}`}>
+        <span className={`min-w-0 flex-1 text-[14px] leading-snug ${finished ? "text-muted line-through" : ""}`}>
           {c.title || "（未記入）"}
         </span>
         {measure !== "done" ? (
-          <span className="shrink-0 whitespace-nowrap text-[13px] tabular-nums">
+          <span className="flex shrink-0 items-baseline gap-1.5 whitespace-nowrap text-[13px] tabular-nums">
+            {finished && (
+              <span className="rounded-md bg-[var(--c-teal-bg)] px-1.5 text-[10.5px] text-[var(--c-teal-fg)]">
+                できた
+              </span>
+            )}
             {formatProgressValue(measure, p.value)}
             <span className="text-[11px] text-muted">
               {" "}
@@ -314,7 +329,7 @@ function CheckpointRow({
                 : "この先の予定はまだありません"}
         </span>
         {/* 押し間違いを戻せるように。手で足したぶんがあるときだけ出す */}
-        {measure === "count" && (c.manualCount ?? 0) > 0 && (
+        {!finished && measure === "count" && (c.manualCount ?? 0) > 0 && (
           <button
             type="button"
             onClick={() => onSave(withManualCountDelta(c, -1))}
@@ -324,7 +339,7 @@ function CheckpointRow({
             −1
           </button>
         )}
-        {measure === "count" && (
+        {!finished && measure === "count" && (
           <button
             type="button"
             onClick={() => onSave(withManualCountDelta(c, 1))}
@@ -334,12 +349,15 @@ function CheckpointRow({
             ＋1
           </button>
         )}
-        <Link
-          href={`/plan?checkpoint=${c.id}`}
-          className="flex min-h-8 shrink-0 items-center rounded-lg border border-accent-line bg-accent-soft px-2.5 text-[11.5px] text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
-          ＋予定に入れる
-        </Link>
+        {/* 完了にしたものは予定シートが開かない（presetCheckpointFrom）。押しても何も起きない導線は出さない */}
+        {!finished && (
+          <Link
+            href={`/plan?checkpoint=${c.id}`}
+            className="flex min-h-8 shrink-0 items-center rounded-lg border border-accent-line bg-accent-soft px-2.5 text-[11.5px] text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            ＋予定に入れる
+          </Link>
+        )}
       </div>
 
       {menu !== "closed" && (
@@ -349,10 +367,10 @@ function CheckpointRow({
               {/* abandoned は既存の「今回は終わりにする」。目標の詳細から「続きから戻す」で戻せる */}
               <button
                 type="button"
-                onClick={() => onSave({ ...c, status: "abandoned" })}
+                onClick={() => onSave({ ...c, status: finished ? "active" : "abandoned" })}
                 className="min-h-8 text-muted underline"
               >
-                今回は終わりにする
+                {finished ? "できたを取り消す" : "今回は終わりにする"}
               </button>
               <button
                 type="button"

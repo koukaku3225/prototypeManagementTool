@@ -30,6 +30,7 @@ import {
 import { goneLeftovers, isFromGoogle } from "@/lib/calendar/primary";
 import { habitBoxesOn, habitsOfActiveCards, isGhost, materializeHabitBox } from "@/lib/habit-plan";
 import {
+  countsAsPlanned,
   currentBox,
   durationMin,
   humanDuration,
@@ -389,6 +390,12 @@ export default function PlanPage() {
 
   const planned = totalMinutes(boxes);
   const doneMin = totalMinutes(boxes, true);
+  /*
+   * 件数は時間の合計と同じ基準で数える。Google で消された枠は時間割に薄く残るが
+   * 時間には入らないので、件数にだけ入れると「予定 0分 ・ 1件」になってしまう。
+   * 残っていることは上の帯（削除済みの案内）が別に伝えている
+   */
+  const plannedCount = boxes.filter(countsAsPlanned).length;
   const current = isToday ? currentBox(boxes, nowMinutes) : null;
   const upcoming = isToday ? nextBox(boxes, nowMinutes, 60) : null;
 
@@ -562,7 +569,7 @@ export default function PlanPage() {
           <p className="font-mono text-[11px] text-muted">
             予定 {humanDuration(planned)}
             {doneMin > 0 && ` / 完了 ${humanDuration(doneMin)}`}
-            {boxes.length > 0 && ` ・ ${boxes.length}件`}
+            {plannedCount > 0 && ` ・ ${plannedCount}件`}
           </p>
           <div className="ml-auto flex shrink-0 items-center gap-2">
             {!isToday && (

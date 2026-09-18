@@ -20,6 +20,7 @@ import {
   layout,
   nextBox,
   normalizeRange,
+  countsAsPlanned,
   shareByCard,
   slotFromNow,
   overlaps,
@@ -376,6 +377,33 @@ t("完了ぶんだけ数えられる", () => {
   assert.equal(totalMinutes(boxes, true), 60);
 });
 
+t("Google で消された予定は合計に入れない（片付けた瞬間に数が減らないように）", () => {
+  const boxes = [
+    box("a", "09:00", "10:00"),
+    box("b", "13:00", "14:00", { source: "google", sourceEventId: "ev-1", sourceGoneAt: "2026-09-18T10:00:00.000Z" }),
+  ];
+  assert.equal(totalMinutes(boxes), 60);
+});
+
+t("Google で消されても、完了にしてあれば実際に使った時間なので数える", () => {
+  const boxes = [
+    box("a", "13:00", "14:00", {
+      source: "google",
+      sourceEventId: "ev-1",
+      sourceGoneAt: "2026-09-18T10:00:00.000Z",
+      completedAt: "2026-09-18T05:00:00.000Z",
+    }),
+  ];
+  assert.equal(totalMinutes(boxes), 60);
+  assert.equal(totalMinutes(boxes, true), 60);
+});
+
+t("countsAsPlanned：Google で消された未完了だけを落とす", () => {
+  assert.equal(countsAsPlanned(box("a", "09:00", "10:00")), true);
+  assert.equal(countsAsPlanned(box("a", "09:00", "10:00", { sourceGoneAt: "x" })), false);
+  assert.equal(countsAsPlanned(box("a", "09:00", "10:00", { sourceGoneAt: "x", completedAt: "y" })), true);
+});
+
 // ---------------------------------------------------------------- ドラッグで移動
 
 t("動かしても長さは変わらない", () => {
@@ -554,6 +582,22 @@ t("割合は渡した枠の合計に対して出す（合計1になる）", () =
   assert.equal(
     r.reduce((sum, s) => sum + s.ratio, 0),
     1,
+  );
+});
+
+t("目標ごとの集計も、Google で消された予定を数えない", () => {
+  const r = shareByCard([
+    box("a", "09:00", "10:00", { cardId: "goal-1" }),
+    box("b", "13:00", "16:00", {
+      cardId: "goal-1",
+      source: "google",
+      sourceEventId: "ev-1",
+      sourceGoneAt: "2026-09-18T10:00:00.000Z",
+    }),
+  ]);
+  assert.deepEqual(
+    r.map((s) => [s.cardId, s.minutes]),
+    [["goal-1", 60]],
   );
 });
 
