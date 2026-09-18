@@ -1,6 +1,7 @@
 import type { GoalCard } from "@/types/goal";
 import type { TimeBox } from "@/types/timebox";
 import { COACHES } from "@/lib/prompts/coaches";
+import { toLocalDate } from "@/lib/date";
 
 const MOTIVATION_LABEL = {
   internal: "内発的（やりたいから）",
@@ -20,7 +21,7 @@ export function toMarkdown(card: GoalCard, boxes: TimeBox[] = []): string {
   push(`# ${card.vision.refined || card.vision.raw}`);
   push();
   push(
-    `作成日: ${card.createdAt.slice(0, 10)} / コーチ: ${COACHES[card.coachId].name}`,
+    `作成日: ${toLocalDate(new Date(card.createdAt))} / コーチ: ${COACHES[card.coachId].name}`,
   );
   push();
 

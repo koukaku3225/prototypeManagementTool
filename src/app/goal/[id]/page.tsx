@@ -22,7 +22,7 @@ import {
   loadCardById,
   upsertCard,
 } from "@/lib/storage";
-import { deadlineCountdown, today } from "@/lib/date";
+import { deadlineCountdown, toLocalDate, today } from "@/lib/date";
 import { buildForest } from "@/lib/forest";
 import { clearPendingCard, deleteImpactText, peekPendingCard } from "@/lib/goal-card";
 import type { BigStory, Checkpoint, GoalCard, Obstacle } from "@/types/goal";
@@ -650,7 +650,7 @@ export default function GoalDetailPage({
                   type="button"
                   onClick={() =>
                     download(
-                      `goal-${card.createdAt.slice(0, 10)}.md`,
+                      `goal-${toLocalDate(new Date(card.createdAt))}.md`,
                       toMarkdown(card, boxes),
                       "text/markdown",
                     )
@@ -663,7 +663,7 @@ export default function GoalDetailPage({
                   type="button"
                   onClick={() =>
                     download(
-                      `goal-${card.createdAt.slice(0, 10)}.json`,
+                      `goal-${toLocalDate(new Date(card.createdAt))}.json`,
                       JSON.stringify(card, null, 2),
                       "application/json",
                     )

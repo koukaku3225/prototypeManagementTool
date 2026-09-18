@@ -9,6 +9,7 @@ import { CoachAvatar } from "@/components/CoachAvatar";
 import { COACHES } from "@/lib/prompts/coaches";
 import { PHASE_META } from "@/lib/prompts/phases";
 import { download } from "@/lib/export";
+import { toLocalDate } from "@/lib/date";
 import {
   archiveIfAbandoned,
   loadArchivedSession,
@@ -101,7 +102,7 @@ export default function HistoryDetailPage({
             type="button"
             onClick={() =>
               download(
-                `chat-${session.startedAt.slice(0, 10)}.md`,
+                `chat-${toLocalDate(new Date(session.startedAt))}.md`,
                 toTranscript(session, coach?.name ?? "コーチ"),
                 "text/markdown",
               )
