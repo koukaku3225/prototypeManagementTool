@@ -9,6 +9,7 @@ import { CoachAvatar } from "@/components/CoachAvatar";
 import { EditableField } from "@/components/EditableField";
 import { GoalForest } from "@/components/GoalForest";
 import { HabitEditor } from "@/components/HabitEditor";
+import { useDayRollover } from "@/hooks/useDayRollover";
 import { COACHES } from "@/lib/prompts/coaches";
 import { download, toMarkdown } from "@/lib/export";
 import {
@@ -64,6 +65,13 @@ export default function GoalDetailPage({
   const [logs, setLogs] = useState<HabitLog[]>([]);
   const [showAllBoxes, setShowAllBoxes] = useState(false);
   const [bigTree, setBigTree] = useState(false);
+  /*
+   * 開いたまま日付が変わったら描き直す。データは日付で変わらないので読み直さず、
+   * 「これから来る予定」「期限まで◯日」「木の今日の状態」だけを新しい今日で数え直す
+   * （読み直すと、編集中の入力を保存済みの中身で差し替えかねない）。
+   */
+  const [day, setDay] = useState(today());
+  useDayRollover((next) => setDay(next));
 
   useEffect(() => {
     /*
@@ -112,9 +120,9 @@ export default function GoalDetailPage({
         checkpoints: card ? { [card.id]: checkpoints } : {},
         habits: card ? { [card.id]: habits } : {},
         logs,
-        today: today(),
+        today: day,
       }),
-    [big, card, checkpoints, habits, logs],
+    [big, card, checkpoints, habits, logs, day],
   );
 
   if (!ready) {
@@ -147,7 +155,7 @@ export default function GoalDetailPage({
    * 予定は「今日以降でまだ終わっていないもの」を先に数件だけ。
    * 過去の完了分まで全部並べると、それだけで画面が伸びていた。
    */
-  const todayStr = today();
+  const todayStr = day;
   const upcoming = boxes.filter((b) => !b.completedAt && b.date >= todayStr);
   const shownBoxes = showAllBoxes ? boxes : upcoming.slice(0, UPCOMING_LIMIT);
   const hiddenBoxCount = boxes.length - shownBoxes.length;

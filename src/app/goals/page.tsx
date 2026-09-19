@@ -1,12 +1,13 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { CoachAvatar } from "@/components/CoachAvatar";
 import { GoalForest } from "@/components/GoalForest";
 import { WeekShareBar } from "@/components/WeekShareBar";
+import { useDayRollover } from "@/hooks/useDayRollover";
 import { COACHES } from "@/lib/prompts/coaches";
 import {
   checkpointsOfCard,
@@ -81,7 +82,7 @@ function GoalsInner() {
   const [weekTotal, setWeekTotal] = useState(0);
   const [ready, setReady] = useState(false);
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     const cs = loadCards();
     setBig(loadBigStory());
     setCards(cs);
@@ -126,9 +127,15 @@ function GoalsInner() {
     const thisWeek = loadTimeBoxes().filter((b) => isThisWeek(b.date));
     setShares(shareByCard(thisWeek));
     setWeekTotal(totalMinutes(thisWeek));
-
-    setReady(true);
   }, []);
+
+  useEffect(() => {
+    reload();
+    setReady(true);
+  }, [reload]);
+
+  // 開いたまま日付が変わったら、前日の「次の予定」や今週の合計を出し続けない
+  useDayRollover(() => reload());
 
   function setView(v: View) {
     // URLに残す。表示の切り替えは戻るで元に戻せたほうがよい

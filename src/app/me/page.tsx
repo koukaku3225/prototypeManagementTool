@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { Heatmap } from "@/components/Heatmap";
+import { useDayRollover } from "@/hooks/useDayRollover";
 import { useSupabaseUser } from "@/hooks/useSupabaseUser";
 import { today } from "@/lib/date";
 import { download } from "@/lib/export";
@@ -46,7 +47,7 @@ export default function MePage() {
   const [exported, setExported] = useState(false);
   const { userId, email, loading: authLoading } = useSupabaseUser();
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     const logs = loadHabitLogs();
     setRows(
       activeHabits().map((h) => ({
@@ -61,8 +62,15 @@ export default function MePage() {
     );
     setSessions(loadArchive().length);
     setHasContent(hasUserContent(captureState()));
-    setReady(true);
   }, []);
+
+  useEffect(() => {
+    reload();
+    setReady(true);
+  }, [reload]);
+
+  // 開いたまま日付が変わったら、連続日数・「今日はまだ」を前日の数え方で出し続けない
+  useDayRollover(() => reload());
 
   if (!ready) {
     return (

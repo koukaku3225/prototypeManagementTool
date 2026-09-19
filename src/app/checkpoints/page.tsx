@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
+import { useDayRollover } from "@/hooks/useDayRollover";
 import {
   checkpointProgress,
   closeAndCarryOver,
@@ -71,6 +72,10 @@ export default function CheckpointsPage() {
     reload();
     setReady(true);
   }, [reload]);
+
+  // 開いたまま週や日付が変わったら、終わった期間を「いま」として出し続けない。
+  // 再読み込みで再描画されるので、下の `now` も新しい今日になる
+  useDayRollover(() => reload());
 
   // 目標の一覧。完了した目標の中間目標は出さない（今日の画面・リストと同じ扱い）
   const liveCards = useMemo(() => cards.filter((c) => (c.status ?? "active") !== "done"), [cards]);

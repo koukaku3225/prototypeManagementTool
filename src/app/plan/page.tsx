@@ -8,6 +8,7 @@ import { DayGrid } from "@/components/DayGrid";
 import { NowBar } from "@/components/NowBar";
 import { Snackbar } from "@/components/Snackbar";
 import { TimeBoxSheet } from "@/components/TimeBoxSheet";
+import { useDayRollover } from "@/hooks/useDayRollover";
 import {
   activeHabits,
   clearHabitLogFromBox,
@@ -197,6 +198,18 @@ export default function PlanPage() {
   useEffect(() => {
     reload(date);
   }, [date, reload]);
+
+  /*
+   * 開いたまま日付が変わったら、「今日」を見ていた人だけ新しい今日へ進める。
+   * 別の日を選んで見ていた人の画面は動かさない（明日の予定を組んでいる最中に
+   * 日付が変わっても、いま見ている日はそのまま）。
+   * 見ている日が変わらなくても、習慣から起こす枠と「いま」の帯が今日に
+   * なるので、その日の分は読み直す。
+   */
+  useDayRollover((next, prev) => {
+    if (date === prev) setDate(next);
+    else reload(date);
+  });
 
   /*
    * 表示している日の「本物の予定」を取り直す。

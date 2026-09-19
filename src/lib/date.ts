@@ -30,6 +30,23 @@ export function addDays(days: number, from: Date = new Date()): string {
   return toLocalDate(d);
 }
 
+/**
+ * 画面を開いたまま日付が変わったか。
+ *
+ * `loaded` は、画面が「今日」として読み込んだ日付。いまの日付がそれと違えば
+ * 新しい「今日」を返し、同じなら null を返す。
+ *
+ * スマホは画面を閉じても開いたままのタブ・アプリが残るので、朝に開き直しても
+ * 前日に読み込んだ「今日の予定」がそのまま出る。日付をまたいだかどうかを
+ * 画面が自分で見ないと、それに気づけない（useDayRollover が使う）。
+ * 「前より後の日か」ではなく「違う日か」で見る：端末の日付やタイムゾーンを
+ * 変えて戻った場合も、読み込んだ日と食い違った時点で読み直すのが安全。
+ */
+export function rolledDay(loaded: string, now: Date = new Date()): string | null {
+  const current = toLocalDate(now);
+  return current === loaded ? null : current;
+}
+
 /** 明日（ローカル） */
 export const tomorrow = (): string => addDays(1);
 

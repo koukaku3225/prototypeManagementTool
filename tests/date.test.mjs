@@ -15,6 +15,7 @@ import {
   isOverdue,
   isThisWeek,
   normalizeTime,
+  rolledDay,
   startOfWeek,
   toLocalDate,
 } from "../src/lib/date.ts";
@@ -190,6 +191,34 @@ t("deadlineCountdown は残り・当日・超過・空を言い分ける", () =>
 
 t("deadlineCountdown は月をまたいでも日数がずれない", () => {
   assert.equal(deadlineCountdown("2026-10-01", "2026-09-30"), "あと1日");
+});
+
+t("rolledDay は同じ日なら null（読み直さない）", () => {
+  assert.equal(rolledDay("2026-09-20", new Date("2026-09-20T00:00:00")), null, "日付の頭");
+  assert.equal(rolledDay("2026-09-20", new Date("2026-09-20T23:59:59")), null, "日付の終わり");
+});
+
+t("rolledDay は日付をまたいだら新しい今日を返す（開きっぱなしの画面が前日のままになる不具合）", () => {
+  // 夜に読み込んだ画面を、翌朝に戻ったとき
+  assert.equal(rolledDay("2026-09-20", new Date("2026-09-21T07:30:00")), "2026-09-21");
+  // 1秒違いでも、日付が違えば変わったと言う
+  assert.equal(rolledDay("2026-09-20", new Date("2026-09-21T00:00:01")), "2026-09-21");
+});
+
+t("rolledDay は月・年をまたいでも新しい今日を返す", () => {
+  assert.equal(rolledDay("2026-09-30", new Date("2026-10-01T06:00:00")), "2026-10-01");
+  assert.equal(rolledDay("2026-12-31", new Date("2027-01-01T06:00:00")), "2027-01-01");
+});
+
+t("rolledDay は UTC ではなくローカルの日付で見る（JST の朝9時までを前日にしない）", () => {
+  // ローカル 2026-09-21 08:00 は、UTC では 2026-09-20 になりうる。
+  // ローカルの日付で 09-21 と答えること
+  assert.equal(rolledDay("2026-09-20", new Date(2026, 8, 21, 8, 0, 0)), "2026-09-21");
+  assert.equal(rolledDay("2026-09-21", new Date(2026, 8, 21, 8, 0, 0)), null);
+});
+
+t("rolledDay は日付が戻った（端末の日付・タイムゾーンを変えた）場合も、食い違いを知らせる", () => {
+  assert.equal(rolledDay("2026-09-21", new Date("2026-09-20T12:00:00")), "2026-09-20");
 });
 
 console.log(`${passed} passed, ${failed} failed`);

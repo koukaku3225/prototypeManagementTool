@@ -8,6 +8,7 @@ import { NowBar } from "@/components/NowBar";
 import { RunningBar } from "@/components/RunningBar";
 import { TimeBoxSheet } from "@/components/TimeBoxSheet";
 import { TodayCheckpoints } from "@/components/TodayCheckpoints";
+import { useDayRollover } from "@/hooks/useDayRollover";
 import { progressSummary, todayCheckpoints } from "@/lib/checkpoint";
 import {
   activeHabits,
@@ -107,6 +108,9 @@ export default function TodayPage() {
     setLogs(loadHabitLogs());
     setRunning(loadRunning());
   }, []);
+
+  // 開いたまま日付が変わったら、前日の予定を「今日」として出し続けない
+  useDayRollover(() => reload());
 
   useEffect(() => {
     reload();
