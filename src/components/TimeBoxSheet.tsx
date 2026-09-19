@@ -626,14 +626,13 @@ export function TimeBoxSheet({
                       閉じる
                     </button>
                   ) : (
+                    /*
+                      「完了にする」を左、「閉じる」を右に置く。
+                      右は親指が無意識に届く位置なので、そこに取り消しづらい操作
+                      （完了）があると、押すつもりがないのに完了してしまう。
+                      閉じるは何度押しても失うものが無いので、こちらを右に譲る。
+                    */
                     <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={onClose}
-                        className="min-h-[52px] flex-1 rounded-xl border border-line bg-surface px-4 text-[14px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                      >
-                        閉じる
-                      </button>
                       <button
                         type="button"
                         onClick={() =>
@@ -645,6 +644,13 @@ export function TimeBoxSheet({
                         className="min-h-[52px] flex-[2] rounded-xl bg-indigo px-4 text-[15px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                       >
                         完了にする
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        className="min-h-[52px] flex-1 rounded-xl border border-line bg-surface px-4 text-[14px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        閉じる
                       </button>
                     </div>
                   )}

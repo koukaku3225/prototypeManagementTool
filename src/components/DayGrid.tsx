@@ -113,6 +113,7 @@ export function DayGrid({
   const {
     drag,
     dragging,
+    isDragging,
     pressingId,
     onBoxPointerDown,
     onEmptyPointerDown,
@@ -234,7 +235,7 @@ export function DayGrid({
   function handleGridClick(e: React.MouseEvent<HTMLDivElement>) {
     // ドラッグ直後の click は捨てる。でないと引いて作った直後に、
     // もう1件できてしまう
-    if (dragging || consumeClick()) return;
+    if (isDragging() || consumeClick()) return;
     if ((e.target as HTMLElement).closest("[data-box]")) return;
     // 何もないところを押したら、選んでいた枠のつまみは引っ込める。
     // ただしタップ自体は「ここに予定を作る」として扱う（1回無駄にしない）
@@ -362,7 +363,7 @@ export function DayGrid({
                     if (!locked) onBoxPointerDown(e, box, "move");
                   }}
                   onClick={() => {
-                    if (dragging || consumeClick()) return;
+                    if (isDragging() || consumeClick()) return;
                     onPickBox(box);
                   }}
                   role="button"
@@ -384,6 +385,14 @@ export function DayGrid({
                     // 押した瞬間に沈ませる。長押しを待つあいだ「効いている」と分かる
                     transform: pressing ? "scale(0.97)" : undefined,
                     transition: "transform 120ms",
+                    /*
+                       枠を長押しすると、iOS は拡大鏡とコピーのメニューを出し、
+                       Android は文字選択を始める。どちらも「つかんで動かす」の
+                       邪魔になるので、枠の上では出さない。
+                     */
+                    WebkitTouchCallout: "none",
+                    WebkitUserSelect: "none",
+                    userSelect: "none",
                   }}
                   className={`overflow-visible rounded-md border text-left focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${
                     done ? tone.done : tone.box

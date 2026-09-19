@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isRealMove, pressOutcome } from "@/lib/grid-gesture";
 import { DAY_MINUTES, dragRange, moveBox, resizeBox } from "@/lib/timebox";
 import type { TimeBox } from "@/types/timebox";
 
@@ -25,6 +26,17 @@ import type { TimeBox } from "@/types/timebox";
  * 380ms は待たされている感じが強く、待ちきれずに動かすと何も起きないので
  * 「反応しない」と感じる。220ms に縮め、押した時点で枠を沈ませて
  * 「受け付けた」ことを先に見せる。
+ *
+ * ■ 触る操作でスクロールに奪われていた（2026-09-19）
+ * ドラッグ中は pointermove で preventDefault() していたが、
+ * **ポインタイベントの preventDefault はスクロールを止めない。**
+ * 指の操作をスクロールに使うかどうかは touch-action と touchmove で決まる。
+ * touch-action は「指を置いた瞬間」の値で決まるので、長押しが成立した
+ * あとに none へ切り替えても、そのジェスチャーには効かない。
+ * 結果、長押しで掴んだあと指を動かすと時間割がスクロールし、
+ * ブラウザがポインタを取り上げて（pointercancel）ドラッグが消えていた。
+ * いまは touchmove を passive:false で捕まえて止める。指はまだ動いていない
+ * （長押し成立まで10px以内）ので、スクロールが始まる前に間に合う。
  */
 
 /** 長押しと判定するまでの時間 */
@@ -56,6 +68,9 @@ interface Origin {
   /** つかんだ瞬間の分。移動量の基準 */
   originMinutes: number;
   clientY: number;
+  /** 指を置いた時刻。離したときに「タップだったか」を見るのに使う */
+  pressedAt: number;
+  pointerType: string;
 }
 
 export function useGridDrag({
@@ -206,11 +221,19 @@ export function useGridDrag({
         box,
         originMinutes: minutesAt(e.clientY),
         clientY: e.clientY,
+        pressedAt: Date.now(),
+        pointerType: e.pointerType,
       };
-      // 掴んだ指を最後まで追いかける。要素の外へ出ても離したことにしない。
-      // ポインタが既に無効なら例外が飛ぶので、握りつぶす（掴めなくても続けられる）
+      /*
+       * 掴んだ指を最後まで追いかける。要素の外へ出ても離したことにしない。
+       *
+       * 捕まえる先は currentTarget（枠そのもの）にする。e.target だと、
+       * つまみのような「選んだときだけ出る子要素」を掴むことがあり、
+       * 描き直しで消えた瞬間に捕獲が外れる。
+       * ポインタが既に無効なら例外が飛ぶので、握りつぶす（掴めなくても続けられる）
+       */
       try {
-        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+        (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
       } catch {
         /* 捕まえられなくても、window 側で追えるので続行する */
       }
@@ -245,6 +268,8 @@ export function useGridDrag({
         box: template,
         originMinutes: minutesAt(e.clientY),
         clientY: e.clientY,
+        pressedAt: Date.now(),
+        pointerType: e.pointerType,
       };
       schedulePending(o, e.pointerType, false);
     },
@@ -291,9 +316,11 @@ export function useGridDrag({
 
       const o = origin.current;
       if (!o) return;
-      // ドラッグ中はページのスクロールを止める（指の操作を奪う）
+      // マウスでの選択（テキスト選択など）を止める。
+      // 指のスクロールは touchmove 側で止める（pointermove では止まらない）
       e.preventDefault();
-      moved.current = true;
+      // 指は押さえている間も数pxぶれる。ぶれを「動かした」と数えない
+      if (isRealMove(e.clientY - o.clientY)) moved.current = true;
       edgeScroll(e.clientY);
 
       const nowMin = minutesAt(e.clientY);
@@ -314,27 +341,53 @@ export function useGridDrag({
       const o = origin.current;
       const d = dragRef.current;
       if (o && d) {
-        // 長押ししただけで動かしていないなら、何も作らない・動かさない。
-        // 新規のときは、続けて飛んでくる click に30分の枠を作らせる
-        if (moved.current) {
-          didDragAt.current = Date.now();
-          // 確定は状態更新の外で、1回だけ
-          if (o.kind === "create") onCreate({ start: d.start, end: d.end });
-          else onCommit(o.box, { start: d.start, end: d.end });
-        } else if (o.kind !== "create") {
-          // つかんだだけ。選んだ状態は残す（続けてつまみを引けるように）
-          didDragAt.current = Date.now();
+        switch (
+          pressOutcome({
+            kind: o.kind,
+            moved: moved.current,
+            heldMs: Date.now() - o.pressedAt,
+          })
+        ) {
+          case "commit":
+            didDragAt.current = Date.now();
+            // 確定は状態更新の外で、1回だけ
+            if (o.kind === "create") onCreate({ start: d.start, end: d.end });
+            else onCommit(o.box, { start: d.start, end: d.end });
+            break;
+          case "hold":
+            // つかんだだけ。選んだ状態は残す（続けてつまみを引けるように）
+            didDragAt.current = Date.now();
+            break;
+          case "tap":
+            /*
+             * 動かしていない短い押し。指では 250ms 程度の「ふつうのタップ」が
+             * 長押しに化けるので、ここで click を捨てると予定が開かない。
+             * 捨てずに通して、タップとして扱わせる。
+             */
+            break;
         }
       }
       finish();
     }
 
-    // passive:false にしないと preventDefault が効かない
+    /**
+     * ドラッグ中だけ、指のスクロールを止める。
+     *
+     * touch-action は指を置いた瞬間の値で決まるので、長押しが成立してから
+     * none にしても間に合わない。ここで touchmove を止めるのが唯一効く。
+     * passive:false にしないと preventDefault は無視される。
+     */
+    function onTouchMove(e: TouchEvent) {
+      if (origin.current && e.cancelable) e.preventDefault();
+    }
+
     window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
     return () => {
       window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("touchmove", onTouchMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
       stopAutoScroll();
@@ -351,9 +404,19 @@ export function useGridDrag({
     return true;
   }, []);
 
+  /**
+   * いまドラッグ中か。click を捨てるかどうかの判断に使う。
+   *
+   * 状態（drag）で見てはいけない。pointerup で終わらせた直後に click が来るが、
+   * React の状態はまだ古いままのことがあり、「ドラッグ中だから」と
+   * 正しいタップまで捨ててしまう。写し（ref）はその瞬間に更新されている。
+   */
+  const isDragging = useCallback(() => dragRef.current !== null, []);
+
   return {
     drag,
     dragging: drag !== null,
+    isDragging,
     pressingId,
     onBoxPointerDown,
     onEmptyPointerDown,
