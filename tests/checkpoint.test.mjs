@@ -86,7 +86,25 @@ t("いちばん今見るべき1件は、活動中のうち期限が近い順", (
   const near = cp({ id: "near", status: "active", period: { kind: "week", start: "2026-09-07", end: "2026-09-10" } });
   const far = cp({ id: "far", status: "active", period: { kind: "week", start: "2026-09-07", end: "2026-09-20" } });
   const done = cp({ id: "done", status: "done", period: { kind: "week", start: "2026-09-01", end: "2026-09-02" } });
-  assert.equal(nearestActive([far, done, near]).id, "near");
+  // now を渡さないと「今日」が動いて結果が変わるので、必ず固定して比べる
+  assert.equal(nearestActive([far, done, near], "2026-09-08").id, "near");
+});
+
+/*
+ * 目標の一覧（/goals・/tree）は、この1件を「今週 …… 残り0日」として出す。
+ * 期間が終わったものを先に返していたため、先週のまま閉じていない中間目標が
+ * ずっと居座り、今週の中間目標が隠れていた（2026-09-20 に実機で確認）。
+ */
+t("期間が終わったものより、いま生きているものを先に返す", () => {
+  const over = cp({ id: "over", period: { kind: "week", start: "2026-09-01", end: "2026-09-06" } });
+  const live = cp({ id: "live", period: { kind: "week", start: "2026-09-07", end: "2026-09-13" } });
+  assert.equal(nearestActive([over, live], "2026-09-10").id, "live");
+});
+
+t("生きているものが無ければ、いちばん最近終わったものを返す", () => {
+  const old = cp({ id: "old", period: { kind: "week", start: "2026-08-24", end: "2026-08-30" } });
+  const recent = cp({ id: "recent", period: { kind: "week", start: "2026-08-31", end: "2026-09-06" } });
+  assert.equal(nearestActive([old, recent], "2026-09-10").id, "recent");
 });
 
 t("活動中が1件も無ければ null", () => {

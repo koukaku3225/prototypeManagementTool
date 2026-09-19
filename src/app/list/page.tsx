@@ -37,6 +37,7 @@ import {
 import { computeStats } from "@/lib/habit";
 import {
   colorOf,
+  countsAsPlanned,
   currentBox,
   durationMin,
   humanDuration,
@@ -252,6 +253,13 @@ export default function TodayPage() {
 
   const openBoxes = boxes.filter((b) => !b.completedAt);
   const doneBoxes = boxes.filter((b) => b.completedAt);
+  /*
+   * 件数の分母は、時間の合計とそろえる（countsAsPlanned）。
+   * Google 側で消された予定は押さえていた時間がもう無いので合計から外しているのに、
+   * 件数だけ数えていた。時間割は「2件」、今日の画面は「0/3」と食い違っていた
+   * （2026-09-20 に実機で確認）。
+   */
+  const plannedCount = boxes.filter(countsAsPlanned).length;
   const current = currentBox(boxes, nowMinutes);
   const upcoming = nextBox(boxes, nowMinutes, 60);
 
@@ -317,7 +325,7 @@ export default function TodayPage() {
             <section>
               <div className="flex items-baseline gap-2">
                 <h2 className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
-                  今日の予定 {doneBoxes.length}/{boxes.length}
+                  今日の予定 {doneBoxes.length}/{plannedCount}
                 </h2>
                 {/*
                   時間割へ戻る。既定の表示はあちらなので、
@@ -593,6 +601,15 @@ function BoxRow({
             )}
             {past && !done && !running && (
               <span className="text-[10.5px] text-muted">過ぎています</span>
+            )}
+            {/*
+              Google 側で消された予定。時間割では薄く描いて片付けを促しているのに、
+              ここでは普通の予定と同じ顔で並んでいた
+            */}
+            {box.sourceGoneAt && !done && (
+              <span className="text-[10.5px] text-[var(--c-rose-fg)]">
+                Googleで削除済み
+              </span>
             )}
             {/* 完了ぶんは、できばえがあれば時間の隣に出す。開かなくても見える */}
             {done && box.review?.score != null && (

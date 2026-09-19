@@ -141,6 +141,20 @@ t("記録が無い日も missed と同じ扱い（押し忘れも途切れ）", 
   assert.equal(r.streak, 3, "抜けた1日を保険で埋められていない");
 });
 
+/*
+ * 保険は「続いているものを1回だけ守る」ためのもの。守る連続が無いときに
+ * 消費したことにすると、わたし画面に「0日連続 ・ 保険を使用中」という、
+ * 意味の通らない組み合わせが出る（2026-09-20 に実機で確認）。
+ */
+t("連続が0日なら保険は使ったことにしない", () => {
+  const h = habit({ createdAt: `${ago(10)}T00:00:00.000Z` });
+  const logs = [log(3, "done")]; // 昨日・一昨日は記録なし
+  const r = computeStreak(h, logs, TODAY);
+  assert.equal(r.streak, 0);
+  assert.equal(r.freezeUsed, false, "連続0日なのに保険が減っている");
+  assert.equal(computeStats(h, logs, TODAY).freezeLeft, 1);
+});
+
 t("古い途切れには保険を使わない（7日より前）", () => {
   const logs = [];
   for (let i = 0; i <= 6; i++) logs.push(log(i, "done"));

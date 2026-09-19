@@ -307,6 +307,15 @@ export default function GoalDetailPage({
                           完了
                         </span>
                       )}
+                      {/*
+                        Google 側で消された予定。時間割では薄く描いて片付けを促すのに、
+                        ここでは普通の予定と同じ顔で並んでいた（2026-09-20）
+                      */}
+                      {!b.completedAt && b.sourceGoneAt && (
+                        <span className="ml-auto font-mono text-[10.5px] text-[var(--c-rose-fg)]">
+                          Googleで削除済み
+                        </span>
+                      )}
                     </div>
                     <p
                       className={`mt-0.5 text-[13.5px] leading-relaxed ${

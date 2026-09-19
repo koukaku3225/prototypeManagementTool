@@ -17,7 +17,7 @@ import {
   loadTimeBoxes,
   timeBoxesOfCard,
 } from "@/lib/storage";
-import { daysLeft, nearestActive } from "@/lib/checkpoint";
+import { daysLeft, isPeriodOver, nearestActive } from "@/lib/checkpoint";
 import { buildForest, treeCounts, type ForestModel, type ForestTree } from "@/lib/forest";
 import { VALUE_COLORS } from "@/lib/forest-draw";
 import { scheduleLabel } from "@/lib/habit";
@@ -470,6 +470,11 @@ function GoalRow({
   const title = card.vision.refined || card.vision.raw || "（未記入の目標）";
   const nextBox = boxes[0];
   const checkpoint = nearestActive(checkpoints);
+  /*
+    期間が終わったのに閉じていない中間目標は「残り0日」では伝わらない。
+    今日の画面と同じく、振り返りを促す言い方にそろえる
+  */
+  const checkpointOver = checkpoint ? isPeriodOver(checkpoint) : false;
 
   return (
     <Link
@@ -513,11 +518,17 @@ function GoalRow({
           {checkpoint && (
             <div className="flex gap-1.5">
               <dt className="shrink-0">
-                {checkpoint.period.kind === "week" ? "今週" : "今月"}
+                {checkpointOver
+                  ? "中間目標"
+                  : checkpoint.period.kind === "week"
+                    ? "今週"
+                    : "今月"}
               </dt>
               <dd className="min-w-0 flex-1 truncate">
                 {checkpoint.title || "（未記入）"}
-                <span className="ml-1.5 text-accent">残り{daysLeft(checkpoint)}日</span>
+                <span className="ml-1.5 text-accent">
+                  {checkpointOver ? "期間が終わりました" : `残り${daysLeft(checkpoint)}日`}
+                </span>
               </dd>
             </div>
           )}

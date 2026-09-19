@@ -61,12 +61,22 @@ export function elapsedRatio(c: Pick<Checkpoint, "period">, now: string = today(
 
 /**
  * 一覧に出す「いちばん今見るべき」1件。
- * active最優先、その中では期限が近い順。1件もなければ null
+ *
+ * active最優先。その中では**まだ期間が残っているもの**を先に見て、期限が近い順。
+ * 期間が残っているものが1つも無ければ、いちばん最近終わったものを返す。1件もなければ null。
+ *
+ * 期間の残りを見ずに「期限が近い順」だけで選ぶと、閉じ忘れた先週の中間目標が
+ * 永遠に先頭に居座り、目標の一覧（/goals・/tree）で今週の中間目標が隠れる。
+ * 受け取った now を使っていなかったのが原因（2026-09-20 に実機で確認）。
  */
 export function nearestActive(list: Checkpoint[], now: string = today()): Checkpoint | null {
   const active = list.filter((c) => c.status === "active");
   if (active.length === 0) return null;
-  return [...active].sort((a, b) => a.period.end.localeCompare(b.period.end))[0];
+  const live = active.filter((c) => !isPeriodOver(c, now));
+  if (live.length > 0) {
+    return [...live].sort((a, b) => a.period.end.localeCompare(b.period.end))[0];
+  }
+  return [...active].sort((a, b) => b.period.end.localeCompare(a.period.end))[0];
 }
 
 export interface TodayCheckpoint {

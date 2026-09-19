@@ -117,7 +117,12 @@ export function computeStreak(
     }
     break;
   }
-  return { streak, freezeUsed };
+  /*
+   * 保険は「続いているもの」を守るための仕組み。連続が0日なら守るものが無いので、
+   * 消費したことにしない。ここで true を返すと、わたし画面に
+   * 「0日連続 ・ 保険を使用中」という意味の通らない組み合わせが出る。
+   */
+  return { streak, freezeUsed: streak > 0 && freezeUsed };
 }
 
 /** 直近 RATE_WINDOW 日の達成率。分母は予定日から skipped を除いたもの */
