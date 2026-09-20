@@ -24,7 +24,13 @@ import { VALUE_COLORS } from "@/lib/forest-draw";
 import { scheduleLabel } from "@/lib/habit";
 import type { Checkpoint } from "@/types/goal";
 import { isThisWeek, today } from "@/lib/date";
-import { humanDuration, shareByCard, totalMinutes, type CardShare } from "@/lib/timebox";
+import {
+  humanDuration,
+  shareByCard,
+  totalMinutes,
+  upcomingBoxes,
+  type CardShare,
+} from "@/lib/timebox";
 import { MAX_SMALL_STORIES, type BigStory, type GoalCard } from "@/types/goal";
 import type { Habit, HabitLog } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
@@ -92,18 +98,12 @@ function GoalsInner() {
     /*
      * これから来る予定を先に。過ぎたものを「次の予定」と呼ばない。
      * toISOString() は UTC なので、JST では朝9時までが前日になり
-     * 「今日の予定」が次の予定から落ちる。date.ts の today() を通す
+     * 「今日の予定」が次の予定から落ちる。date.ts の today() を通す。
+     * Google で消された予定を外す判断は timebox.ts（合計と同じ基準にそろえる）
      */
     const now = today();
     setBoxes(
-      Object.fromEntries(
-        cs.map((c) => [
-          c.id,
-          timeBoxesOfCard(c.id)
-            .filter((b) => b.date >= now && !b.completedAt)
-            .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start)),
-        ]),
-      ),
+      Object.fromEntries(cs.map((c) => [c.id, upcomingBoxes(timeBoxesOfCard(c.id), now)])),
     );
 
     // 目標ごとの投下時間。紐づけて色分けまでしていたのに、

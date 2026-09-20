@@ -1,4 +1,4 @@
-import { addDays, diffDays, toLocalDate, today as todayStr } from "@/lib/date";
+import { addDays, diffDays, startOfWeek, toLocalDate, today as todayStr } from "@/lib/date";
 import type {
   Habit,
   HabitLog,
@@ -17,8 +17,13 @@ import type {
 
 /** 保険（フリーズ）を使える頻度。直近この日数につき1回 */
 const FREEZE_WINDOW = 7;
-/** 達成率を出す期間 */
-const RATE_WINDOW = 30;
+/** 達成率を出す期間（日で数える習慣） */
+export const RATE_WINDOW = 30;
+/**
+ * 達成率を出す期間（週で数える習慣）。終わった週だけを数えるので、
+ * 30日ぶんに近く、ヒートマップの「直近5週間」からもはみ出さない4週にしてある。
+ */
+export const RATE_WEEKS = 4;
 /**
  * 率とヒートマップを出し始めるまでの日数。
  * 始めた翌日に「達成率 0%」を見せるのは、続ける気を削ぐだけで情報がない。
@@ -66,6 +71,83 @@ export function findLog(
 }
 
 /**
+ * 数える単位。週N回だけ「週」で、ほかは「日」。
+ *
+ * 週N回は曜日を決めない約束なので、日で数えると破綻する。
+ * 予定日が週7日ぶんあることになり、きっちり週3回やっていても
+ * 達成率は 3/7＝43%、連続は「やらない日」が来た時点で切れて最大2日にしかならない。
+ * 実際に「毎週きっちり3回を5週」続けた記録で「45% ・ 2日連続 ・ 保険を使用中」と
+ * 出ていた（2026-09-21 に実機で確認）。約束が週単位なら、数える単位も週にする。
+ */
+export const countsByWeek = (habit: Pick<Habit, "schedule">): boolean =>
+  habit.schedule.kind === "timesPerWeek";
+
+/** 週N回の「何回」。ほかの種類では使わない */
+const weeklyTarget = (habit: Habit): number =>
+  habit.schedule.kind === "timesPerWeek" ? Math.max(1, habit.schedule.times) : 0;
+
+/** その日を含む週の月曜（date.ts の週の始まりに合わせる） */
+const weekStartOf = (date: string): string => startOfWeek(new Date(`${date}T00:00:00`));
+
+/** i 週前の月曜 */
+const weekBefore = (thisWeekStart: string, i: number): string =>
+  addDays(-7 * i, new Date(`${thisWeekStart}T00:00:00`));
+
+/**
+ * その週にやった回数（done / partial）。
+ *
+ * skipped は数に入れないが、分母（週の目安）も減らさない。
+ * 週N回は「その週のうちどこかで n 回」という約束なので、
+ * 1日休むことは約束の妨げにならない。
+ */
+function keptInWeek(habit: Habit, logs: HabitLog[], weekStart: string): number {
+  const weekEnd = addDays(6, new Date(`${weekStart}T00:00:00`));
+  return logs.filter(
+    (l) =>
+      l.habitId === habit.id && l.date >= weekStart && l.date <= weekEnd && kept(l.state),
+  ).length;
+}
+
+/**
+ * 週N回のストリーク。続いた「週」の数を返す。
+ *
+ * - 今週はまだ途中なので、目安に届いていなくても途切れにしない
+ *   （すでに届いていれば、その週も数に入れる）
+ * - 作った週は途中から始まっていて目安に届きようがないので、数えずに止める
+ * - 保険は日のときと同じ考えで1回だけ。ただし守れるのは直前の週まで
+ *   （日のときの「直近7日以内」＝1区切りぶんに対応する）
+ */
+function weekStreak(
+  habit: Habit,
+  logs: HabitLog[],
+  today: string,
+): { streak: number; freezeUsed: boolean } {
+  const target = weeklyTarget(habit);
+  const startWeek = weekStartOf(habitStartDate(habit));
+  const thisWeek = weekStartOf(today);
+  let streak = 0;
+  let freezeUsed = false;
+  for (let i = 0; i < 200; i++) {
+    const week = weekBefore(thisWeek, i);
+    if (week < startWeek) break;
+    const met = keptInWeek(habit, logs, week) >= target;
+    if (met) {
+      streak++;
+      continue;
+    }
+    if (i === 0) continue; // 今週はこれからやれる
+    if (week === startWeek) break; // 作った週は途中から。届かなくても責めない
+    if (!freezeUsed && i <= 1) {
+      freezeUsed = true;
+      continue;
+    }
+    break;
+  }
+  // 日のときと同じ。続いていないなら守るものが無いので、保険は消費していない
+  return { streak, freezeUsed: streak > 0 && freezeUsed };
+}
+
+/**
  * ストリーク。予定日だけを数える。
  *
  * 予定日でない日は「飛ばす」（途切れでも継続でもない）。
@@ -80,6 +162,7 @@ export function computeStreak(
   logs: HabitLog[],
   today = todayStr(),
 ): { streak: number; freezeUsed: boolean } {
+  if (countsByWeek(habit)) return weekStreak(habit, logs, today);
   let streak = 0;
   let freezeUsed = false;
   const start = habitStartDate(habit);
@@ -125,12 +208,20 @@ export function computeStreak(
   return { streak, freezeUsed: streak > 0 && freezeUsed };
 }
 
-/** 直近 RATE_WINDOW 日の達成率。分母は予定日から skipped を除いたもの */
+/**
+ * 達成率と、その分母（planned）。
+ *
+ * 日で数える習慣は直近 RATE_WINDOW 日の予定日、
+ * 週で数える習慣（週N回）は終わった直近 RATE_WEEKS 週ぶんの回数が分母になる。
+ * planned の単位は countsByWeek() で分かれる（日 / 回）ので、
+ * 画面に出すときは単位も一緒に出しわけること。
+ */
 export function computeRate(
   habit: Habit,
   logs: HabitLog[],
   today = todayStr(),
-): { rate: number; scheduled: number } {
+): { rate: number; planned: number } {
+  if (countsByWeek(habit)) return weekRate(habit, logs, today);
   const base = new Date(`${today}T00:00:00`);
   const start = habitStartDate(habit);
   let scheduled = 0;
@@ -160,7 +251,35 @@ export function computeRate(
     scheduled++;
     if (log && kept(log.state)) achieved++;
   }
-  return { rate: scheduled === 0 ? 0 : achieved / scheduled, scheduled };
+  return { rate: scheduled === 0 ? 0 : achieved / scheduled, planned: scheduled };
+}
+
+/**
+ * 週N回の達成率。終わった週だけを、週の目安を分母にして数える。
+ *
+ * 今週を入れないのは、日のときに「今日ぶんはまだ結果が出ていない」として
+ * 分母から外しているのと同じ理由。週の半ばに見ると必ず下がって見える。
+ * 1週に目安より多くやっても、その週ぶんは目安どまりで数える
+ * （前倒しで率を水増ししない）。
+ */
+function weekRate(
+  habit: Habit,
+  logs: HabitLog[],
+  today: string,
+): { rate: number; planned: number } {
+  const target = weeklyTarget(habit);
+  const startWeek = weekStartOf(habitStartDate(habit));
+  const thisWeek = weekStartOf(today);
+  let planned = 0;
+  let achieved = 0;
+  for (let i = 1; i <= RATE_WEEKS; i++) {
+    const week = weekBefore(thisWeek, i);
+    // 作った週は途中から始まっているので、率の分母にも入れない
+    if (week <= startWeek) break;
+    planned += target;
+    achieved += Math.min(target, keptInWeek(habit, logs, week));
+  }
+  return { rate: planned === 0 ? 0 : achieved / planned, planned };
 }
 
 export function computeStats(
@@ -168,11 +287,12 @@ export function computeStats(
   logs: HabitLog[],
   today = todayStr(),
 ): HabitStats {
-  const { rate, scheduled } = computeRate(habit, logs, today);
+  const { rate, planned } = computeRate(habit, logs, today);
   const { streak, freezeUsed } = computeStreak(habit, logs, today);
   return {
-    rate30: rate,
-    scheduled30: scheduled,
+    unit: countsByWeek(habit) ? "week" : "day",
+    rate,
+    planned,
     streak,
     freezeLeft: freezeUsed ? 0 : 1,
     dueToday: isScheduled(habit, today),

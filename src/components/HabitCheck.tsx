@@ -48,8 +48,10 @@ export function HabitCheck({
           {habit.title}
         </span>
         {stats.streak > 0 && (
+          /* 週N回は週で数える（habit.ts の countsByWeek）。単位まで出しわける */
           <span className="shrink-0 font-mono text-[11px] text-accent">
-            {stats.streak}日
+            {stats.streak}
+            {stats.unit === "week" ? "週" : "日"}
           </span>
         )}
       </div>

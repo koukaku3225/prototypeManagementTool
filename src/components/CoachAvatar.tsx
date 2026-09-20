@@ -1,84 +1,18 @@
+import {
+  BLUSH,
+  coachLook,
+  type Look,
+  MOUTH,
+  SKIN,
+  SKIN_SHADE,
+} from "@/lib/coach-look";
 import type { CoachId } from "@/types/goal";
 
 /**
  * コーチのアイコン。外部画像を持たずSVGで描く。
  * 顔の造作は共通で、髪型・目・配色だけを差し替えて描き分ける。
+ * 配色の表と「知らないIDのときどうするか」は lib/coach-look.ts。
  */
-type EyeStyle = "round" | "sharp" | "sleepy" | "closed" | "happy" | "onehidden";
-type HairStyle = "medium" | "short" | "fluffy" | "long" | "spiky" | "hood";
-
-interface Look {
-  bg: string;
-  hair: string;
-  hairDark: string;
-  cloth: string;
-  eyeColor: string;
-  eye: EyeStyle;
-  hairStyle: HairStyle;
-}
-
-const SKIN = "#F8E0CE";
-const SKIN_SHADE = "#EFCDB6";
-const BLUSH = "#F0A9A0";
-const MOUTH = "#B9705F";
-
-const LOOKS: Record<CoachId, Look> = {
-  kaede: {
-    bg: "#F7E6D4",
-    hair: "#A9714B",
-    hairDark: "#8A5A3B",
-    cloth: "#EDE0CE",
-    eyeColor: "#5A3B2A",
-    eye: "round",
-    hairStyle: "medium",
-  },
-  rin: {
-    bg: "#DBE3EE",
-    hair: "#2E3440",
-    hairDark: "#1C212B",
-    cloth: "#FBFCFD",
-    eyeColor: "#2E3440",
-    eye: "sharp",
-    hairStyle: "short",
-  },
-  sou: {
-    bg: "#DCE7EA",
-    hair: "#8098AB",
-    hairDark: "#65798D",
-    cloth: "#E8EEF0",
-    eyeColor: "#41525F",
-    eye: "sleepy",
-    hairStyle: "fluffy",
-  },
-  nagi: {
-    bg: "#D8E5DC",
-    hair: "#232A2C",
-    hairDark: "#151A1C",
-    cloth: "#5E7A68",
-    eyeColor: "#232A2C",
-    eye: "closed",
-    hairStyle: "long",
-  },
-  hinata: {
-    bg: "#FBE7C6",
-    hair: "#E58A3C",
-    hairDark: "#C46F2B",
-    cloth: "#F4B860",
-    eyeColor: "#7A4418",
-    eye: "happy",
-    hairStyle: "spiky",
-  },
-  kuro: {
-    bg: "#DFD9E8",
-    hair: "#251F30",
-    hairDark: "#171320",
-    cloth: "#3A3247",
-    eyeColor: "#7C5BB0",
-    eye: "onehidden",
-    hairStyle: "hood",
-  },
-};
-
 export function CoachAvatar({
   id,
   size = 48,
@@ -88,7 +22,7 @@ export function CoachAvatar({
   size?: number;
   className?: string;
 }) {
-  const look = LOOKS[id];
+  const look = coachLook(id);
   const clip = `clip-${id}`;
 
   return (

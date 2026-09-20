@@ -322,6 +322,20 @@ export function applyEndInput(
 export const countsAsPlanned = (b: Pick<TimeBox, "sourceGoneAt" | "completedAt">): boolean =>
   !b.sourceGoneAt || Boolean(b.completedAt);
 
+/**
+ * これから来る予定（目標の一覧・森の「次の予定」）。
+ * 今日以降で、まだ完了していなくて、Google 側でも生きているもの。早い順。
+ *
+ * `countsAsPlanned` を通すのは、時間の合計から外した予定を「次の予定」として
+ * 案内し続けないため。時間割では「Googleで削除済み」と薄く出て合計にも入らないのに、
+ * 目標の一覧だけが普通の予定として先頭に出していた（2026-09-21 に実機で確認）。
+ */
+export function upcomingBoxes(boxes: TimeBox[], from: string): TimeBox[] {
+  return boxes
+    .filter((b) => b.date >= from && !b.completedAt && countsAsPlanned(b))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
+}
+
 /** その日の合計時間（分）。完了ぶんだけ数えることもできる */
 export function totalMinutes(boxes: TimeBox[], onlyDone = false): number {
   return boxes

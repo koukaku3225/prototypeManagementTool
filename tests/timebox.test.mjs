@@ -28,6 +28,7 @@ import {
   snap,
   sortByStart,
   toMinutes,
+  upcomingBoxes,
   toTime,
   toTimeInputValue,
   totalMinutes,
@@ -745,6 +746,49 @@ t("時刻が壊れている枠は末尾へ落とす（消さない）", () => {
 
 t("空の配列でも落ちない", () => {
   assert.deepEqual(sortByStart([]), []);
+});
+
+// ------------------------------------------------- これから来る予定
+
+/*
+ * 目標の一覧・森の「次の予定」は、Google で消された予定をそのまま案内していた。
+ * 時間割・今日・目標の詳細では「Googleで削除済み」と出て合計からも外れるのに、
+ * ここだけ普通の予定として先頭に出て、押すと消えた予定へ飛ぶ。
+ */
+
+t("これから来る予定を、日付と開始の早い順に返す", () => {
+  const r = upcomingBoxes(
+    [
+      box("b", "20:00", "21:00", { date: "2026-08-28" }),
+      box("a", "09:00", "10:00", { date: "2026-08-27" }),
+    ],
+    "2026-08-27",
+  );
+  assert.deepEqual(r.map((b) => b.id), ["a", "b"]);
+});
+
+t("過ぎた日の予定は「次の予定」に含めない", () => {
+  const r = upcomingBoxes([box("old", "09:00", "10:00", { date: "2026-08-26" })], "2026-08-27");
+  assert.deepEqual(r, []);
+});
+
+t("完了した予定は「次の予定」に含めない", () => {
+  const r = upcomingBoxes(
+    [box("done", "09:00", "10:00", { completedAt: "2026-08-27T01:00:00.000Z" })],
+    "2026-08-27",
+  );
+  assert.deepEqual(r, []);
+});
+
+t("Googleで消された予定は「次の予定」に含めない", () => {
+  const r = upcomingBoxes(
+    [
+      box("gone", "03:00", "04:00", { sourceGoneAt: "2026-08-27T00:00:00.000Z" }),
+      box("live", "09:00", "10:00"),
+    ],
+    "2026-08-27",
+  );
+  assert.deepEqual(r.map((b) => b.id), ["live"], "消された予定を次の予定として案内している");
 });
 
 console.log(`${passed} passed, ${failed} failed`);

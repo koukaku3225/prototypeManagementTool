@@ -182,7 +182,7 @@ t("全部やっていれば 1.0", () => {
   for (let i = 1; i <= 10; i++) logs.push(log(i, "done"));
   const r = computeRate(h, logs, TODAY);
   assert.equal(r.rate, 1);
-  assert.equal(r.scheduled, 10);
+  assert.equal(r.planned, 10);
 });
 
 t("半分なら 0.5", () => {
@@ -196,34 +196,34 @@ t("skipped は分母から外す（休むと率が下がるのは理不尽）", 
   const h = habit({ createdAt: `${ago(4)}T00:00:00.000Z` });
   const logs = [log(1, "done"), log(2, "skipped"), log(3, "done")];
   const r = computeRate(h, logs, TODAY);
-  assert.equal(r.scheduled, 2, "skipped が分母に入っている");
+  assert.equal(r.planned, 2, "skipped が分母に入っている");
   assert.equal(r.rate, 1);
 });
 
 t("今日ぶんは、まだ押していなければ分母に入れない", () => {
   const h = habit({ createdAt: `${ago(2)}T00:00:00.000Z` });
   const logs = [log(1, "done")];
-  assert.equal(computeRate(h, logs, TODAY).scheduled, 1);
+  assert.equal(computeRate(h, logs, TODAY).planned, 1);
 });
 
 t("今日ぶんも、押していれば数える", () => {
   const h = habit({ createdAt: `${ago(2)}T00:00:00.000Z` });
   const logs = [log(0, "done"), log(1, "done")];
-  assert.equal(computeRate(h, logs, TODAY).scheduled, 2);
+  assert.equal(computeRate(h, logs, TODAY).planned, 2);
 });
 
 t("始める前の日と作成日そのものは数えない", () => {
   const h = habit({ createdAt: `${ago(2)}T00:00:00.000Z` });
   const logs = [log(1, "done")];
   const r = computeRate(h, logs, TODAY);
-  assert.equal(r.scheduled, 1, `作成日まで数えている: ${r.scheduled}`);
+  assert.equal(r.planned, 1, `作成日まで数えている: ${r.planned}`);
   assert.equal(r.rate, 1);
 });
 
 t("記録がまったく無ければ 0 を返し、落ちない", () => {
   const h = habit({ createdAt: `${TODAY}T00:00:00.000Z` });
   const r = computeRate(h, [], TODAY);
-  assert.equal(r.scheduled, 0);
+  assert.equal(r.planned, 0);
   assert.equal(r.rate, 0);
 });
 
@@ -369,30 +369,30 @@ t("作成日が予定日でなければ、done があっても数えない（ほ
   // 木曜だけの習慣を水曜（ago(1)）に作り、その日に押した
   const h = habit({ schedule: { kind: "weekdays", days: [4] }, createdAt: `${ago(1)}T01:00:00.000Z` });
   assert.equal(computeStreak(h, [log(1, "done")], TODAY).streak, 0);
-  assert.equal(computeRate(h, [log(1, "done")], TODAY).scheduled, 0);
+  assert.equal(computeRate(h, [log(1, "done")], TODAY).planned, 0);
 });
 
 t("作った当日に押せば、達成率の分母と分子に入る", () => {
   const h = habit({ createdAt: `${TODAY}T01:00:00.000Z` });
   const r = computeRate(h, [log(0, "done")], TODAY);
-  assert.equal(r.scheduled, 1);
+  assert.equal(r.planned, 1);
   assert.equal(r.rate, 1);
 });
 
 t("作成日の done は達成率に入り、未記録の作成日は分母に入らない", () => {
   const withLog = habit({ createdAt: `${ago(2)}T01:00:00.000Z` });
   const a = computeRate(withLog, [log(1, "done"), log(2, "done")], TODAY);
-  assert.equal(a.scheduled, 2);
+  assert.equal(a.planned, 2);
   assert.equal(a.rate, 1);
   const b = computeRate(withLog, [log(1, "done")], TODAY);
-  assert.equal(b.scheduled, 1, "未記録の作成日が分母に入っている");
+  assert.equal(b.planned, 1, "未記録の作成日が分母に入っている");
   assert.equal(b.rate, 1);
 });
 
 t("作成日の missed は分母に入れない（夜に作った日を0%にしない）", () => {
   const h = habit({ createdAt: `${ago(1)}T12:00:00.000Z` });
   const r = computeRate(h, [log(1, "missed")], TODAY);
-  assert.equal(r.scheduled, 0);
+  assert.equal(r.planned, 0);
   assert.equal(r.rate, 0);
 });
 
@@ -401,6 +401,80 @@ t("2週間たつまでは warming up のまま", () => {
   assert.equal(isWarmingUp(h, TODAY), true);
   const old = habit({ createdAt: `${ago(14)}T00:00:00.000Z` });
   assert.equal(isWarmingUp(old, TODAY), false);
+});
+
+// ------------------------------------------------- 週N回（週で数える）
+
+/*
+ * 週N回の習慣は「曜日を問わない」ので、日で数えると、きっちり守っていても
+ * 予定日が週7日ぶんあることになり、達成率が n/7 に潰れる。
+ * 連続も、やらない日が来るたびに途切れる（週3回なら最大2日）。
+ * 実際に「毎週きっちり3回を5週」続けた記録で「45% ・ 2日連続」と出ていた。
+ * 数える単位を週に変える。
+ */
+
+/** 週N回の習慣に、週ごとに n 回の done を w 週ぶん入れる（完了した週から古い順） */
+function weeklyLogs(weeks, perWeek) {
+  const out = [];
+  for (let w = 1; w <= weeks; w++) {
+    for (let i = 0; i < perWeek; i++) {
+      // TODAY は木曜。ago(4) が先週の日曜なので、そこから週ごとに7日ずつ戻る
+      out.push(log(4 + (w - 1) * 7 + i, "done"));
+    }
+  }
+  return out;
+}
+
+t("週3回をきっちり3回やっていれば、達成率は100%", () => {
+  const h = habit({ schedule: { kind: "timesPerWeek", times: 3 } });
+  const r = computeRate(h, weeklyLogs(4, 3), TODAY);
+  assert.equal(r.rate, 1, "きっちり守っているのに100%になっていない");
+  assert.equal(r.planned, 12, "分母が週の回数（3回×4週）になっていない");
+});
+
+t("週3回で4回やった週も、その週ぶんは3回として数える（先取りで水増ししない）", () => {
+  const h = habit({ schedule: { kind: "timesPerWeek", times: 3 } });
+  const logs = [...weeklyLogs(4, 3), log(7, "done")]; // 先週にもう1回
+  const r = computeRate(h, logs, TODAY);
+  assert.equal(r.rate, 1);
+  assert.equal(r.planned, 12);
+});
+
+t("週3回で毎週3回できていれば、連続は週の数で数える", () => {
+  const h = habit({ schedule: { kind: "timesPerWeek", times: 3 } });
+  const r = computeStreak(h, weeklyLogs(5, 3), TODAY);
+  assert.equal(r.streak, 5, "5週続いているのに週で数えていない");
+  assert.equal(r.freezeUsed, false, "守れている週に保険を使っている");
+});
+
+t("週3回で今週まだ1回でも、先週までの連続は途切れない", () => {
+  const h = habit({ schedule: { kind: "timesPerWeek", times: 3 } });
+  const logs = [...weeklyLogs(3, 3), log(0, "done")]; // 今週は1回だけ
+  assert.equal(computeStreak(h, logs, TODAY).streak, 3);
+});
+
+t("週3回で今週すでに3回やっていれば、今週も連続に入る", () => {
+  const h = habit({ schedule: { kind: "timesPerWeek", times: 3 } });
+  const logs = [...weeklyLogs(2, 3), log(0, "done"), log(1, "done"), log(2, "done")];
+  assert.equal(computeStreak(h, logs, TODAY).streak, 3);
+});
+
+t("週3回で届かない週が続けば、保険1回ぶんだけ守って途切れる", () => {
+  const h = habit({ schedule: { kind: "timesPerWeek", times: 3 } });
+  // 先週は1回だけ（未達）、その前の3週はきっちり3回
+  const logs = [log(4, "done")];
+  for (let w = 2; w <= 4; w++) {
+    for (let i = 0; i < 3; i++) logs.push(log(4 + (w - 1) * 7 + i, "done"));
+  }
+  const r = computeStreak(h, logs, TODAY);
+  assert.equal(r.streak, 3, "保険で先週を守ったうえでの連続になっていない");
+  assert.equal(r.freezeUsed, true);
+});
+
+t("週N回の集計は週単位、それ以外は日単位", () => {
+  assert.equal(computeStats(habit(), [], TODAY).unit, "day");
+  const h = habit({ schedule: { kind: "timesPerWeek", times: 3 } });
+  assert.equal(computeStats(h, [], TODAY).unit, "week");
 });
 
 console.log(`${passed} passed, ${failed} failed`);

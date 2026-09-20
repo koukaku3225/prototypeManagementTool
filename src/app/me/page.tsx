@@ -21,6 +21,8 @@ import {
   daysSinceStart,
   heatmap,
   isWarmingUp,
+  RATE_WEEKS,
+  RATE_WINDOW,
   scheduleLabel,
   WARMUP_DAYS,
 } from "@/lib/habit";
@@ -208,6 +210,11 @@ function HabitRecord({
 }) {
   const warming = isWarmingUp(habit);
   const days = daysSinceStart(habit);
+  /*
+   * 週N回は週で数える（habit.ts の countsByWeek）。
+   * 単位まで出しわけないと、「3週連続」を「3日連続」と読ませてしまう。
+   */
+  const weekly = stats.unit === "week";
 
   return (
     <div className="rounded-xl border border-line bg-surface px-4 py-4">
@@ -241,7 +248,8 @@ function HabitRecord({
             ? "今日つくったばかりです。"
             : `はじめて${days}日目。`}
           {WARMUP_DAYS}日たつと、続き具合をここに出します。
-          {stats.streak > 0 && ` いまのところ${stats.streak}日続いています。`}
+          {stats.streak > 0 &&
+            ` いまのところ${stats.streak}${weekly ? "週" : "日"}続いています。`}
         </p>
       ) : (
         <>
@@ -252,16 +260,20 @@ function HabitRecord({
           <div className="mt-3 flex gap-4">
             <Stat
               value={`${stats.streak}`}
-              unit="日連続"
+              unit={weekly ? "週連続" : "日連続"}
               note={stats.freezeLeft === 0 ? "保険を使用中" : undefined}
             />
             <Stat
-              value={
-                stats.scheduled30 === 0 ? "—" : `${Math.round(stats.rate30 * 100)}`
-              }
-              unit="% 直近30日"
+              value={stats.planned === 0 ? "—" : `${Math.round(stats.rate * 100)}`}
+              unit={weekly ? `% 直近${RATE_WEEKS}週` : `% 直近${RATE_WINDOW}日`}
               note={
-                stats.scheduled30 > 0 ? `予定${stats.scheduled30}日` : "予定日なし"
+                stats.planned === 0
+                  ? weekly
+                    ? "終わった週がまだありません"
+                    : "予定日なし"
+                  : weekly
+                    ? `予定${stats.planned}回`
+                    : `予定${stats.planned}日`
               }
             />
           </div>

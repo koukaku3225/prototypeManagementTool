@@ -21,8 +21,8 @@ export const MAX_TREES = 6;
 const MAX_TWIGS = 12;
 /** この日数で木が大人の大きさになる */
 const FULL_GROWTH_DAYS = 112;
-/** 習慣の率を信用し始める予定日数。少ないうちの率は偶然に振れる */
-const MIN_SCHEDULED_FOR_RATE = 3;
+/** 習慣の率を信用し始める分母（日で数える習慣は予定日数、週N回は回数）。少ないうちの率は偶然に振れる */
+const MIN_PLANNED_FOR_RATE = 3;
 
 export type TwigState = "bud" | "open" | "flower" | "fallen";
 
@@ -73,7 +73,7 @@ export function twigState(c: Checkpoint, today: string): TwigState {
 export function habitVigor(habits: Habit[], logs: HabitLog[], today: string): number {
   const rates = habits
     .map((h) => computeRate(h, logs, today))
-    .filter((r) => r.scheduled >= MIN_SCHEDULED_FOR_RATE)
+    .filter((r) => r.planned >= MIN_PLANNED_FOR_RATE)
     .map((r) => r.rate);
   if (rates.length === 0) return habits.length > 0 ? 0.6 : 0.5;
   return rates.reduce((a, b) => a + b, 0) / rates.length;
