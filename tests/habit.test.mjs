@@ -477,5 +477,59 @@ t("週N回の集計は週単位、それ以外は日単位", () => {
   assert.equal(computeStats(h, [], TODAY).unit, "week");
 });
 
+t("週N回のヒートマップは、記録のない日を「やるはずだった日」として空欄にしない", () => {
+  const h = habit({ schedule: { kind: "timesPerWeek", times: 3 } });
+  const cells = heatmap(h, [log(0, "done"), log(2, "done")], 14, TODAY);
+  assert.equal(cells.filter((c) => c.scheduled).length, 0, "曜日を決めない約束なのに、毎日が予定日として描かれる");
+  assert.equal(cells.filter((c) => c.state === "done").length, 2, "記録のある日は色が付く");
+});
+
+// ------------------------------------------------- 週N回の「今週の進み具合」
+
+/*
+ * 週N回の習慣は、今日の画面に毎日「今日の習慣」として出る。
+ * 今週の目安に届いたあとも「今日の習慣 0/1」のまま残り、しかも今週あと何回かが
+ * どこにも出ていなかった。今週の進み具合を stats に持たせ、届いたら今日の一覧から外す。
+ */
+
+t("週3回で今週2回やっていれば、今週の進み具合は 2/3", () => {
+  const h = habit({ schedule: { kind: "timesPerWeek", times: 3 } });
+  const s = computeStats(h, [log(0, "done"), log(1, "partial")], TODAY);
+  assert.deepEqual(s.thisWeek, { done: 2, target: 3 });
+  assert.equal(s.dueToday, true, "目安に届いていないのに今日の一覧から消えている");
+});
+
+t("週3回で今週の目安に届いたら、今日まだ記録していなくても今日の一覧から外す", () => {
+  const h = habit({ schedule: { kind: "timesPerWeek", times: 3 } });
+  const logs = [log(1, "done"), log(2, "done"), log(3, "done")]; // TODAY は木曜。月〜水で3回
+  const s = computeStats(h, logs, TODAY);
+  assert.equal(s.thisWeek.done, 3);
+  assert.equal(s.dueToday, false, "届いた週なのに「今日の習慣」に残っている");
+});
+
+t("週3回の目安に届いた日に記録した習慣は、今日の一覧に残る（押した結果が消えない）", () => {
+  const h = habit({ schedule: { kind: "timesPerWeek", times: 3 } });
+  const logs = [log(0, "done"), log(1, "done"), log(2, "done")];
+  const s = computeStats(h, logs, TODAY);
+  assert.equal(s.dueToday, true);
+  assert.equal(s.todayLog.state, "done");
+});
+
+t("週N回の今週の数は、先週のぶんを含めない・休みは数えない", () => {
+  const h = habit({ schedule: { kind: "timesPerWeek", times: 2 } });
+  // 先週の日曜（ago(4)）は今週に入らない。今日の「休み」も回数に入らない
+  const s = computeStats(h, [log(4, "done"), log(0, "skipped")], TODAY);
+  assert.equal(s.thisWeek.done, 0);
+  assert.equal(s.dueToday, true);
+});
+
+t("毎日・曜日指定の習慣には今週の進み具合を出さず、今日の一覧の扱いも変えない", () => {
+  const s = computeStats(habit(), [log(0, "done")], TODAY);
+  assert.equal(s.thisWeek, null);
+  assert.equal(s.dueToday, true);
+  const w = computeStats(habit({ schedule: { kind: "weekdays", days: [1, 3, 5] } }), [], TODAY);
+  assert.equal(w.thisWeek, null);
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

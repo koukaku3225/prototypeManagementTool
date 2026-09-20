@@ -103,4 +103,6 @@ export interface HabitStats {
   dueToday: boolean;
   /** 今日の記録。無ければ null */
   todayLog: HabitLog | null;
+  /** 週N回だけ、今週やった回数（done / partial）と目安。日で数える習慣では null */
+  thisWeek: { done: number; target: number } | null;
 }

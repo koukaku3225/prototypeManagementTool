@@ -59,6 +59,9 @@ export function HabitCheck({
       <p className="mt-0.5 font-mono text-[11px] text-muted">
         {when ? `${when} ・ ` : ""}
         {habit.estimateMin}分 ・ {scheduleLabel(habit)}
+        {/* 週N回は「あと何回か」が分からないと、今日やるべきかを決められない */}
+        {stats.thisWeek &&
+          ` ・ 今週 ${stats.thisWeek.done}/${stats.thisWeek.target}回`}
       </p>
 
       {habit.cue && (

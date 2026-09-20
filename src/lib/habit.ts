@@ -289,14 +289,30 @@ export function computeStats(
 ): HabitStats {
   const { rate, planned } = computeRate(habit, logs, today);
   const { streak, freezeUsed } = computeStreak(habit, logs, today);
+  const todayLog = findLog(logs, habit.id, today);
+  // 週N回だけ、今週あと何回かを持つ。日で数える習慣には無い
+  const thisWeek = countsByWeek(habit)
+    ? {
+        done: keptInWeek(habit, logs, weekStartOf(today)),
+        target: weeklyTarget(habit),
+      }
+    : null;
   return {
     unit: countsByWeek(habit) ? "week" : "day",
     rate,
     planned,
     streak,
     freezeLeft: freezeUsed ? 0 : 1,
-    dueToday: isScheduled(habit, today),
-    todayLog: findLog(logs, habit.id, today),
+    /*
+     * 週N回は今週の目安に届いたら、今日の一覧から外す。外さないと、届いた週の
+     * 残りの日も「今日の習慣 0/1」が居座って、約束を守っているのに未完了に見える。
+     * 今日すでに記録したものは残す（押した結果が消えると、押したのか分からなくなる）。
+     */
+    dueToday:
+      isScheduled(habit, today) &&
+      (!thisWeek || thisWeek.done < thisWeek.target || todayLog !== null),
+    todayLog,
+    thisWeek,
   };
 }
 
@@ -310,6 +326,7 @@ export const isWarmingUp = (habit: Habit, today = todayStr()): boolean =>
 /**
  * ヒートマップ用に、直近 n 日ぶんを古い順で返す。
  * 予定日でない日は state を null にして、薄く描けるようにする。
+ * 週N回は曜日を決めないので、どの日も「予定日ではない」側に出す。
  */
 export function heatmap(
   habit: Habit,
@@ -324,7 +341,12 @@ export function heatmap(
     out.push({
       date,
       state: findLog(logs, habit.id, date)?.state ?? null,
-      scheduled: isScheduled(habit, date),
+      /*
+       * 週N回は曜日を決めない約束なので、記録のない日を「やるはずだった日」の
+       * 空欄として描かない。描くと、きっちり守っている人でも週に4マスが「できなかった」
+       * ように並ぶ（達成率を週で数えるようにしたのと同じ理由）。
+       */
+      scheduled: !countsByWeek(habit) && isScheduled(habit, date),
     });
   }
   return out;

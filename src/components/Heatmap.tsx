@@ -68,5 +68,7 @@ function describe(
     (c) => c.state === "done" || c.state === "partial",
   ).length;
   const scheduled = cells.filter((c) => c.scheduled && c.state !== "skipped").length;
+  // 週N回は予定日を持たない（habit.ts の heatmap）。「予定0日に対して」とは読ませない
+  if (scheduled === 0) return `直近${cells.length}日のうち、${done}日できています`;
   return `直近${cells.length}日のうち、予定${scheduled}日に対して${done}日できています`;
 }
