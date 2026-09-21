@@ -40,7 +40,7 @@ import {
   slotFromNow,
   totalMinutes,
 } from "@/lib/timebox";
-import { addDays, dueLabel, today } from "@/lib/date";
+import { addDays, dayLabel, today } from "@/lib/date";
 import { DEVICE_KEY } from "@/lib/storage-keys";
 import { shouldShowOnboarding } from "@/lib/onboarding";
 import { presetCardIdFrom } from "@/lib/goal-card";
@@ -554,7 +554,7 @@ export default function PlanPage() {
           */}
           <label className="relative flex min-h-11 min-w-0 flex-1 cursor-pointer flex-col items-center justify-center rounded-xl border border-line bg-surface px-2">
             <span className="text-[14px] font-medium leading-tight">
-              {dueLabel(date)}
+              {dayLabel(date)}
             </span>
             <span className="font-mono text-[10.5px] leading-tight text-muted">
               {date} ▾

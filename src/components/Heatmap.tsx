@@ -1,6 +1,6 @@
 "use client";
 
-import { dueLabel } from "@/lib/date";
+import { dayLabel } from "@/lib/date";
 import type { HabitLogState } from "@/types/behavior";
 
 /**
@@ -37,7 +37,7 @@ export function Heatmap({
         {cells.map((c) => (
           <span
             key={c.date}
-            title={`${dueLabel(c.date)} ${stateLabel(c.state, c.scheduled)}`}
+            title={`${dayLabel(c.date)} ${stateLabel(c.state, c.scheduled)}`}
             className={`aspect-square rounded-[3px] ${
               c.state
                 ? COLOR[c.state]

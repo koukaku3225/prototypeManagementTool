@@ -10,7 +10,7 @@ import {
   addDays,
   deadlineCountdown,
   diffDays,
-  dueLabel,
+  dayLabel,
   isDueBy,
   isOverdue,
   isThisWeek,
@@ -84,23 +84,43 @@ t("isOverdue: 今日は遅れではない", () => {
 t("空文字は期限なし扱い（未設定のタスクを今日に混ぜない）", () => {
   assert.equal(isDueBy(""), false);
   assert.equal(isOverdue(""), false);
-  assert.equal(dueLabel(""), "期限なし");
+  assert.equal(dayLabel(""), "");
 });
 
-// ---------------------------------------------------------------- dueLabel
+// ---------------------------------------------------------------- dayLabel
 
-t("dueLabel は今日・明日を言葉にする", () => {
-  assert.equal(dueLabel(toLocalDate(new Date())), "今日");
-  assert.equal(dueLabel(addDays(1)), "明日");
+/*
+ * ただの日付（時間割の見出し・ヒートマップのマス）に付ける言葉。
+ * 2026-09-22 まで、ここには期限用の dueLabel を使っていた。そのため
+ * 昨日の時間割が「1日遅れ」、ヒートマップの9日前のマスが「9日遅れ できた」と
+ * 出ていた（実機で確認）。予定表の過去の日は「遅れ」ではない。
+ */
+t("dayLabel は今日・前後2日を言葉にする", () => {
+  assert.equal(dayLabel(toLocalDate(new Date())), "今日");
+  assert.equal(dayLabel(addDays(1)), "明日");
+  assert.equal(dayLabel(addDays(2)), "あさって");
+  assert.equal(dayLabel(addDays(-1)), "昨日");
+  assert.equal(dayLabel(addDays(-2)), "おととい");
 });
 
-t("dueLabel は遅れを日数で言う", () => {
-  assert.equal(dueLabel(addDays(-1)), "1日遅れ");
-  assert.equal(dueLabel(addDays(-3)), "3日遅れ");
+t("dayLabel は過去を「遅れ」と言わない", () => {
+  assert.equal(dayLabel(addDays(-3)), "3日前");
+  assert.equal(dayLabel(addDays(-9)), "9日前");
 });
 
-t("dueLabel は先の予定は日付のまま出す", () => {
-  assert.equal(dueLabel(addDays(5)), addDays(5));
+t("dayLabel は先の日を日付のまま返さない（同じ日付が2回並ぶのを防ぐ）", () => {
+  assert.equal(dayLabel(addDays(5)), "5日後");
+  assert.notEqual(dayLabel(addDays(5)), addDays(5));
+});
+
+t("dayLabel は基準日を渡せる（時計に左右されない）", () => {
+  assert.equal(dayLabel("2026-09-21", "2026-09-22"), "昨日");
+  assert.equal(dayLabel("2026-09-27", "2026-09-22"), "5日後");
+  assert.equal(dayLabel("2026-09-22", "2026-09-22"), "今日");
+});
+
+t("dayLabel は空文字を空文字のまま返す", () => {
+  assert.equal(dayLabel(""), "");
 });
 
 // ---------------------------------------------------------------- diffDays

@@ -81,19 +81,28 @@ export const isDueBy = (date: string): boolean =>
   Boolean(date) && date <= today();
 
 /**
- * 期限の残り日数を人間向けの一言にする。
- * 「今日」「明日」「3日遅れ」など。
+ * ただの日付に添える一言。「今日」「昨日」「3日前」「5日後」。
+ *
+ * 2026-09-22 まで、時間割の日付見出しとヒートマップのマスは期限用の
+ * `dueLabel` を使っていた。そのため昨日の時間割が「1日遅れ」、
+ * ヒートマップの9日前のマスが「9日遅れ できた」と出ていた。
+ * 予定表をさかのぼった日も、習慣をやった日も「遅れ」ではない。
+ * さらに `dueLabel` は先の日付をそのまま返すので、時間割の見出しは
+ * 「2026-09-25 / 2026-09-25」と同じ日付が2段に並んでいた。
+ *
+ * 期限の残りを言いたいときは `deadlineCountdown`（「あと12日」「3日過ぎ」）を使う。
+ * 基準日を渡せるのはテストのため（既定は今日）。
  */
-export function dueLabel(date: string): string {
-  if (!date) return "期限なし";
-  const t = today();
-  if (date === t) return "今日";
-  if (date === addDays(1)) return "明日";
-  if (date < t) {
-    const diff = diffDays(date, t);
-    return `${diff}日遅れ`;
-  }
-  return date;
+export function dayLabel(date: string, base: string = today()): string {
+  if (!date) return "";
+  const d = diffDays(base, date);
+  if (Number.isNaN(d)) return "";
+  if (d === 0) return "今日";
+  if (d === 1) return "明日";
+  if (d === 2) return "あさって";
+  if (d === -1) return "昨日";
+  if (d === -2) return "おととい";
+  return d > 0 ? `${d}日後` : `${-d}日前`;
 }
 
 /**
