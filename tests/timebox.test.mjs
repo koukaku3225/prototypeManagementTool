@@ -33,6 +33,8 @@ import {
   toTimeInputValue,
   totalMinutes,
   lastAdviceFor,
+  runningSpan,
+  runningCutNote,
 } from "../src/lib/timebox.ts";
 
 let passed = 0;
@@ -789,6 +791,62 @@ t("Googleで消された予定は「次の予定」に含めない", () => {
     "2026-08-27",
   );
   assert.deepEqual(r.map((b) => b.id), ["live"], "消された予定を次の予定として案内している");
+});
+
+// ---- 打刻（記録中）が日をまたいだとき ----
+// 時刻は new Date(y, m, d, h, min) で作る（実行環境のタイムゾーンに依らない）
+
+t("打刻：同じ日のうちに止めれば、経過時間と記録される時間は同じ", () => {
+  const start = new Date(2026, 8, 22, 9, 0).toISOString();
+  const s = runningSpan(start, new Date(2026, 8, 22, 10, 30));
+  assert.equal(s.date, "2026-09-22");
+  assert.equal(s.startMin, 540);
+  assert.equal(s.endMin, 630);
+  assert.equal(s.elapsedMin, 90);
+  assert.equal(s.recordedMin, 90);
+  assert.equal(s.lostMin, 0);
+  assert.equal(s.crossedMidnight, false);
+  assert.equal(runningCutNote(s), null, "またいでいないのに注意書きが出る");
+});
+
+t("打刻：押してすぐ止めても0分の枠は作らない（最低1分）", () => {
+  const start = new Date(2026, 8, 22, 9, 0, 10).toISOString();
+  const s = runningSpan(start, new Date(2026, 8, 22, 9, 0, 40));
+  assert.equal(s.endMin - s.startMin, 1);
+});
+
+t("打刻：22:00に始めて翌朝8:00に止めると、記録は2時間で、8時間ぶんが残らない", () => {
+  const start = new Date(2026, 8, 22, 22, 0).toISOString();
+  const s = runningSpan(start, new Date(2026, 8, 23, 8, 0));
+  assert.equal(s.date, "2026-09-22", "記録は始めた日");
+  assert.equal(s.endMin, 1440);
+  assert.equal(s.elapsedMin, 600, "帯に出る経過時間");
+  assert.equal(s.recordedMin, 120);
+  assert.equal(s.lostMin, 480);
+  assert.equal(s.crossedMidnight, true);
+});
+
+t("打刻：3日たってから止めても、記録は始めた日の24時まで（残らないぶんが数字で分かる）", () => {
+  const start = new Date(2026, 8, 22, 9, 0).toISOString();
+  const s = runningSpan(start, new Date(2026, 8, 25, 9, 0));
+  assert.equal(s.recordedMin, 900);
+  assert.equal(s.elapsedMin, 72 * 60);
+  assert.equal(s.lostMin, 72 * 60 - 900);
+});
+
+t("打刻：注意書きは、何が記録され何が残らないかを言い、破棄も選べると添える", () => {
+  const start = new Date(2026, 8, 22, 22, 0).toISOString();
+  const note = runningCutNote(runningSpan(start, new Date(2026, 8, 23, 8, 0)));
+  assert.match(note, /22:00〜24:00（2時間）/);
+  assert.match(note, /残りの8時間は残りません/);
+  assert.match(note, /破棄/);
+});
+
+t("打刻：23:59に始めて0:01に止めた場合、記録は1分・残らないのは1分", () => {
+  const start = new Date(2026, 8, 22, 23, 59).toISOString();
+  const s = runningSpan(start, new Date(2026, 8, 23, 0, 1));
+  assert.equal(s.recordedMin, 1);
+  assert.equal(s.lostMin, 1);
 });
 
 console.log(`${passed} passed, ${failed} failed`);

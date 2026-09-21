@@ -1,4 +1,5 @@
 import type { TimeBox } from "@/types/timebox";
+import { toLocalDate } from "@/lib/date";
 
 /**
  * タイムボックスの計算。
@@ -257,6 +258,60 @@ export function toTimeInputValue(time: string): string {
   const m = toMinutes(time);
   if (m === null) return "";
   return toTime(Math.min(m, DAY_MINUTES - 1));
+}
+
+/**
+ * 打刻（記録中）を止めたとき、どの日のどの時間帯が記録されるか。
+ *
+ * TimeBox は1日に収まる前提の型なので、日をまたいだ打刻は始めた日の24時で切る
+ * （またぐ枠を作ると重なり計算もグリッドの描画も壊れる）。
+ * 切るのは変えないが、「何時間 経ったか」と「何時間 記録されるか」が
+ * 食い違うことは、止める前に本人へ見せる必要がある。押し忘れた夜の打刻は
+ * 「10時間」と表示されたまま、2時間ぶんだけが昨日の枠として残っていた。
+ */
+export interface RunningSpan {
+  /** 記録される日（始めた日） */
+  date: string;
+  startMin: number;
+  /** 記録される終わり。日をまたいだら 1440 */
+  endMin: number;
+  /** 実際に経った分（帯に出している時間） */
+  elapsedMin: number;
+  /** 記録される分 */
+  recordedMin: number;
+  /** 日をまたいだため、記録に入らない分 */
+  lostMin: number;
+  crossedMidnight: boolean;
+}
+
+export function runningSpan(startedAt: string, now: Date = new Date()): RunningSpan {
+  const from = new Date(startedAt);
+  const date = toLocalDate(from);
+  const startMin = from.getHours() * 60 + from.getMinutes();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const crossedMidnight = toLocalDate(now) !== date;
+  // 0分の枠は作らない
+  const endMin = crossedMidnight ? DAY_MINUTES : Math.max(startMin + 1, nowMin);
+  const elapsedMin = Math.max(0, Math.floor((now.getTime() - from.getTime()) / 60_000));
+  const recordedMin = endMin - startMin;
+  return {
+    date,
+    startMin,
+    endMin,
+    elapsedMin,
+    recordedMin,
+    lostMin: crossedMidnight ? Math.max(0, elapsedMin - recordedMin) : 0,
+    crossedMidnight,
+  };
+}
+
+/**
+ * 日をまたいだ打刻に添える一文。またいでいなければ null。
+ * 「止めたら何が残るか」と「破棄という選び方もある」を、責めずに言う。
+ */
+export function runningCutNote(span: RunningSpan): string | null {
+  if (!span.crossedMidnight) return null;
+  return `日をまたいでいます。止めると、始めた日の${toTime(span.startMin)}〜24:00（${humanDuration(span.recordedMin)}）だけが記録され、残りの${humanDuration(span.lostMin)}は残りません。押し忘れなら「破棄」もできます。`;
 }
 
 /** 枠の長さ。壊れていても最低15分は保つ */

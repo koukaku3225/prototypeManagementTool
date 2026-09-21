@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { goalSelectOptions } from "@/lib/goal-card";
-import { humanDuration } from "@/lib/timebox";
+import { dayLabel } from "@/lib/date";
+import { humanDuration, runningCutNote, runningSpan, type RunningSpan } from "@/lib/timebox";
 import type { GoalCard } from "@/types/goal";
 import type { RunningEntry } from "@/types/timebox";
 
@@ -30,7 +31,8 @@ export function RunningBar({
   onStop: () => void;
   onCancel: () => void;
 }) {
-  const [elapsed, setElapsed] = useState(0);
+  const [span, setSpan] = useState<RunningSpan>(() => runningSpan(entry.startedAt));
+  const elapsed = span.elapsedMin;
   const [confirmCancel, setConfirmCancel] = useState(false);
   const cardOptions = useMemo(
     () => goalSelectOptions(cards, entry.cardId),
@@ -38,20 +40,20 @@ export function RunningBar({
   );
 
   useEffect(() => {
-    const tick = () => {
-      const ms = Date.now() - Date.parse(entry.startedAt);
-      setElapsed(Math.max(0, Math.floor(ms / 60_000)));
-    };
+    const tick = () => setSpan(runningSpan(entry.startedAt));
     tick();
     // 分単位でしか出さないので、秒まで追う必要はない
     const id = setInterval(tick, 10_000);
     return () => clearInterval(id);
   }, [entry.startedAt]);
 
-  const startedAt = new Date(entry.startedAt).toLocaleTimeString("ja-JP", {
+  const startedTime = new Date(entry.startedAt).toLocaleTimeString("ja-JP", {
     hour: "2-digit",
     minute: "2-digit",
   });
+  // 始めた日が今日でなければ、日も添える（「22:00〜」だけでは、いつの夜か分からない）
+  const startedAt = span.crossedMidnight ? `${dayLabel(span.date)} ${startedTime}` : startedTime;
+  const cutNote = runningCutNote(span);
 
   return (
     <div
@@ -102,6 +104,12 @@ export function RunningBar({
               </option>
             ))}
           </select>
+        )}
+
+        {cutNote && (
+          <p className="mt-2 rounded-lg border border-line bg-paper px-3 py-2 text-[12.5px] leading-relaxed">
+            {cutNote}
+          </p>
         )}
 
         {confirmCancel ? (

@@ -1161,5 +1161,57 @@ t("取り込みで restoreState しても、取り込んだ目標の中間目標
   assert.equal(parsed("gc.schemaVersion"), S.SCHEMA_VERSION);
 });
 
+// ---- 打刻を止める（stopRunning）----
+
+/** new Date() だけを固定する。引数つきの new Date(...) と Date.now/parse は本物のまま */
+function withNow(iso, fn) {
+  const RealDate = Date;
+  const fixed = new RealDate(iso).getTime();
+  class FakeDate extends RealDate {
+    constructor(...args) {
+      if (args.length === 0) super(fixed);
+      else super(...args);
+    }
+    static now() {
+      return fixed;
+    }
+  }
+  globalThis.Date = FakeDate;
+  try {
+    return fn();
+  } finally {
+    globalThis.Date = RealDate;
+  }
+}
+
+t("打刻を止めると、始めた日の枠が完了済みで残り、打刻は消える", () => {
+  reset();
+  const startedAt = new Date(2026, 8, 22, 9, 0).toISOString();
+  store.map.set("gc.running", JSON.stringify({ title: "英語", cardId: null, startedAt }));
+  const box = withNow(new Date(2026, 8, 22, 10, 30).toISOString(), () => S.stopRunning());
+  assert.equal(box.date, "2026-09-22");
+  assert.equal(box.start, "09:00");
+  assert.equal(box.end, "10:30");
+  assert.ok(box.completedAt);
+  assert.equal(S.loadRunning(), null);
+  assert.equal(S.loadAllTimeBoxes().length, 1);
+});
+
+t("日をまたいだ打刻を止めると、始めた日の24時までが記録される（帯の注意書きと同じ範囲）", () => {
+  reset();
+  const startedAt = new Date(2026, 8, 22, 22, 0).toISOString();
+  store.map.set("gc.running", JSON.stringify({ title: "", cardId: null, startedAt }));
+  const box = withNow(new Date(2026, 8, 23, 8, 0).toISOString(), () => S.stopRunning());
+  assert.equal(box.date, "2026-09-22");
+  assert.equal(box.start, "22:00");
+  assert.equal(box.end, "24:00");
+});
+
+t("打刻が走っていなければ何も作らない", () => {
+  reset();
+  assert.equal(S.stopRunning(), null);
+  assert.equal(S.loadAllTimeBoxes().length, 0);
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

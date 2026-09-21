@@ -16,7 +16,7 @@ import {
 } from "@/types/goal";
 import type { Habit, HabitLog } from "@/types/behavior";
 import { toLocalDate } from "@/lib/date";
-import { toTime } from "@/lib/timebox";
+import { runningSpan, toTime } from "@/lib/timebox";
 import {
   emptyMeta,
   emptyReview,
@@ -862,21 +862,16 @@ export const cancelRunning = () => remove(KEY.running);
  * 日をまたいだときは、始めた日の24時で切る。
  * TimeBox は1日に収まる前提の型で、またぐ枠を作ると
  * 重なり計算もグリッドの描画も一気に壊れる。
- * 実態と1分ずれるより、型の前提を守るほうを取る。
+ * 型の前提を守るほうを取る。ただし、押し忘れた夜の打刻では
+ * 経過時間と記録される時間が数時間ずれるので、止める前に
+ * RunningBar が「何が残るか」を見せる（runningSpan / runningCutNote）。
  */
 export function stopRunning(): TimeBox | null {
   const cur = loadRunning();
   if (!cur) return null;
 
-  const from = new Date(cur.startedAt);
-  const date = toLocalDate(from);
-  const startMin = from.getHours() * 60 + from.getMinutes();
-
   const now = new Date();
-  const sameDay = toLocalDate(now) === date;
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-  // またいだら24時で止める。0分の枠は作らない
-  const endMin = sameDay ? Math.max(startMin + 1, nowMin) : 1440;
+  const { date, startMin, endMin } = runningSpan(cur.startedAt, now);
 
   const box: TimeBox = {
     id: crypto.randomUUID(),

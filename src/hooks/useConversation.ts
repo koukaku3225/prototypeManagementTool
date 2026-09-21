@@ -11,6 +11,7 @@ import {
 } from "@/types/goal";
 import { canSkipPhase, skipTarget } from "@/lib/conversation-controls";
 import { loadBigStory, loadProfile, saveSession } from "@/lib/storage";
+import { consumeSse } from "@/lib/sse-client";
 
 export const LOCK_MS = 60_000;
 
@@ -361,41 +362,4 @@ function applyPhase(
 
 function endsWithQuestion(text: string): boolean {
   return /[?？]\s*$/.test(text.trim());
-}
-
-interface SseHandlers {
-  onDelta: (text: string) => void;
-  onDone: (payload: {
-    phase: AnyPhaseId | "done";
-    forced: boolean;
-    usage?: TokenUsage;
-  }) => void;
-  onError: (message: string) => void;
-}
-
-async function consumeSse(body: ReadableStream<Uint8Array>, h: SseHandlers) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-
-    let idx: number;
-    while ((idx = buf.indexOf("\n\n")) !== -1) {
-      const raw = buf.slice(0, idx);
-      buf = buf.slice(idx + 2);
-
-      const eventLine = raw.match(/^event: (.+)$/m);
-      const dataLine = raw.match(/^data: (.+)$/m);
-      if (!eventLine || !dataLine) continue;
-
-      const payload = JSON.parse(dataLine[1]);
-      if (eventLine[1] === "delta") h.onDelta(payload.text);
-      else if (eventLine[1] === "done") h.onDone(payload);
-      else if (eventLine[1] === "error") h.onError(payload.message);
-    }
-  }
 }
