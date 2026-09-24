@@ -27,6 +27,7 @@ import {
   WARMUP_DAYS,
 } from "@/lib/habit";
 import type { Habit, HabitLog, HabitStats } from "@/types/behavior";
+import { InstallCard } from "@/components/InstallCard";
 
 /**
  * わたし。
@@ -180,6 +181,8 @@ export default function MePage() {
           そのほか
         </h2>
         <div className="mt-2 flex flex-col gap-2">
+          {/* アプリとして開いているときは何も出ない */}
+          <InstallCard />
           <RowLink
             href="/history"
             title="対話のログ"

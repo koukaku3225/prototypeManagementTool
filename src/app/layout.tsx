@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { BottomNav } from "@/components/BottomNav";
 import { LocalBackupBoot } from "@/components/LocalBackupBoot";
+import { PwaBoot } from "@/components/PwaBoot";
 import { StorageAlert } from "@/components/StorageAlert";
 import { SyncBoot } from "@/components/SyncBoot";
 import { SyncStalledBar } from "@/components/SyncStalledBar";
@@ -10,12 +11,26 @@ export const metadata: Metadata = {
   title: "目標設定コーチ",
   description:
     "AIとの対話で、なりたい姿を明日の一歩に変える。目標設定と自己分析のためのプロトタイプ。",
+  // iPhone で「ホーム画面に追加」したときの名前・アイコン・全画面表示
+  appleWebApp: {
+    capable: true,
+    title: "目標コーチ",
+    statusBarStyle: "default",
+  },
+  icons: {
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  // アプリとして開いたときの上端の色。テーマに合わせる（globals.css の --paper）
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f2f5f9" },
+    { media: "(prefers-color-scheme: dark)", color: "#0e1524" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -39,6 +54,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full flex flex-col bg-paper text-ink">
         <SyncBoot />
+        {/* スマホアプリとして入れるための下準備（サービスワーカー・インストールの取り置き） */}
+        <PwaBoot />
         {/* クラウドへの保存が止まったら、どの画面にいても分かるようにする */}
         <SyncStalledBar />
         {/*

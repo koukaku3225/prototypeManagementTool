@@ -41,6 +41,9 @@ const csp = [
    * 落ちるので、その場合は 'self' のみのままにする。
    */
   `connect-src 'self'${supabaseOrigin ? ` ${supabaseOrigin}` : ""}${isDev ? " ws://localhost:* http://localhost:*" : ""}`,
+  // スマホアプリ化（PWA）。サービスワーカーと名札は自分のドメインのものだけ
+  "worker-src 'self'",
+  "manifest-src 'self'",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -61,6 +64,18 @@ const nextConfig: NextConfig = {
             value: "camera=(), microphone=(), geolocation=()",
           },
           { key: "Content-Security-Policy", value: csp },
+        ],
+      },
+      {
+        /*
+         * サービスワーカーはキャッシュさせない。古い sw.js を握ったままだと、
+         * 直した版がいつまでも届かない（ブラウザは sw.js 自体の更新確認に
+         * HTTP キャッシュを使う）。
+         */
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Content-Type", value: "application/javascript; charset=utf-8" },
         ],
       },
     ];
