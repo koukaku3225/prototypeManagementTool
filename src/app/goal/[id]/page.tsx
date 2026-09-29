@@ -14,6 +14,7 @@ import { COACHES } from "@/lib/prompts/coaches";
 import { download, toMarkdown } from "@/lib/export";
 import {
   deleteCard,
+  loadCards,
   allHabitsOfCard,
   checkpointsOfCard,
   habitsOfCard,
@@ -25,7 +26,8 @@ import {
 } from "@/lib/storage";
 import { deadlineCountdown, toLocalDate, today } from "@/lib/date";
 import { buildForest } from "@/lib/forest";
-import { clearPendingCard, deleteImpactText, peekPendingCard } from "@/lib/goal-card";
+import { clearPendingCard, deleteImpactText, goalCardLabel, peekPendingCard } from "@/lib/goal-card";
+import { canSetParent, childrenOf } from "@/lib/goal-tree";
 import type { BigStory, Checkpoint, GoalCard, Obstacle } from "@/types/goal";
 import type { Habit, HabitLog } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
@@ -63,6 +65,8 @@ export default function GoalDetailPage({
   const [boxes, setBoxes] = useState<TimeBox[]>([]);
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [logs, setLogs] = useState<HabitLog[]>([]);
+  const [allCards, setAllCards] = useState<GoalCard[]>([]);
+  const [parentError, setParentError] = useState("");
   const [showAllBoxes, setShowAllBoxes] = useState(false);
   const [bigTree, setBigTree] = useState(false);
   /*
@@ -89,6 +93,7 @@ export default function GoalDetailPage({
       ),
     );
     setCheckpoints(checkpointsOfCard(id));
+    setAllCards(loadCards());
     setLogs(loadHabitLogs());
     setReady(true);
   }, [id]);
@@ -156,6 +161,32 @@ export default function GoalDetailPage({
    * 過去の完了分まで全部並べると、それだけで画面が伸びていた。
    */
   const todayStr = day;
+
+  /*
+   * 親目標。候補から外すのは、自分・自分の下にある目標・段が深くなりすぎるもの。
+   * 判定は goal-tree.ts に置いてあり、テストで固定してある。
+   */
+  const parent = card.parentId ? (allCards.find((c) => c.id === card.parentId) ?? null) : null;
+  const parentOptions = allCards.filter(
+    (c) => c.id !== card.id && canSetParent(allCards, card.id, c.id).ok,
+  );
+  const kids = childrenOf(allCards, card.id);
+  const activeKids = kids.filter((c) => (c.status ?? "active") !== "done");
+
+  function setParent(next: string) {
+    if (!card) return;
+    const check = canSetParent(allCards, card.id, next || null);
+    if (!check.ok) {
+      setParentError(check.reason);
+      return;
+    }
+    setParentError("");
+    const id = card.id;
+    update("parentId", (c) => ({ ...c, parentId: next || null }));
+    setAllCards((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, parentId: next || null } : c)),
+    );
+  }
   const upcoming = boxes.filter((b) => !b.completedAt && b.date >= todayStr);
   const shownBoxes = showAllBoxes ? boxes : upcoming.slice(0, UPCOMING_LIMIT);
   const hiddenBoxCount = boxes.length - shownBoxes.length;
@@ -214,6 +245,21 @@ export default function GoalDetailPage({
             </span>
           )}
         </div>
+
+        {/* 今どの枝にいるか。親をたどれるように上に出す */}
+        {(parent || kids.length > 0) && (
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-muted">
+            {parent && (
+              <Link
+                href={`/goal/${parent.id}`}
+                className="underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                ↑ {goalCardLabel(parent)}
+              </Link>
+            )}
+            {kids.length > 0 && <span>下に{kids.length}つ（進行中{activeKids.length}）</span>}
+          </p>
+        )}
 
         <div className="mt-3 flex flex-col gap-2.5">
           {/* なりたい姿と期限。このページで一番最初に目に入るべきもの */}
@@ -552,6 +598,30 @@ export default function GoalDetailPage({
             </summary>
             <div className="flex flex-col gap-4 border-t border-line px-3.5 py-3">
               <section>
+                <SubTitle>親目標</SubTitle>
+                <select
+                  aria-label="親目標"
+                  value={card.parentId ?? ""}
+                  onChange={(e) => setParent(e.target.value)}
+                  className="w-full rounded-lg border border-line bg-paper px-3 py-2 text-[13.5px]"
+                >
+                  <option value="">（親なし）</option>
+                  {parentOptions.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {goalCardLabel(c)}
+                    </option>
+                  ))}
+                </select>
+                {parentError && (
+                  <p className="mt-1.5 text-[11.5px] text-accent">{parentError}</p>
+                )}
+                <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted">
+                  大きな目標の下にぶら下げられます。親には中間目標や習慣を付けず、
+                  行動は一番下の目標に付けてください。
+                </p>
+              </section>
+
+              <section>
                 <SubTitle>大きな物語とのつながり</SubTitle>
                 {big ? (
                   <>
@@ -712,6 +782,7 @@ export default function GoalDetailPage({
                       checkpoints: checkpoints.length,
                     })}
                     戻せません。
+                    {kids.length > 0 && `下の${kids.length}つの目標は消えず、親なしに戻ります。`}
                   </p>
                   <div className="mt-2.5 flex gap-2">
                     <button

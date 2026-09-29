@@ -182,5 +182,18 @@ body {
 .goal-forest .gf-hit { cursor: pointer; outline: none; }
 .goal-forest .gf-treelab { font-size: 11px; fill: var(--tree-soil-ink); }
 .goal-forest .gf-treelab.gf-lit { font-weight: 700; fill: var(--tree-bud); }
+/*
+  子の目標（大枝）の名前は空の上に出るので、地面の色の文字だと読めない。
+  白で縁取って、明るい空にも暗い空にも耐えるようにする（2026-09-29）。
+*/
+.goal-forest .gf-branchlab {
+  font-size: 10.5px;
+  fill: #2f2a24;
+  paint-order: stroke;
+  stroke: #ffffffdd;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.goal-forest .gf-branchlab.gf-lit { font-weight: 700; fill: #8a5a10; }
 .goal-forest .gf-hit:focus-visible rect { stroke: var(--tree-bud); stroke-width: 2; stroke-dasharray: 4 3; }
 @keyframes gf-flow { to { stroke-dashoffset: -20; } }

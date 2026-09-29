@@ -3,6 +3,7 @@ import { diffDays, toLocalDate } from "@/lib/date";
 import { computeRate } from "@/lib/habit";
 import type { Habit, HabitLog } from "@/types/behavior";
 import type { Checkpoint, GoalCard } from "@/types/goal";
+import { childrenOf, descendantIds, MAX_TREE_DEPTH } from "@/lib/goal-tree";
 
 /**
  * 目標の森（/goals の森表示と、/goal/[id] の1本の木）に渡すデータ。
@@ -48,6 +49,13 @@ export interface ForestTree {
   twigs: ForestTwig[];
   /** この木がつながっている根（values の添字、昇順） */
   links: number[];
+  /**
+   * 子の目標。親＝幹、子＝大枝として描く（2026-09-29）。
+   * 進行中の子だけを持ち、達成済みは doneChildren に数だけ畳む。
+   */
+  children: ForestTree[];
+  /** 畳んだ達成済みの子（孫も数える）。枝の付け根に実でまとめる */
+  doneChildren: number;
 }
 
 export interface ForestModel {
@@ -88,18 +96,26 @@ export function buildForest(input: {
   today: string;
 }): ForestModel {
   const { values, today } = input;
+  const all = input.cards;
+  const isDone = (c: GoalCard) => c.status === "done";
   const byCreated = (a: GoalCard, b: GoalCard) => a.createdAt.localeCompare(b.createdAt);
-  const active = input.cards.filter((c) => (c.status ?? "active") !== "done").sort(byCreated);
-  const done = input.cards
-    .filter((c) => c.status === "done")
+  /*
+   * 根として並べるのは、親を持たない目標だけ。親を持つ目標は親の枝として描く。
+   * 並びはこれまでどおり進行中（古い順）→ 完了で、多すぎるぶんは切る。
+   */
+  const isRoot = (c: GoalCard) => !c.parentId || !all.some((p) => p.id === c.parentId);
+  const roots = all.filter(isRoot);
+  const active = roots.filter((c) => !isDone(c)).sort(byCreated);
+  const done = roots
+    .filter(isDone)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const cards = [...active, ...done].slice(0, MAX_TREES);
 
   const strength = values.map(() => 0);
 
-  const trees = cards.map((card): ForestTree => {
+  const makeTree = (card: GoalCard, depth: number): ForestTree => {
     const ageDays = Math.max(0, diffDays(toLocalDate(new Date(card.createdAt)), today));
-    const isDone = card.status === "done";
+    const cardDone = card.status === "done";
 
     const twigs = [...(input.checkpoints[card.id] ?? [])]
       .sort((a, b) => a.period.start.localeCompare(b.period.start) || a.createdAt.localeCompare(b.createdAt))
@@ -121,17 +137,35 @@ export function buildForest(input: {
 
     const links = [...new Set(twigs.flatMap((t) => t.values))].sort((a, b) => a - b);
 
+    /*
+     * 達成済みの子は枝として描かず、数だけ持つ。全部描くと、続けるほど
+     * 達成済みの枝で木が埋まり、いま進めている枝が見えなくなる。
+     */
+    const kids = childrenOf(all, card.id);
+    const doneChildren = kids.filter(isDone).reduce(
+      (n, c) => n + 1 + [...descendantIds(all, c.id)].length,
+      0,
+    );
+    const children =
+      depth >= MAX_TREE_DEPTH
+        ? []
+        : kids.filter((c) => !isDone(c)).map((c) => makeTree(c, depth + 1));
+
     return {
       cardId: card.id,
       label: goalLabel(card),
-      done: isDone,
+      done: cardDone,
       ageDays,
       growth: clamp(0.3 + ageDays / FULL_GROWTH_DAYS, 0.3, 1),
-      vigor: isDone ? 0.7 : habitVigor(input.habits[card.id] ?? [], input.logs, today),
+      vigor: cardDone ? 0.7 : habitVigor(input.habits[card.id] ?? [], input.logs, today),
       twigs,
       links,
+      children,
+      doneChildren,
     };
-  });
+  };
+
+  const trees = cards.map((c) => makeTree(c, 1));
 
   return { values, trees, strength };
 }

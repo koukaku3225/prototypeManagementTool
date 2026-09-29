@@ -7,11 +7,11 @@ import { AppHeader } from "@/components/AppHeader";
 import { CoachPicker } from "@/components/CoachPicker";
 import { TechniqueBrief } from "@/components/TechniqueBrief";
 import {
-  activeCards,
   archiveIfAbandoned,
   clearSession,
   emptyCard,
   loadBigStory,
+  loadCards,
   loadSession,
   newSession,
   saveSession,
@@ -19,6 +19,7 @@ import {
 } from "@/lib/storage";
 import { stashPendingCard } from "@/lib/goal-card";
 import { MAX_SMALL_STORIES, type BigStory, type CoachId } from "@/types/goal";
+import { activeLeafCards } from "@/lib/goal-tree";
 
 /** 目標を足す。対話でも手入力でも同じ形の目標ができる。 */
 export default function NewGoalPage() {
@@ -32,7 +33,8 @@ export default function NewGoalPage() {
     const b = loadBigStory();
     setBig(b);
     if (b) setCoach(b.coachId);
-    setFull(activeCards().length >= MAX_SMALL_STORIES);
+    // 枠は「進行中で、進行中の子を持たない目標」だけで数える（親は入れ物）
+    setFull(activeLeafCards(loadCards()).length >= MAX_SMALL_STORIES);
     setReady(true);
   }, []);
 

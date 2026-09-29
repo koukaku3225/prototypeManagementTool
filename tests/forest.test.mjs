@@ -140,6 +140,56 @@ t("同じデータなら何度描いても同じ枝ぶり（id から決まる�
   assert.deepEqual(drawForest(m).wood, drawForest(m).wood);
 });
 
+t("親の目標は幹、子の目標は大枝になる（根に並ぶのは親だけ）", () => {
+  const m = build({ cards: [card("p"), card("k", { parentId: "p" })] });
+  assert.equal(m.trees.length, 1);
+  assert.equal(m.trees[0].cardId, "p");
+  assert.deepEqual(m.trees[0].children.map((c) => c.cardId), ["k"]);
+  // 幹と大枝で、木を2本ぶんではなく1本の中に描く
+  const g = drawForest(m);
+  assert.deepEqual(g.hits.map((h) => h.cardId), ["p", "k"]);
+});
+
+t("達成済みの子は枝にならず、付け根にまとめた実になる", () => {
+  const m = build({
+    cards: [
+      card("p"),
+      card("k1", { parentId: "p" }),
+      card("k2", { parentId: "p", status: "done" }),
+      card("k3", { parentId: "p", status: "done" }),
+    ],
+  });
+  assert.deepEqual(m.trees[0].children.map((c) => c.cardId), ["k1"]);
+  assert.equal(m.trees[0].doneChildren, 2);
+  const g = drawForest(m);
+  assert.equal(g.fruitClusters.length, 1);
+  assert.equal(g.fruitClusters[0].count, 2);
+});
+
+t("達成済みの子の下にある目標も、畳んだ数に入る", () => {
+  const m = build({
+    cards: [
+      card("p"),
+      card("k", { parentId: "p", status: "done" }),
+      card("g", { parentId: "k", status: "done" }),
+    ],
+  });
+  assert.equal(m.trees[0].doneChildren, 2);
+});
+
+t("段が深くなりすぎたら枝を打ち切る（描画が無限に潜らない）", () => {
+  const ids = ["a", "b", "c", "d", "e", "f", "g"];
+  const cards = ids.map((id, i) => card(id, i === 0 ? {} : { parentId: ids[i - 1] }));
+  const m = build({ cards });
+  let depth = 0;
+  let node = m.trees[0];
+  while (node) {
+    depth++;
+    node = node.children[0];
+  }
+  assert.equal(depth, 5);
+});
+
 t("木が1本も無くても、根と地面だけは描ける", () => {
   const g = drawForest(build());
   assert.equal(g.hits.length, 0);

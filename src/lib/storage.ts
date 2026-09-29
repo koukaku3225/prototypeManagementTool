@@ -26,6 +26,7 @@ import {
 
 export { KEY, DEVICE_KEY, DEVICE_LOCAL_KEYS, hasUserContent } from "@/lib/storage-keys";
 import { DEVICE_KEY, KEY } from "@/lib/storage-keys";
+import { activeLeafCards, detachChildren } from "@/lib/goal-tree";
 import { isValidUuid } from "@/lib/uuid";
 
 /** localStorage は例外を投げうる（プライベートモード、容量超過）。必ず包む。 */
@@ -494,7 +495,12 @@ export const saveCard = (c: GoalCard) => upsertCard(c);
 export const activeCards = (): GoalCard[] =>
   loadCards().filter((c) => (c.status ?? "active") !== "done");
 
-export const canAddGoal = (): boolean => activeCards().length < MAX_SMALL_STORIES;
+/**
+ * 枠を数えるのは「進行中で、進行中の子を持たない目標」だけ。
+ * 親は入れ物なので、親まで数えると枝を1本足すたびに枠が減ってしまう。
+ */
+export const canAddGoal = (): boolean =>
+  activeLeafCards(loadCards()).length < MAX_SMALL_STORIES;
 
 export function setCardStatus(id: string, status: "active" | "done"): void {
   const c = loadCardById(id);
@@ -503,9 +509,18 @@ export function setCardStatus(id: string, status: "active" | "done"): void {
 }
 
 export function deleteCard(id: string): void {
+  const all = loadCards();
+  /*
+   * 子は道連れにしない。目標を消すと予定・習慣・中間目標まで連鎖で消えるので、
+   * 子の分まで巻き添えにすると被害が大きすぎる。子は根へ上げる。
+   */
+  const orphans = new Map(detachChildren(all, id).map((c) => [c.id, c]));
+  const now = new Date().toISOString();
   write(
     KEY.cards,
-    loadCards().filter((c) => c.id !== id),
+    all
+      .filter((c) => c.id !== id)
+      .map((c) => (orphans.has(c.id) ? { ...orphans.get(c.id)!, updatedAt: now } : c)),
   );
   // ぶら下がっていた習慣・記録・予定も一緒に消す。残すと孤児になり、
   // 「どの目標のためだったか」が二度と分からなくなる

@@ -11,6 +11,9 @@ import type { ForestModel, ForestTree } from "@/lib/forest";
 
 export const VIEW_W = 400;
 export const GROUND_Y = 290;
+/** 枝とラベルを収める余白。ここから外に出ると名前が切れて読めない */
+const MARGIN_X = 26;
+const MARGIN_TOP = 36;
 
 /** 根（価値観）の色。明暗どちらの地面の上でも読める中間の明るさにしてある */
 export const VALUE_COLORS = ["#D39B2A", "#3A9C94", "#D46F86", "#8A7BD1", "#5B8FD6", "#8F9A4E"];
@@ -23,9 +26,12 @@ export interface Ellipse { cx: number; cy: number; rx: number; ry: number }
 export interface BudShape { cx: number; cy: number; r: number; sw: number }
 export interface FlowerShape { cx: number; cy: number; r: number; petals: { cx: number; cy: number; r: number }[] }
 export interface FruitShape { x: number; y: number; s: number }
+/** 畳んだ達成済みの子を、枝の付け根にまとめて出す実 */
+export interface FruitCluster { x: number; y: number; count: number; s: number }
 export interface RootShape { d: string; color: string; cardId: string }
 export interface NodeShape { cx: number; cy: number; r: number; color: string; label: string; ly: number; index: number }
-export interface TreeHit { cardId: string; x: number; y: number; w: number; h: number; labelX: number; labelY: number; label: string }
+/** onBranch: 子の目標＝枝の先に名前を出すもの。空の上なので描き方を変える */
+export interface TreeHit { cardId: string; x: number; y: number; w: number; h: number; labelX: number; labelY: number; label: string; onBranch: boolean }
 
 export interface ForestDrawing {
   height: number;
@@ -39,6 +45,7 @@ export interface ForestDrawing {
   buds: BudShape[];
   flowers: FlowerShape[];
   fruits: FruitShape[];
+  fruitClusters: FruitCluster[];
   hits: TreeHit[];
 }
 
@@ -133,7 +140,7 @@ export function drawForest(model: ForestModel, opts: { single?: boolean } = {}):
   const single = Boolean(opts.single);
   const height = single ? 390 : 400;
   const out: ForestDrawing = {
-    height, grass: "", roots: [], nodes: [], fallen: [], shade: [], wood: [], leaves: [], buds: [], flowers: [], fruits: [], hits: [],
+    height, grass: "", roots: [], nodes: [], fallen: [], shade: [], wood: [], leaves: [], buds: [], flowers: [], fruits: [], fruitClusters: [], hits: [],
   };
 
   let grass = "";
@@ -159,10 +166,14 @@ export function drawForest(model: ForestModel, opts: { single?: boolean } = {}):
   const spacing = VIEW_W / (m + 1);
 
   model.trees.forEach((t, idx) => {
-    const seed = hashStr(t.cardId);
     const x = spacing * (idx + 1);
-    drawTree(out, t, seed, x, sc, spacing);
-    t.links.forEach((k) => {
+    const hitIndex = out.hits.length;
+    drawTree(out, t, x, sc, spacing);
+    /*
+     * 根（価値観）は幹の足元から生やす。子の枝が選んだ価値観も、
+     * 木としては同じ根から吸っているので、まとめてここから引く。
+     */
+    subtreeLinks(t).forEach((k) => {
       const e = nodes[k];
       out.roots.push({
         d: `M${f1(x)},${GROUND_Y + 6}C${f1(x)},${GROUND_Y + 50} ${f1(e[0])},${f1(e[1] - 30)} ${f1(e[0])},${f1(e[1])}`,
@@ -170,13 +181,26 @@ export function drawForest(model: ForestModel, opts: { single?: boolean } = {}):
         cardId: t.cardId,
       });
     });
-    out.hits[idx].labelY = GROUND_Y + 22 + (single ? 0 : (idx % 2) * 14);
+    out.hits[hitIndex].labelY = GROUND_Y + 22 + (single ? 0 : (idx % 2) * 14);
   });
 
   return out;
 }
 
-function drawTree(out: ForestDrawing, t: ForestTree, seed: number, x: number, sc: number, spacing: number) {
+/** その木と、ぶら下がる子の枝が選んだ価値観の和集合 */
+function subtreeLinks(t: ForestTree): number[] {
+  const all = [...t.links, ...t.children.flatMap(subtreeLinks)];
+  return [...new Set(all)].sort((a, b) => a - b);
+}
+
+/**
+ * 1本の木を描く。親＝幹、子＝大枝（2026-09-29）。
+ *
+ * 子の枝は、親の幹の上のほうから交互に出す。子が自分の中間目標（小枝）と
+ * 習慣（葉）を持つので、同じ描き方を深さを変えて繰り返している。
+ */
+function drawTree(out: ForestDrawing, t: ForestTree, x: number, sc: number, spacing: number) {
+  const seed = hashStr(t.cardId);
   const ageFactor = clamp(0.35 + t.ageDays / 210, 0, 1);
   const h = (45 + 120 * t.growth * ageFactor) * sc;
   const w0 = (3 + 11 * clamp(t.ageDays / 280, 0.1, 1)) * sc;
@@ -184,26 +208,49 @@ function drawTree(out: ForestDrawing, t: ForestTree, seed: number, x: number, sc
   const base: Pt = [x, GROUND_Y + 2];
   const trunk = limb(base, (rand(seed, 4, 4) - 0.5) * 0.12, h, (rand(seed, 4, 5) - 0.5) * 0.1, 12);
   out.wood.push(wood(trunk, w0, w1));
-  const widthAt = (s: number) => w0 + (w1 - w0) * s;
+
+  drawNode(out, t, trunk, { w0, w1, len: h, sc }, x, spacing, 1);
+}
+
+interface LimbInfo {
+  w0: number;
+  w1: number;
+  len: number;
+  sc: number;
+}
+
+/** 幹（または親から出た大枝）に、中間目標の小枝・葉・実・子の大枝を付ける */
+function drawNode(
+  out: ForestDrawing,
+  t: ForestTree,
+  pts: Pt[],
+  L: LimbInfo,
+  x: number,
+  spacing: number,
+  depth: number,
+) {
+  const seed = hashStr(t.cardId);
+  const sc = L.sc;
+  const widthAt = (s: number) => L.w0 + (L.w1 - L.w0) * s;
 
   t.twigs.forEach((tw, j) => {
     const ts = hashStr(tw.id);
     const s = Math.min(0.94, 0.3 + j * 0.058);
-    const P = at(trunk, s);
+    const P = at(pts, s);
     const side = j % 2 ? 1 : -1;
     const ang = P.ang + side * (48 + rand(ts, 5) * 20) * deg;
     const len = (22 + 14 * rand(ts, 6)) * sc * clamp(0.45 + tw.maturity * 1.2, 0.45, 1);
-    const pts = limb(P.p, ang, len, (rand(ts, 1, 1) > 0.5 ? 1 : -1) * 0.14, 5);
-    out.wood.push(wood(pts, Math.max(0.9, widthAt(s) * 0.45), 0.4));
+    const twigPts = limb(P.p, ang, len, (rand(ts, 1, 1) > 0.5 ? 1 : -1) * 0.14, 5);
+    out.wood.push(wood(twigPts, Math.max(0.9, widthAt(s) * 0.45), 0.4));
 
     const nLeaves = tw.state === "fallen" ? 0 : Math.round((2 + 9 * t.vigor) * tw.maturity);
     for (let q = 0; q < nLeaves; q++) {
       const r = rand(ts, q, 7);
       const ls = nLeaves === 1 ? 1 : 0.3 + 0.7 * q / (nLeaves - 1);
-      const L = at(pts, ls);
-      out.leaves.push(leaf(L.p[0], L.p[1], L.ang + (q % 2 ? 1 : -1) * (35 + 30 * r) * deg, (5 + 4 * r + 2.5 * tw.maturity) * sc, leafColor(tw.maturity, t.vigor, rand(ts, q, 8))));
+      const Lf = at(twigPts, ls);
+      out.leaves.push(leaf(Lf.p[0], Lf.p[1], Lf.ang + (q % 2 ? 1 : -1) * (35 + 30 * r) * deg, (5 + 4 * r + 2.5 * tw.maturity) * sc, leafColor(tw.maturity, t.vigor, rand(ts, q, 8))));
     }
-    const T = at(pts, 1);
+    const T = at(twigPts, 1);
     if (nLeaves > 5) out.shade.push({ cx: (T.p[0] + P.p[0]) / 2, cy: (T.p[1] + P.p[1]) / 2, rx: len * 0.6, ry: len * 0.42 });
 
     if (tw.state === "bud") out.buds.push({ cx: T.p[0], cy: T.p[1], r: 3.2 * sc, sw: 1.8 * sc });
@@ -214,23 +261,88 @@ function drawTree(out: ForestDrawing, t: ForestTree, seed: number, x: number, sc
     }
   });
 
-  // 梢の葉。小枝（データ）とは別に、幹の上のほうへ散らす。これが無いと中間目標が少ない木が枯れ木に見える
-  const E = at(trunk, 1);
+  // 梢の葉。小枝（データ）とは別に、上のほうへ散らす。これが無いと中間目標が少ない枝が枯れ枝に見える
+  const E = at(pts, 1);
   const nTop = Math.round(4 + 10 * t.vigor * t.growth);
   for (let q = 0; q < nTop; q++) {
     const r = rand(seed, q, 30);
-    const P = at(trunk, 0.72 + 0.28 * rand(seed, q, 32));
+    const P = at(pts, 0.72 + 0.28 * rand(seed, q, 32));
     const side = q % 2 ? 1 : -1;
     out.leaves.push(leaf(P.p[0], P.p[1], P.ang + side * (15 + 60 * r) * deg, (6.5 + 4 * r) * sc, leafColor(t.growth, t.vigor, rand(seed, q, 31))));
   }
 
   if (t.done) {
     [0.7, 0.82, 0.94].forEach((s, k) => {
-      const P = at(trunk, s);
+      const P = at(pts, s);
       out.fruits.push({ x: P.p[0] + (k % 2 ? 9 : -9) * sc, y: P.p[1], s: sc });
     });
   }
 
+  /*
+   * 畳んだ達成済みの子。枝の付け根に実をまとめ、数を添える。
+   * 枝として描くと、続けるほど達成済みで木が埋まる。
+   */
+  if (t.doneChildren > 0) {
+    const P = at(pts, 0.42);
+    out.fruitClusters.push({
+      x: P.p[0] + 10 * sc,
+      y: P.p[1],
+      count: t.doneChildren,
+      s: sc,
+    });
+  }
+
+  // 押せる範囲とラベル。子は枝の先、親（幹）は地面に置く
   const top = E.p[1] - 20 * sc;
-  out.hits.push({ cardId: t.cardId, x: x - spacing / 2, y: top, w: spacing, h: GROUND_Y + 30 - top, labelX: x, labelY: 0, label: t.label });
+  if (depth === 1) {
+    out.hits.push({ cardId: t.cardId, x: x - spacing / 2, y: top, w: spacing, h: GROUND_Y + 30 - top, labelX: x, labelY: 0, label: t.label, onBranch: false });
+  } else {
+    const w = Math.max(40, spacing * 0.42);
+    // ラベルは枝の先に置くが、画面の縁で切れないように内側へ寄せる
+    const labelX = clamp(E.p[0], MARGIN_X + 18, VIEW_W - MARGIN_X - 18);
+    const labelY = clamp(E.p[1] - 24 * sc, 18, GROUND_Y - 6);
+    out.hits.push({
+      cardId: t.cardId,
+      x: E.p[0] - w / 2,
+      y: E.p[1] - 22 * sc,
+      w,
+      h: 34 * sc,
+      labelX,
+      labelY,
+      label: t.label,
+      onBranch: true,
+    });
+  }
+
+  // 子の目標＝大枝。幹の上半分から交互に出す
+  const n = t.children.length;
+  t.children.forEach((child, i) => {
+    const cs = hashStr(child.cardId);
+    const s = n === 1 ? 0.62 : 0.45 + 0.45 * (i / (n - 1));
+    const P = at(pts, s);
+    let side = i % 2 ? 1 : -1;
+    /*
+     * 枝の先が画面からはみ出すと、その子の名前が切れて読めなくなる。
+     * まず反対側へ向け直し、それでも収まらなければ短くする。
+     */
+    const ang0 = (sd: number) => P.ang + sd * (38 + rand(cs, 12) * 14) * deg;
+    const tipOf = (sd: number, ln: number): Pt => [
+      P.p[0] + Math.sin(ang0(sd)) * ln,
+      P.p[1] - Math.cos(ang0(sd)) * ln,
+    ];
+    const inside = (q: Pt) => q[0] > MARGIN_X && q[0] < VIEW_W - MARGIN_X && q[1] > MARGIN_TOP;
+    let len = L.len * (0.42 + 0.1 * rand(cs, 13));
+    if (!inside(tipOf(side, len))) {
+      if (inside(tipOf(-side, len))) side = -side;
+      else while (len > 12 && !inside(tipOf(side, len))) len *= 0.85;
+    }
+    const ang = ang0(side);
+    const childPts = limb(P.p, ang, len, (rand(cs, 14) > 0.5 ? 1 : -1) * 0.12, 8);
+    const cw0 = Math.max(1.8, widthAt(s) * 0.62);
+    const cw1 = Math.max(0.8, cw0 * 0.3);
+    out.wood.push(wood(childPts, cw0, cw1));
+    drawNode(out, child, childPts, { w0: cw0, w1: cw1, len, sc: sc * 0.78 }, x, spacing, depth + 1);
+  });
+
+
 }

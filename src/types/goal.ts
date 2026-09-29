@@ -245,6 +245,12 @@ export interface GoalCard {
 
   /** どの大きな物語にぶら下がるか。単独の目標なら null */
   bigStoryId?: string | null;
+  /**
+   * 親の目標。根の目標なら null（既存データにはこのキー自体が無い）。
+   * 線は必ず子が持つ。親に子の配列を持たせると、upsertCard の丸ごと置換で
+   * 子を足した瞬間に関係が消える。詳しくは src/lib/goal-tree.ts。
+   */
+  parentId?: string | null;
   /** なぜこれが大きな物語に効くのか。ツリー表示で辺のラベルになる */
   rationale?: string;
   /** done は3枠を消費しない */

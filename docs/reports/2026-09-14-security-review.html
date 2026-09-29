@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>セキュリティレビュー — 2026-09-14</title>
+  <style>
+    :root{color-scheme:light;--ink:#17202a;--muted:#5b6470;--line:#d9dee5;--paper:#fff;--bg:#f5f7fa;--high:#b42318;--med:#b54708;--low:#175cd3;--ok:#027a48}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.75 system-ui,-apple-system,"Segoe UI","Noto Sans JP",sans-serif}
+    main{max-width:960px;margin:auto;padding:48px 24px 80px}.hero{border-left:6px solid var(--high);padding:8px 0 8px 22px;margin-bottom:32px}.eyebrow{font-size:12px;letter-spacing:.08em;color:var(--muted);font-weight:700}.hero h1{font-size:32px;line-height:1.25;margin:5px 0 8px}.hero p{margin:0;color:var(--muted)}
+    h2{font-size:22px;margin:42px 0 14px} h3{font-size:18px;line-height:1.45;margin:0 0 10px} p{margin:8px 0} a{color:#0b57d0;text-underline-offset:3px} code{background:#eef1f5;border-radius:4px;padding:1px 4px;font-size:.9em;overflow-wrap:anywhere}
+    .notice{background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:16px 18px}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.metric{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:14px}.metric strong{display:block;font-size:25px;line-height:1.1}.metric span{font-size:13px;color:var(--muted)}
+    table{border-collapse:collapse;width:100%;background:var(--paper);font-size:14px}th,td{border:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}th{background:#eef1f5}.badge{display:inline-block;border-radius:999px;padding:1px 8px;font-size:12px;font-weight:700;white-space:nowrap}.high{background:#fee4e2;color:var(--high)}.medium{background:#fef0c7;color:var(--med)}.conditional{background:#e0f2fe;color:var(--low)}.confirmed{background:#dcfae6;color:var(--ok)}
+    .finding{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:20px;margin:16px 0;break-inside:avoid}.finding header{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}.finding ul{margin:8px 0;padding-left:22px}.label{font-weight:700}.evidence{background:#f8fafc;border-left:3px solid #94a3b8;padding:9px 12px;margin:12px 0;font-size:14px}.recommend{border-left-color:#0b57d0}.toc{columns:2;gap:24px;padding-left:20px}.foot{font-size:13px;color:var(--muted);margin-top:36px}
+    @media(max-width:650px){main{padding:28px 16px}.hero h1{font-size:26px}.summary{grid-template-columns:1fr}.toc{columns:1}table{display:block;overflow:auto}}
+    @media print{body{background:#fff}main{max-width:none;padding:18mm}.finding,table{break-inside:avoid}.hero{margin-bottom:20px}a{color:inherit;text-decoration:none}}
+  </style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <div class="eyebrow">GOAL COACH / SECURITY REVIEW / 2026-09-14</div>
+    <h1>アプリのセキュリティレビュー</h1>
+    <p>コードレビューと架空データだけを使う隔離再現試験。コード・設定・本番データは変更していません。</p>
+  </section>
+
+  <section class="notice"><strong>結論：</strong>優先して直すべきは、無認証バックアップ、アカウント境界をまたぐ同期、復元時の削除通知です。本番で情報漏洩が確認されたという報告ではなく、確認済みの設計・実装上の弱点を整理したものです。</section>
+  <div class="summary"><div class="metric"><strong>13</strong><span>指摘（今回の追加調査を含む）</span></div><div class="metric"><strong>9</strong><span>隔離試験または実コードで仕組みを確認</span></div><div class="metric"><strong>4</strong><span>本番設定・DB権限の確認が必要</span></div></div>
+
+  <h2>優先順位</h2>
+  <table><thead><tr><th>優先</th><th>問題</th><th>確認状況</th></tr></thead><tbody>
+    <tr><td><span class="badge high">高</span></td><td>バックアップAPIが認証なしで機密データを読み書きする</td><td><span class="badge confirmed">隔離再現</span></td></tr>
+    <tr><td><span class="badge high">高</span></td><td>ログアウト・同期中切替で、別利用者の情報が表示・送信される</td><td><span class="badge confirmed">隔離再現</span></td></tr>
+    <tr><td><span class="badge high">高</span></td><td>復元がクラウドへ削除だけを通知する</td><td><span class="badge confirmed">隔離再現</span></td></tr>
+    <tr><td><span class="badge high">高</span></td><td>復元JSONで保存消去または無限移行を誘発できる</td><td><span class="badge confirmed">隔離再現</span></td></tr>
+    <tr><td><span class="badge conditional">条件付き高</span></td><td>本番の認証・レート制限・MCP/RLS・Googleトークン保管</td><td>本番設定・DB監査が必要</td></tr>
+  </tbody></table>
+
+  <h2>指摘一覧</h2>
+  <ol class="toc">
+    <li>無認証バックアップAPI</li><li>ログアウト後の共有localStorage</li><li>Content-Type検証のすり抜け</li><li>認証・レート制限のfail-open</li><li>MCPのDB直アクセス権限</li><li>Google refresh tokenの保管</li><li>同期中のアカウント切替</li><li>復元時の削除通知</li><li>復元JSONによる消去・無限移行</li><li>無効MCP JWTのJWKS増幅</li><li>MCPバッチの実行量増幅</li><li>Calendar同期の操作量増幅</li><li>Calendar OAuth stateの利用者未束縛</li>
+  </ol>
+
+  <article class="finding"><header><span class="badge high">高</span><span class="badge confirmed">隔離再現</span></header><h3>1. バックアップAPIが認証なしで全データを読み書きする</h3><p><code>/api/local-backup</code> は認証、Origin検証、開発専用のサーバー側判定なしに、共通の<code>.local-backups/latest.json</code>をPOSTで更新し、GETで返します。30世代の自動削除もあるため、偽データの連投で復旧用世代を追い出せます。</p><div class="evidence">確認：<code>NODE_ENV=production</code> と <code>REQUIRE_AUTH=true</code>、資格情報なしで、架空データのPOST=200・GET=200を確認。</div><div class="evidence recommend"><span class="label">対策：</span>本番では404にし、ローカル機能はloopback限定・明示有効化・秘密値・厳密なOrigin確認・利用者別保存を併用する。</div></article>
+
+  <article class="finding"><header><span class="badge high">高</span><span class="badge confirmed">隔離再現</span></header><h3>2. ログアウト後も個人データが残り、別アカウントへ同期される</h3><p>ログアウトは同期を止めるだけでlocalStorageを隔離しません。共有ブラウザなら次の利用者が前の人の記録を閲覧できます。ローカルにAのデータが残り、空のBでログインすると、同期判断はBへのpushを選びます。</p><div class="evidence"><span class="label">対策：</span>保存・バックアップを利用者別にし、ログアウト時は表示状態もロックする。既存ゲストデータの移行は利用者の明示選択にする。</div></article>
+
+  <article class="finding"><header><span class="badge medium">中</span><span class="badge confirmed">隔離再現</span></header><h3>3. JSON必須チェックをContent-Typeの部分一致で回避できる</h3><p><code>text/plain; note=application/json</code> をJSONとして通します。CORSの「単純リクエスト」かどうかはパラメータを除いたMIMEタイプで決まるため、POST副作用への防壁になりません。</p><div class="evidence recommend"><span class="label">対策：</span>MIMEタイプを解析して<code>application/json</code>と厳密比較し、Cookie認証の更新APIではOrigin/CSRF防御も行う。</div></article>
+
+  <article class="finding"><header><span class="badge conditional">条件付き高</span></header><h3>4. 認証・レート制限が未設定や障害時に無制限になる</h3><p><code>REQUIRE_AUTH</code>がtrue以外なら匿名利用でき、Upstash未設定・障害時には制限を通過させます。公開環境で重なると、AI生成の課金濫用につながります。</p><div class="evidence recommend"><span class="label">対策：</span>本番起動時に必須設定を検証し、制限障害時は小さい代替枠または一時拒否にする。全体予算・同時実行数も制限する。</div></article>
+
+  <article class="finding"><header><span class="badge conditional">条件付き高</span></header><h3>5. MCPの「読み取り専用」はDB直アクセスに対して保証されない</h3><p>MCPはOAuthトークンをSupabaseへ渡します。連携先が同じトークンでDB REST APIを直接呼べるなら、MCPツールの列制限では足りず、RLSと列権限が実際の境界です。</p><div class="evidence recommend"><span class="label">対策：</span>外部AIトークンによる対話全文・プロフィール・token列のSELECT、INSERT/UPDATE/DELETE拒否を実DBで検証する。client_idを考慮したRLS・限定ビューを設ける。</div></article>
+
+  <article class="finding"><header><span class="badge conditional">条件付き高</span></header><h3>6. Google refresh tokenを通常のユーザー資格情報で読める設計</h3><p>サーバーが公開キーとCookieセッションで<code>google_calendar_links.select(&quot;*&quot;)</code>を行います。DBポリシーが設計SQLどおりなら、同じユーザーのブラウザ資格情報から長期トークン列を読める余地があります。</p><div class="evidence recommend"><span class="label">対策：</span>秘密値を一般ユーザーとOAuth連携クライアントから読めないサーバー専用領域に置く。暗号化やVaultも検討する。</div></article>
+
+  <article class="finding"><header><span class="badge high">高</span><span class="badge confirmed">隔離再現</span></header><h3>7. 進行中の同期がアカウント切替をまたぐ</h3><p><code>pullAll()</code>はDB応答後に利用者を再照合せず復元します。<code>backfillAll()</code>はAのスナップショットから送信中にBへ切り替わると、残りをBとして送ります。</p><div class="evidence">確認：Aのpullを待機→ログアウト→応答で、同期offでもAのプロフィールが復元。Aのbackfill中にBへ切替で、AのプロフィールがB宛に送信されることをDBモックで確認。</div><div class="evidence recommend"><span class="label">対策：</span>開始時のuserId・世代番号を全await後と書込み前に照合し、切替時はAbortControllerで中断する。</div></article>
+
+  <article class="finding"><header><span class="badge high">高</span><span class="badge confirmed">隔離再現</span></header><h3>8. 復元がクラウドに削除だけを通知する</h3><p><code>restoreState()</code>は旧データをremoveし、同期フックへnullを送ります。その後の復元値は同期フックを通りません。ログイン中のJSON/スナップショット復元で、DBには削除が先に伝わります。</p><div class="evidence">確認：正常なプロフィールを復元するとローカルには残るが、同期フックはprofileのnullだけを受信。</div><div class="evidence recommend"><span class="label">対策：</span>復元中は同期を停止し、検証・復元成功後に完成した状態を一括同期する。</div></article>
+
+  <article class="finding"><header><span class="badge medium">中</span><span class="badge confirmed">隔離再現</span></header><h3>9. 細工した復元JSONで消去または無限移行</h3><p>復元JSONは全値が文字列なら受理されます。無関係なオブジェクトでも既存データを消します。版番号<code>-1e20</code>ではJavaScriptの数値丸めにより<code>v + 1 === v</code>となり、移行ループが終わりません。</p><div class="evidence"><span class="label">対策：</span>消去前に文書種別・許可キー・内部JSON・有限な安全版番号を検証し、復元失敗時は元データを残す。</div></article>
+
+  <article class="finding"><header><span class="badge medium">中</span><span class="badge confirmed">隔離再現</span></header><h3>10. 無効なMCP JWTでもJWKS取得を増幅できる</h3><p>JWT検証ごとにJWKSクライアントを新規作成するため、その内部キャッシュが要求間で効きません。認証成功後にしかレート制限がありません。</p><div class="evidence">確認：無効JWT 3件を拒否しつつ、JWKS fetchも3回実行。</div><div class="evidence recommend"><span class="label">対策：</span>JWKSクライアントをプロセス内で再利用し、認証前の入口レート制限を追加する。</div></article>
+
+  <article class="finding"><header><span class="badge medium">中</span><span class="badge confirmed">隔離再現</span></header><h3>11. MCPバッチは1回の制限枠で20回ツールを実行できる</h3><p>HTTP要求で一度だけ数えるレート制限と、最大20件のJSON-RPCバッチが組み合わさります。</p><div class="evidence">確認：実SDK transportに1 HTTP要求で20件を送付し、20回のrepository呼出しを確認。</div><div class="evidence recommend"><span class="label">対策：</span>バッチを拒否するか、バッチ内の実行件数をレート制限のコストとして消費する。</div></article>
+
+  <article class="finding"><header><span class="badge medium">中</span><span class="badge confirmed">隔離再現</span></header><h3>12. Calendar同期が500件の外部操作に増幅する</h3><p>同期APIは500枠を受け、操作数予算・利用者別レート制限・同一利用者の排他がありません。空のGoogle一覧なら500件の予定作成を試みます。</p><div class="evidence">確認：実runSyncとGoogleモックで、500枠から500回のinsertEvent呼出しを確認。外部Googleへの書込みは0回。</div><div class="evidence recommend"><span class="label">対策：</span>操作数の上限、同期排他、AbortSignal、ページ取得上限、利用者・プロジェクト別の制限を設ける。</div></article>
+
+  <article class="finding"><header><span class="badge medium">中</span><span class="badge confirmed">コード確認</span></header><h3>13. Calendar OAuth stateがアプリ利用者に結び付いていない</h3><p>開始時のstate cookieにはランダム値だけが入り、callbackでは一致だけを確認して、その時点のログイン利用者へrefresh tokenを保存します。連携開始後にログアウト・別アカウントログインしてcallbackへ戻ると、先に選んだGoogleアカウントを後の利用者へ結び付け得ます。</p><div class="evidence recommend"><span class="label">対策：</span>stateに開始時のアプリuserIdをサーバー側で紐付け、callback直前の利用者と一致しなければ中止する。stateは暗号学的にランダムで一度だけ使う。</div></article>
+
+  <h2>補足と限界</h2>
+  <ul><li>本文サイズは全文をメモリへ読んだ後に文字数で判定する。実試験で300,011バイトの架空JSONが200,000の上限を通った。</li><li>CSPは<code>unsafe-inline</code>を許可している。今回XSS経路は発見していないが、XSS発生時の被害軽減は弱い。</li><li>本番SupabaseのRLS・列権限、Vercel環境変数、実アカウント2件での試験、包括的な依存CVE監査は未実施。<code>npm audit</code>はregistry監査エンドポイントに接続できず結果を得られなかった。</li></ul>
+  <h2>確認に使った資料</h2>
+  <p>詳細な根拠・行番号・検証制約は<a href="2026-09-14-security-review.md">Markdownレポート</a>、架空データだけで再実行できる観測は<a href="security-review-evidence.cjs">再現スクリプト</a>にあります。Google Calendar APIのクォータは<a href="https://developers.google.com/calendar/api/guides/quota">公式資料</a>、Supabase OAuthトークンとRLSは<a href="https://supabase.com/docs/guides/auth/oauth-server/token-security">公式資料</a>を参照しました。</p>
+  <p class="foot">このHTMLは外部JavaScript、トラッカー、埋込み画像を使わない単一の閲覧用レポートです。印刷用スタイルを含みます。</p>
+</main>
+</body>
+</html>

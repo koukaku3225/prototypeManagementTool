@@ -32,6 +32,7 @@ import {
   type CardShare,
 } from "@/lib/timebox";
 import { MAX_SMALL_STORIES, type BigStory, type GoalCard } from "@/types/goal";
+import { activeLeafCards, buildGoalTree, childrenOf, type GoalTreeNode } from "@/lib/goal-tree";
 import type { Habit, HabitLog } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
 
@@ -166,7 +167,11 @@ function GoalsInner() {
 
   const active = cards.filter((c) => (c.status ?? "active") !== "done");
   const done = cards.filter((c) => (c.status ?? "active") === "done");
-  const freeSlots = Math.max(0, MAX_SMALL_STORIES - active.length);
+  // 枠は「進行中で、進行中の子を持たない目標」だけで数える（親は入れ物）
+  const freeSlots = Math.max(0, MAX_SMALL_STORIES - activeLeafCards(cards).length);
+  const tree = buildGoalTree(cards);
+  // 完了の一覧に出すのは根の目標だけ。子はツリーの「達成 n」から開く
+  const doneRoots = done.filter((c) => !c.parentId || !cards.some((p) => p.id === c.parentId));
   const empty = !big && cards.length === 0;
 
   return (
@@ -272,18 +277,14 @@ function GoalsInner() {
                   checkpoints={checkpoints}
                 />
               ) : (
-                <div className="flex flex-col gap-2">
-                  {active.map((c) => (
-                    <GoalRow
-                      key={c.id}
-                      card={c}
-                      habits={habits[c.id] ?? []}
-                      boxes={boxes[c.id] ?? []}
-                      time={times[c.id]}
-                      checkpoints={checkpoints[c.id] ?? []}
-                    />
-                  ))}
-                </div>
+                <GoalTreeList
+                  nodes={tree}
+                  cards={cards}
+                  habits={habits}
+                  boxes={boxes}
+                  times={times}
+                  checkpoints={checkpoints}
+                />
               )}
 
               {freeSlots > 0 ? (
@@ -301,13 +302,13 @@ function GoalsInner() {
               )}
             </div>
 
-            {done.length > 0 && (
+            {doneRoots.length > 0 && (
               <section className="mt-7">
                 <h2 className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
                   完了した目標  {done.length}
                 </h2>
                 <div className="mt-2 flex flex-col gap-2">
-                  {done.map((c) => (
+                  {doneRoots.map((c) => (
                     <GoalRow key={c.id} card={c} habits={[]} boxes={[]} muted />
                   ))}
                 </div>
@@ -457,6 +458,78 @@ function TreeSummary({ tree, values }: { tree: ForestTree; values: string[] }) {
   );
 }
 
+/**
+ * 親子の目標を字下げで並べる。
+ *
+ * 達成済みは既定で畳み、親の下に「達成 n」とだけ出す。全部並べると、
+ * 続けるほど進行中が達成済みの山に埋もれる（2026-09-29 設計）。
+ */
+function GoalTreeList({
+  nodes,
+  cards,
+  habits,
+  boxes,
+  times,
+  checkpoints,
+}: {
+  nodes: GoalTreeNode[];
+  cards: GoalCard[];
+  habits: Record<string, Habit[]>;
+  boxes: Record<string, TimeBox[]>;
+  times: Record<string, CardTime>;
+  checkpoints: Record<string, Checkpoint[]>;
+}) {
+  const [opened, setOpened] = useState<string[]>([]);
+
+  const rows = (list: GoalTreeNode[]): React.ReactNode[] =>
+    list.flatMap((n) => {
+      const isOpen = opened.includes(n.card.id);
+      const doneKids = childrenOf(cards, n.card.id).filter(
+        (c) => (c.status ?? "active") === "done",
+      );
+      return [
+        <div key={n.card.id} style={{ paddingLeft: (n.depth - 1) * 14 }}>
+          <GoalRow
+            card={n.card}
+            habits={habits[n.card.id] ?? []}
+            boxes={boxes[n.card.id] ?? []}
+            time={times[n.card.id]}
+            checkpoints={checkpoints[n.card.id] ?? []}
+            childCount={n.children.length}
+          />
+        </div>,
+        ...rows(n.children),
+        doneKids.length > 0 ? (
+          <div key={`${n.card.id}-done`} style={{ paddingLeft: n.depth * 14 }}>
+            <button
+              type="button"
+              onClick={() =>
+                setOpened((prev) =>
+                  prev.includes(n.card.id)
+                    ? prev.filter((x) => x !== n.card.id)
+                    : [...prev, n.card.id],
+                )
+              }
+              aria-expanded={isOpen}
+              className="px-1 py-1 text-[12px] text-muted underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              {isOpen ? "達成したものを畳む" : `達成 ${n.doneCount}`}
+            </button>
+            {isOpen && (
+              <div className="mt-1 flex flex-col gap-2">
+                {doneKids.map((c) => (
+                  <GoalRow key={c.id} card={c} habits={[]} boxes={[]} muted />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null,
+      ];
+    });
+
+  return <div className="flex flex-col gap-2">{rows(nodes)}</div>;
+}
+
 function GoalRow({
   card,
   habits,
@@ -464,6 +537,7 @@ function GoalRow({
   time,
   checkpoints = [],
   muted,
+  childCount = 0,
 }: {
   card: GoalCard;
   habits: Habit[];
@@ -472,6 +546,8 @@ function GoalRow({
   time?: CardTime;
   checkpoints?: Checkpoint[];
   muted?: boolean;
+  /** 進行中の子の数。親であることが一目で分かるように出す */
+  childCount?: number;
 }) {
   const coach = COACHES[card.coachId];
   const title = card.vision.refined || card.vision.raw || "（未記入の目標）";
@@ -497,6 +573,7 @@ function GoalRow({
           <p className="mt-1 font-mono text-[11px] text-muted">
             {card.smart.deadline || "期限未設定"}
             {card.source === "manual" ? " ・手入力" : ` ・${coach?.name ?? ""}`}
+            {childCount > 0 && ` ・下に${childCount}つ`}
           </p>
         </div>
       </div>

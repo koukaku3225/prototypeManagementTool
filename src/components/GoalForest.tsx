@@ -128,6 +128,23 @@ export function GoalForest({
         </g>
       ))}
 
+      {/* 畳んだ達成済みの子。実をひとまとめにして数だけ添える */}
+      {g.fruitClusters.map((c, i) => (
+        <g key={`fc${i}`}>
+          <circle className="gf-fruit" cx={c.x} cy={c.y} r={5 * c.s} />
+          <circle className="gf-fruit" cx={c.x + 6 * c.s} cy={c.y + 5 * c.s} r={4 * c.s} />
+          <circle className="gf-fruit-hi" cx={c.x - 1.6 * c.s} cy={c.y - 1.8 * c.s} r={1.4 * c.s} />
+          <text
+            x={c.x + 14 * c.s}
+            y={c.y + 2 * c.s}
+            className="gf-branchlab"
+            textAnchor="start"
+          >
+            達成{c.count}
+          </text>
+        </g>
+      ))}
+
       {!single &&
         g.hits.map((h) => {
           const on = h.cardId === selected;
@@ -152,7 +169,7 @@ export function GoalForest({
                 x={h.labelX}
                 y={h.labelY}
                 textAnchor="middle"
-                className={on ? "gf-treelab gf-lit" : "gf-treelab"}
+                className={`${h.onBranch ? "gf-branchlab" : "gf-treelab"}${on ? " gf-lit" : ""}`}
               >
                 {h.label}
               </text>
