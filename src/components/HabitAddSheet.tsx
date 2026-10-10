@@ -96,8 +96,11 @@ export function HabitAddSheet({
                     type="button"
                     role="radio"
                     aria-checked={cardId === c.id}
+                    // 書いた内容は欄を離れた時点で保存される。目標を切り替えると
+                    // 間違った目標に残るので、足したあとは別の目標へ切り替えさせない
+                    disabled={added.length > 0 && cardId !== c.id}
                     onClick={() => setCardId(c.id)}
-                    className={`min-h-11 max-w-full rounded-xl border px-3.5 text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+                    className={`min-h-11 max-w-full rounded-xl border px-3.5 text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 ${
                       cardId === c.id
                         ? "border-indigo bg-indigo-soft font-medium text-indigo"
                         : "border-line bg-paper text-muted"
@@ -124,7 +127,8 @@ export function HabitAddSheet({
                     }
                   />
                   <p className="mt-3 text-[11.5px] leading-relaxed text-muted">
-                    書いた内容はその場で保存されます。終わったら「閉じる」を押してください。
+                    書いた内容は、欄を離れると保存されます。終わったら「閉じる」を押してください。
+                    別の目標に足すときは、いったん閉じてください。
                   </p>
                 </div>
               )}
