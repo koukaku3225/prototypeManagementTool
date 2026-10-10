@@ -37,6 +37,7 @@ export function HabitEditor({
   habits,
   onChange,
   startWithDraft,
+  hideAdd,
 }: {
   cardId: string;
   habits: Habit[];
@@ -46,6 +47,8 @@ export function HabitEditor({
    * 下書きは画面上だけで、最初の入力があるまで保存されない。
    */
   startWithDraft?: boolean;
+  /** 「＋ 繰り返すことを足す」を出さない（1件だけを直すシート用） */
+  hideAdd?: boolean;
 }) {
   const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
   /*
@@ -285,13 +288,15 @@ export function HabitEditor({
         </div>
       ))}
 
-      <button
-        type="button"
-        onClick={add}
-        className="text-left text-[12px] text-accent underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-      >
-        ＋ 繰り返すことを足す
-      </button>
+      {!hideAdd && (
+        <button
+          type="button"
+          onClick={add}
+          className="text-left text-[12px] text-accent underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          ＋ 繰り返すことを足す
+        </button>
+      )}
     </div>
   );
 }

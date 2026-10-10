@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { HabitAddSheet } from "@/components/HabitAddSheet";
 import { HabitCheck } from "@/components/HabitCheck";
+import { HabitEditSheet } from "@/components/HabitEditSheet";
 import { Snackbar } from "@/components/Snackbar";
 import { useDayRollover } from "@/hooks/useDayRollover";
 import { today } from "@/lib/date";
@@ -47,6 +48,8 @@ export default function HabitsPage() {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [showOff, setShowOff] = useState(false);
   const [adding, setAdding] = useState(false);
+  // 習慣そのもの（名前・最小版・いつ・どこで）を直しているもの
+  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
 
   const reload = useCallback(() => {
     const all = loadCards();
@@ -171,7 +174,7 @@ export default function HabitsPage() {
               ) : (
                 <ul className="flex flex-col gap-3">
                   {split.open.map((x) => (
-                    <Item key={x.habit.id} label={labelOf(x.habit.cardId)} cardId={x.habit.cardId}>
+                    <Item key={x.habit.id} label={labelOf(x.habit.cardId)} cardId={x.habit.cardId} onEdit={() => setEditingHabit(x.habit)}>
                       <HabitCheck
                         habit={x.habit}
                         stats={x.stats}
@@ -191,7 +194,7 @@ export default function HabitsPage() {
                   {split.logged.map((x) => {
                     const open = openIds.has(x.habit.id);
                     return (
-                      <Item key={x.habit.id} label={labelOf(x.habit.cardId)} cardId={x.habit.cardId} compact>
+                      <Item key={x.habit.id} label={labelOf(x.habit.cardId)} cardId={x.habit.cardId} compact onEdit={() => setEditingHabit(x.habit)}>
                         {open ? (
                           <HabitCheck
                             habit={x.habit}
@@ -236,7 +239,7 @@ export default function HabitsPage() {
                 {showOff && (
                   <ul className="mt-2 flex flex-col gap-2">
                     {split.off.map((x) => (
-                      <Item key={x.habit.id} label={labelOf(x.habit.cardId)} cardId={x.habit.cardId} compact>
+                      <Item key={x.habit.id} label={labelOf(x.habit.cardId)} cardId={x.habit.cardId} compact onEdit={() => setEditingHabit(x.habit)}>
                         <div className="rounded-xl border border-line bg-surface px-3 py-2.5">
                           <p className="text-[13.5px]">{x.habit.title}</p>
                           <p className="mt-0.5 font-mono text-[11px] text-muted">
@@ -252,6 +255,16 @@ export default function HabitsPage() {
           </>
         )}
       </main>
+
+      {editingHabit && (
+        <HabitEditSheet
+          habit={editingHabit}
+          onClose={() => {
+            setEditingHabit(null);
+            reload();
+          }}
+        />
+      )}
 
       {adding && (
         <HabitAddSheet
@@ -280,26 +293,41 @@ function Item({
   label,
   cardId,
   compact,
+  onEdit,
   children,
 }: {
   label: string;
   cardId: string;
   compact?: boolean;
+  /** 習慣そのものを直す。どの状態の習慣からも開けるようにする */
+  onEdit: () => void;
   children: React.ReactNode;
 }) {
   return (
     <li>
-      {label && (
-        <Link
-          href={`/goal/${cardId}#sec-habit`}
-          className={`mb-1 flex items-center gap-1.5 px-0.5 text-[11.5px] text-muted hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
-            compact ? "" : "mt-0.5"
-          }`}
+      <div className={`mb-1 flex items-center gap-2 px-0.5 ${compact ? "" : "mt-0.5"}`}>
+        {label ? (
+          <Link
+            href={`/goal/${cardId}#sec-habit`}
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-[11.5px] text-muted hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <span aria-hidden="true">▸</span>
+            <span className="truncate">{label}</span>
+          </Link>
+        ) : (
+          <span className="flex-1" />
+        )}
+        <button
+          type="button"
+          onClick={onEdit}
+          className="flex min-h-9 shrink-0 items-center gap-1 rounded-lg border border-line bg-surface-2 px-2.5 text-[11.5px] text-muted hover:bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
-          <span aria-hidden="true">▸</span>
-          <span className="truncate">{label}</span>
-        </Link>
-      )}
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M11.5 2.5a1.7 1.7 0 0 1 2.4 2.4L5.4 13.4l-3.2.8.8-3.2 8.5-8.5Z" />
+          </svg>
+          習慣を直す
+        </button>
+      </div>
       {children}
     </li>
   );
@@ -335,7 +363,10 @@ function LoggedRow({ item, onOpen }: { item: HabitItem; onOpen: () => void }) {
       <span className={`min-w-0 flex-1 truncate text-[13.5px] ${ok ? "" : "text-muted"}`}>
         {item.habit.title}
       </span>
-      <span className="shrink-0 text-[11px] text-muted">{STATE_LABEL[state]}</span>
+      <span className="shrink-0 text-[11px] text-muted">
+        {STATE_LABEL[state]}
+        <span aria-hidden="true"> ・ 直す ›</span>
+      </span>
     </button>
   );
 }
