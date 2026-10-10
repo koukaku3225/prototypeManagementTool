@@ -18,6 +18,7 @@ export const KEY = {
   archive: "gc.sessions",
   habits: "gc.habits",
   habitLogs: "gc.habitlogs",
+  weeklyReviews: "gc.weeklyreviews", // 週のふりかえりの一言（週で一意）
   timeboxes: "gc.timeboxes",
   checkpoints: "gc.checkpoints",
   running: "gc.running",

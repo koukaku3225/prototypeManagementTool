@@ -71,5 +71,26 @@ t("端末固有キーの一覧に running / variant / schemaVersion が入って
   assert.ok(DEVICE_LOCAL_KEYS.includes(KEY.schemaVersion));
 });
 
+
+t("週のふりかえり（gc.weeklyreviews）は端末固有ではなく、中身として数える", () => {
+  assert.ok(!DEVICE_LOCAL_KEYS.includes(KEY.weeklyReviews));
+  assert.equal(KEY.weeklyReviews, "gc.weeklyreviews");
+  assert.equal(
+    hasUserContent({ [KEY.weeklyReviews]: '[{"weekStart":"2026-10-05","good":"x","nextNote":"","updatedAt":""}]' }),
+    true,
+  );
+  assert.equal(hasUserContent({ [KEY.weeklyReviews]: "[]" }), false);
+});
+
+t("端末固有でない・レガシーでないキーは、すべて同期の合体対象か、既知の1件ものである", () => {
+  // 新しい配列キーを足して MERGE_COLLECTIONS を忘れると、合体のときに
+  // 「クラウドにしか無い行」が取り込まれない。キーの一覧が変わったら気づけるように固定する
+  const known = [
+    "session", "card", "cards", "bigstory", "stories", "profile", "variant", "archive",
+    "habits", "habitLogs", "weeklyReviews", "timeboxes", "checkpoints", "running", "schemaVersion",
+  ];
+  assert.deepEqual(Object.keys(KEY).sort(), known.sort());
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

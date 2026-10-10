@@ -405,5 +405,37 @@ t("指紋は中身が同じなら同じ、1文字でも違えば違う", () => {
   assert.notEqual(rowFingerprint({ title: "読書" }), rowFingerprint({ title: "読書 " }));
 });
 
+
+t("週のふりかえりは週（月曜の日付）で1件にまとめ、両方にあれば新しいほうを採る", () => {
+  const rv = (weekStart, good, updatedAt) => ({ weekStart, good, nextNote: "", updatedAt });
+  const m = mergeSnapshots(
+    snap({ "gc.weeklyreviews": [rv("2026-10-05", "端末", "2026-10-10T01:00:00Z"), rv("2026-09-28", "端末のみ", "2026-10-01T00:00:00Z")] }),
+    snap({ "gc.weeklyreviews": [rv("2026-10-05", "クラウド", "2026-10-10T09:00:00Z"), rv("2026-09-21", "クラウドのみ", "2026-09-25T00:00:00Z")] }),
+  );
+  const out = Object.fromEntries(parse(m, "gc.weeklyreviews").map((r) => [r.weekStart, r.good]));
+  assert.deepEqual(out, { "2026-10-05": "クラウド", "2026-09-28": "端末のみ", "2026-09-21": "クラウドのみ" });
+});
+
+t("週のふりかえり: この端末が空でも、クラウドの分を取り込む（消さない）", () => {
+  const r = { weekStart: "2026-10-05", good: "x", nextNote: "", updatedAt: "2026-10-10T00:00:00Z" };
+  const rep = mergeWithReport(snap({ "gc.weeklyreviews": [] }), snap({ "gc.weeklyreviews": [r] }));
+  assert.equal(parse(rep.data, "gc.weeklyreviews").length, 1);
+  assert.equal(rep.changed, true);
+  // 合わせ直すと収束する（再読み込みを繰り返さない）
+  assert.equal(mergeWithReport(rep.data, snap({ "gc.weeklyreviews": [r] })).changed, false);
+});
+
+t("週のふりかえり: 空の端末で、クラウドの一言を消す向き（push）にはならない", () => {
+  // ふりかえりだけがクラウドにある場合も「クラウドに中身あり」とみなす経路（sync.ts の cloudHasContent）
+  assert.equal(
+    decideSyncDirection({ alreadySynced: false, localHasContent: false, cloudHasContent: true }),
+    "pull",
+  );
+  assert.equal(
+    decideSyncDirection({ alreadySynced: true, localHasContent: false, cloudHasContent: true }),
+    "conflict",
+  );
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

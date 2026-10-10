@@ -14,7 +14,8 @@ import {
   FLOW,
   MAX_SMALL_STORIES,
 } from "@/types/goal";
-import type { Habit, HabitLog } from "@/types/behavior";
+import type { Habit, HabitLog, WeeklyReview } from "@/types/behavior";
+import { normalizeReviews, upsertReview } from "@/lib/habit-week";
 import { toLocalDate } from "@/lib/date";
 import { runningSpan, toTime } from "@/lib/timebox";
 import {
@@ -921,6 +922,40 @@ export function deleteHabitsOfCard(cardId: string): void {
   write(KEY.habitLogs, loadHabitLogs().filter((l) => !gone.has(l.habitId)));
 }
 
+// ---------------------------------------------------------------- 週のふりかえり
+
+/**
+ * 週のふりかえりの一言。1週に1件、別キー（gc.weeklyreviews）で持つ。
+ *
+ * 移行（MIGRATIONS）は要らない。キーが無ければ空配列として読めるので、
+ * 古いデータを書き換える必要が無い（SCHEMA_VERSION は上げない）。
+ * 読むときは normalizeReviews を通し、壊れた行は捨てる。
+ */
+export function loadWeeklyReviews(): WeeklyReview[] {
+  ensureMigrated();
+  return normalizeReviews(read<unknown>(KEY.weeklyReviews));
+}
+
+/**
+ * 1週ぶんを書く。2欄とも空なら行ごと消す（空の行を残さない）。
+ * 書いたあとの配列を返す。
+ */
+export function saveWeeklyReview(
+  weekStart: string,
+  good: string,
+  nextNote: string,
+): WeeklyReview[] {
+  const next = upsertReview(
+    loadWeeklyReviews(),
+    weekStart,
+    good,
+    nextNote,
+    new Date().toISOString(),
+  );
+  write(KEY.weeklyReviews, next);
+  return next;
+}
+
 // ---------------------------------------------------------------- 中間目標（週/月）
 
 export function loadCheckpoints(): Checkpoint[] {
@@ -1081,6 +1116,7 @@ const SNAPSHOT_TARGETS = [
   KEY.archive,
   KEY.habits,
   KEY.habitLogs,
+  KEY.weeklyReviews,
   KEY.timeboxes,
   KEY.checkpoints,
   KEY.running,

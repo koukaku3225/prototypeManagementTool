@@ -110,6 +110,8 @@ const MERGE_COLLECTIONS: Partial<Record<string, (x: Record<string, unknown>) => 
   [KEY.checkpoints]: (x) => String(x.id),
   [KEY.archive]: (x) => String(x.id),
   [KEY.habitLogs]: (x) => `${String(x.habitId)}|${String(x.date)}`,
+  // 週のふりかえりは週（月曜の日付）で一意。updatedAt の新しいほうを採る
+  [KEY.weeklyReviews]: (x) => String(x.weekStart),
 };
 
 function parseArray(raw: string | undefined): Record<string, unknown>[] | null {

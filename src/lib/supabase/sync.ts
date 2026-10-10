@@ -53,10 +53,13 @@ import {
   sessionToRow,
   timeBoxFromRow,
   timeBoxToRow,
+  sendableWeeklyReview,
   usageToRows,
+  weeklyReviewFromRow,
+  weeklyReviewToRow,
 } from "./mappers";
 import type { BigStory, Checkpoint, GoalCard, Session, UserProfile } from "@/types/goal";
-import type { Habit, HabitLog } from "@/types/behavior";
+import type { Habit, HabitLog, WeeklyReview } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
 
 let currentUserId: string | null = null;
@@ -442,6 +445,76 @@ async function reconcileHabitLogs(userId: string, logs: HabitLog[], mode: PushMo
 }
 
 /**
+ * weekly_reviews（週のふりかえりの一言）。主キーは (user_id, week_start) なので、
+ * habit_logs と同じく専用の突き合わせにする。
+ *
+ * 送れない行（月曜でない・日付でない）は、書く側から外すだけで「この端末にある」側には
+ * 残す。外すと、クラウドに同じ週の行があるとき「この端末で消した」と取り違えて消してしまう。
+ */
+async function reconcileWeeklyReviews(
+  userId: string,
+  reviews: WeeklyReview[],
+  mode: PushMode = "diff",
+) {
+  const supabase = supabaseBrowser();
+  const sendable = reviews.filter(sendableWeeklyReview);
+  if (sendable.length < reviews.length) {
+    noteFailure(
+      `weekly_reviews: 形式が不正な${reviews.length - sendable.length}件を送れませんでした`,
+      new Error("week_start が実在する月曜の日付ではない"),
+    );
+  }
+  const keyed = sendable.map((r) => {
+    const row = weeklyReviewToRow(r, userId);
+    return { key: r.weekStart, fp: rowFingerprint(row), row };
+  });
+  const localKeys = reviews.map((r) => r.weekStart);
+
+  let gone: string[];
+  let toWrite: Record<string, unknown>[];
+  let base: PushBase;
+  if (mode === "authoritative") {
+    const { data: existing, error: readErr } = await supabase
+      .from("weekly_reviews")
+      .select("week_start")
+      .eq("user_id", userId);
+    if (readErr) throw readErr;
+    const keep = new Set(localKeys);
+    gone = (existing ?? [])
+      .map((r: { week_start: string }) => String(r.week_start).slice(0, 10))
+      .filter((k: string) => !keep.has(k));
+    toWrite = keyed.map((k) => k.row);
+    base = Object.fromEntries(keyed.map((k) => [k.key, k.fp]));
+  } else {
+    const plan = planCollectionPush(
+      loadPushBase(userId, "weekly_reviews"),
+      keyed,
+      localKeys,
+      mode,
+    );
+    const write = new Set(plan.upsert);
+    toWrite = keyed.filter((k) => write.has(k.key)).map((k) => k.row);
+    gone = plan.remove;
+    base = plan.next;
+  }
+
+  // 先に書き、あとで消す（reconcileCollection と同じ。失うより余るほうがまし）
+  if (toWrite.length > 0) {
+    const { error } = await supabase.from("weekly_reviews").upsert(toWrite);
+    if (error) throw error;
+  }
+  for (const week of gone) {
+    const { error } = await supabase
+      .from("weekly_reviews")
+      .delete()
+      .eq("user_id", userId)
+      .eq("week_start", week);
+    if (error) throw error;
+  }
+  if (currentUserId === userId) savePushBase(userId, "weekly_reviews", base);
+}
+
+/**
  * クラウドから取り込んだ直後に、基準を「いまこの端末にある中身」にそろえる。
  *
  * 取り込み（pull）はクラウド＝この端末になるので、ここで基準を作っておかないと、
@@ -475,6 +548,16 @@ function seedPushBaseFromLocal(userId: string): void {
     fps(
       parse<HabitLog>(KEY.habitLogs).map((l) => habitLogToRow(l, userId)),
       (r) => habitLogKey(String(r.habit_id), String(r.date)),
+    ),
+  );
+  savePushBase(
+    userId,
+    "weekly_reviews",
+    fps(
+      parse<WeeklyReview>(KEY.weeklyReviews)
+        .filter(sendableWeeklyReview)
+        .map((r) => weeklyReviewToRow(r, userId)),
+      (r) => String(r.week_start),
     ),
   );
   // 中間目標は、合わせ済みの端末だけ（合わせる前は送らないので基準も持たない）
@@ -622,6 +705,10 @@ async function pushOne(
         await reconcileHabitLogs(userId, value as HabitLog[], mode);
         return true;
       }
+      case KEY.weeklyReviews: {
+        await reconcileWeeklyReviews(userId, (value ?? []) as WeeklyReview[], mode);
+        return true;
+      }
       case KEY.timeboxes: {
         const boxes = value as TimeBox[];
         await reconcileCollection(
@@ -721,7 +808,7 @@ export async function backfillAll(mode: "full" | "authoritative" = "full"): Prom
   // sessions（archive）は big_stories/goal_cards が参照する session_id の先に
   // なるので、他より先に送る。順序を間違えるとFK違反で goal_cards が弾かれる
   // checkpoints は goal_cards を参照するので、カードより後に送る
-  const order = [KEY.session, KEY.archive, KEY.bigstory, KEY.cards, KEY.habits, KEY.habitLogs, KEY.timeboxes, KEY.checkpoints, KEY.profile];
+  const order = [KEY.session, KEY.archive, KEY.bigstory, KEY.cards, KEY.habits, KEY.habitLogs, KEY.weeklyReviews, KEY.timeboxes, KEY.checkpoints, KEY.profile];
   const keys = [...order.filter((k) => k in snap), ...Object.keys(snap).filter((k) => !order.includes(k as (typeof order)[number]))];
 
   for (const key of keys) {
@@ -811,7 +898,7 @@ async function fetchCloudSnapshot(
 ): Promise<{ data: Record<string, string> } | null> {
   const supabase = supabaseBrowser();
   {
-    const [big, profile, cards, habits, logs, boxes, sessions, checkpoints] = await Promise.all([
+    const [big, profile, cards, habits, logs, boxes, sessions, checkpoints, reviews] = await Promise.all([
       supabase.from("big_stories").select("*").eq("user_id", userId).maybeSingle(),
       supabase.from("user_profiles").select("*").eq("user_id", userId).maybeSingle(),
       supabase.from("goal_cards").select("*").eq("user_id", userId),
@@ -824,8 +911,9 @@ async function fetchCloudSnapshot(
         .eq("user_id", userId)
         .order("started_at", { ascending: false }),
       supabase.from("checkpoints").select("*").eq("user_id", userId),
+      supabase.from("weekly_reviews").select("*").eq("user_id", userId),
     ]);
-    for (const r of [big, profile, cards, habits, logs, boxes, sessions, checkpoints]) {
+    for (const r of [big, profile, cards, habits, logs, boxes, sessions, checkpoints, reviews]) {
       if (r.error) throw r.error;
     }
     /*
@@ -853,6 +941,7 @@ async function fetchCloudSnapshot(
     data[KEY.habits] = JSON.stringify((habits.data ?? []).map(habitFromRow));
     data[KEY.habitLogs] = JSON.stringify((logs.data ?? []).map(habitLogFromRow));
     data[KEY.timeboxes] = JSON.stringify((boxes.data ?? []).map(timeBoxFromRow));
+    data[KEY.weeklyReviews] = JSON.stringify((reviews.data ?? []).map(weeklyReviewFromRow));
     {
       const cloudCps = (checkpoints.data ?? []).map(checkpointFromRow);
       const carried = data[KEY.checkpoints]
@@ -927,7 +1016,7 @@ async function ensureCheckpointsMerged(userId: string): Promise<boolean> {
 /** クラウド側に、このユーザーの成果物が1件でもあるか */
 async function cloudHasContent(userId: string): Promise<boolean> {
   const supabase = supabaseBrowser();
-  const tables = ["big_stories", "goal_cards", "timeboxes", "habits", "sessions"];
+  const tables = ["big_stories", "goal_cards", "timeboxes", "habits", "sessions", "weekly_reviews"];
   for (const t of tables) {
     const { count, error } = await supabase
       .from(t)

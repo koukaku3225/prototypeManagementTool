@@ -214,5 +214,42 @@ t("手順数が壊れた値でも、送る値は 0〜4 か null（全件の拒�
   assert.equal(habitToRow({ ...habitBase, frictionSteps: 1.5 }, "u").friction_steps, null);
 });
 
+
+t("週のふりかえりを行にして、行から戻すと元に戻る", () => {
+  const { weeklyReviewToRow, weeklyReviewFromRow } = mappersForBox;
+  const r = { weekStart: "2026-10-05", good: "朝のnote", nextNote: "朝にやる", updatedAt: "2026-10-10T01:00:00.000Z" };
+  const row = weeklyReviewToRow(r, "u1");
+  assert.deepEqual(row, {
+    user_id: "u1",
+    week_start: "2026-10-05",
+    good: "朝のnote",
+    next_note: "朝にやる",
+    updated_at: "2026-10-10T01:00:00.000Z",
+  });
+  assert.deepEqual(weeklyReviewFromRow(row), r);
+});
+
+t("週のふりかえり: クラウドの壊れた値は空に丸める。date列の時刻付きも日付に戻す", () => {
+  const { weeklyReviewFromRow } = mappersForBox;
+  const back = weeklyReviewFromRow({ week_start: "2026-10-05T00:00:00", good: null, next_note: 5, updated_at: null });
+  assert.deepEqual(back, { weekStart: "2026-10-05", good: "", nextNote: "", updatedAt: "" });
+});
+
+t("週のふりかえり: 送れる形は、実在する月曜の日付だけ（1件の不正で全件が拒否されないように）", () => {
+  const { sendableWeeklyReview } = mappersForBox;
+  const mk = (weekStart) => ({ weekStart, good: "a", nextNote: "", updatedAt: "" });
+  assert.equal(sendableWeeklyReview(mk("2026-10-05")), true);
+  assert.equal(sendableWeeklyReview(mk("2026-10-06")), false); // 火曜
+  assert.equal(sendableWeeklyReview(mk("2026-02-30")), false);
+  assert.equal(sendableWeeklyReview(mk("来週")), false);
+  assert.equal(sendableWeeklyReview(mk("")), false);
+});
+
+t("週のふりかえり: 壊れた更新時刻でも、行は timestamptz に入る形で送る", () => {
+  const { weeklyReviewToRow } = mappersForBox;
+  const row = weeklyReviewToRow({ weekStart: "2026-10-05", good: "a", nextNote: "", updatedAt: "" }, "u");
+  assert.ok(!Number.isNaN(Date.parse(row.updated_at)));
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

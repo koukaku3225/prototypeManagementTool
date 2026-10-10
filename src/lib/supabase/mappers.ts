@@ -13,7 +13,7 @@ import type {
   UserProfile,
 } from "@/types/goal";
 import { normalizeCelebration, normalizeFrictionSteps } from "@/lib/habit-shape";
-import type { Habit, HabitLog } from "@/types/behavior";
+import type { Habit, HabitLog, WeeklyReview } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
 import { isValidUuid } from "@/lib/uuid";
 
@@ -208,6 +208,39 @@ export function habitLogFromRow(r: Record<string, unknown>): HabitLog {
     at: r.at as string,
     note: (r.note as string | null) ?? null,
     mood: (r.mood as HabitLog["mood"]) ?? null,
+  };
+}
+
+/**
+ * 週のふりかえり（weekly_reviews テーブル）。主キーは (user_id, week_start)。
+ *
+ * week_start は date 列。形の合わない値が1件でも混ざると upsert が配列ごと拒否される
+ * ので、送る前に sendableWeeklyReview で外す（sync.ts）。
+ * 戻すときは、壊れた値を空に丸める。
+ */
+export function weeklyReviewToRow(r: WeeklyReview, userId: string) {
+  return {
+    user_id: userId,
+    week_start: r.weekStart,
+    good: typeof r.good === "string" ? r.good : "",
+    next_note: typeof r.nextNote === "string" ? r.nextNote : "",
+    updated_at: r.updatedAt && !Number.isNaN(Date.parse(r.updatedAt)) ? r.updatedAt : new Date(0).toISOString(),
+  };
+}
+
+/** クラウドに送れる形か（週の月曜として実在する日付か） */
+export function sendableWeeklyReview(r: WeeklyReview): boolean {
+  if (typeof r?.weekStart !== "string" || toDateColumn(r.weekStart) !== r.weekStart) return false;
+  // 週は月曜で一意。月曜でない日付は、画面側が丸めるので本来ここへは来ない
+  return new Date(`${r.weekStart}T00:00:00Z`).getUTCDay() === 1;
+}
+
+export function weeklyReviewFromRow(r: Record<string, unknown>): WeeklyReview {
+  return {
+    weekStart: String(r.week_start ?? "").slice(0, 10),
+    good: typeof r.good === "string" ? r.good : "",
+    nextNote: typeof r.next_note === "string" ? r.next_note : "",
+    updatedAt: typeof r.updated_at === "string" ? r.updated_at : "",
   };
 }
 

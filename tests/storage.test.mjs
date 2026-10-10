@@ -1225,5 +1225,59 @@ t("打刻が走っていなければ何も作らない", () => {
   assert.equal(S.loadAllTimeBoxes().length, 0);
 });
 
+
+// ---------------------------------------------------------------- 週のふりかえり
+
+t("週のふりかえり: 書く→読める。同じ週は1行。空にすると行が消える", () => {
+  reset();
+  assert.deepEqual(S.loadWeeklyReviews(), []);
+  S.saveWeeklyReview("2026-10-05", "朝に書けた", "昼は眠い");
+  assert.equal(S.loadWeeklyReviews().length, 1);
+  assert.equal(parsed("gc.weeklyreviews")[0].good, "朝に書けた");
+  assert.ok(parsed("gc.weeklyreviews")[0].updatedAt);
+  S.saveWeeklyReview("2026-10-05", "朝に書けた", "朝にやる");
+  assert.equal(S.loadWeeklyReviews().length, 1);
+  assert.equal(S.loadWeeklyReviews()[0].nextNote, "朝にやる");
+  S.saveWeeklyReview("2026-10-05", "", "");
+  assert.deepEqual(S.loadWeeklyReviews(), []);
+  assert.deepEqual(parsed("gc.weeklyreviews"), []);
+});
+
+t("週のふりかえり: 壊れた保存値でも落ちず、壊れた行は読まない", () => {
+  reset({ "gc.weeklyreviews": JSON.stringify([{ weekStart: "x" }, null, { weekStart: "2026-10-05", good: "ok", nextNote: "", updatedAt: "" }]) });
+  assert.deepEqual(S.loadWeeklyReviews().map((r) => r.good), ["ok"]);
+  reset({ "gc.weeklyreviews": "{broken" });
+  assert.deepEqual(S.loadWeeklyReviews(), []);
+});
+
+t("週のふりかえり: スナップショットに入り、resetAll で消え、書くと同期フックへ流れる", () => {
+  reset();
+  const seen = [];
+  S.setSyncHook((k, v) => seen.push(k));
+  try {
+    S.saveWeeklyReview("2026-10-05", "良かった", "");
+  } finally {
+    S.setSyncHook(null);
+  }
+  // 初回の移行が版番号などを書くので、ふりかえりのキーが流れたことだけを見る
+  assert.ok(seen.includes("gc.weeklyreviews"));
+  assert.ok("gc.weeklyreviews" in S.captureState());
+  S.resetAll();
+  assert.equal(raw("gc.weeklyreviews"), null);
+});
+
+t("新しいキーの網羅: レガシーを除く全キーが captureState に入り、resetAll で消える", () => {
+  const legacy = new Set(["gc.card", "gc.stories"]);
+  reset();
+  for (const k of Object.values(S.KEY)) store.map.set(k, "[]");
+  const cap = S.captureState();
+  for (const k of Object.values(S.KEY)) {
+    if (legacy.has(k)) continue;
+    assert.ok(k in cap, `${k} がスナップショット対象に入っていない`);
+  }
+  S.resetAll();
+  for (const k of Object.values(S.KEY)) assert.equal(raw(k), null, `${k} が resetAll で消えていない`);
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

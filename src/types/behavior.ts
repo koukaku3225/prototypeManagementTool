@@ -117,3 +117,20 @@ export interface HabitStats {
   /** 週N回だけ、今週やった回数（done / partial）と目安。日で数える習慣では null */
   thisWeek: { done: number; target: number } | null;
 }
+
+/**
+ * 週のふりかえり。1週に1件（週で一意）。
+ *
+ * 習慣の記録や枠の集計は読んで並べるだけで保存しない。ここに持つのは、
+ * 本人が書いた2つの一言だけ。習慣・目標には埋め込まず、別キー（gc.weeklyreviews）で持つ。
+ */
+export interface WeeklyReview {
+  /** その週の月曜。"2026-10-05"（ローカル日付） */
+  weekStart: string;
+  /** うまくいったこと。任意 */
+  good: string;
+  /** 来週の自分へ。次の週の「前回の自分から」に出る。任意 */
+  nextNote: string;
+  /** 最後に書き換えた時刻（ISO8601）。端末間の合体で新しいほうを採るのに使う */
+  updatedAt: string;
+}

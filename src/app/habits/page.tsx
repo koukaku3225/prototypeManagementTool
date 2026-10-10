@@ -163,21 +163,35 @@ export default function HabitsPage() {
               </div>
             )}
 
-            {/* 1か月を1枚で見る。見るだけの画面（記録はここで付ける） */}
-            <Link
-              href="/habits/month"
-              className="mt-4 flex min-h-11 items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2 text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true" className="shrink-0 text-accent">
-                <rect x="3.5" y="4.5" width="17" height="16" rx="2.5" />
-                <path d="M3.5 9.5h17M9 9.5v11M15 9.5v11M3.5 15h17" />
-              </svg>
-              <span className="min-w-0 flex-1">
-                月の見開き
-                <span className="ml-1.5 text-[11.5px] text-muted">1か月を1枚で見る</span>
-              </span>
-              <span aria-hidden="true" className="text-muted">›</span>
-            </Link>
+            {/* 見直しの入口。月は1か月を1枚で見るだけの画面、週は数字を見て一言を書く画面 */}
+            <nav aria-label="見直し" className="mt-4 grid grid-cols-2 gap-2">
+              <Link
+                href="/habits/month"
+                className="flex min-h-11 items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true" className="shrink-0 text-accent">
+                  <rect x="3.5" y="4.5" width="17" height="16" rx="2.5" />
+                  <path d="M3.5 9.5h17M9 9.5v11M15 9.5v11M3.5 15h17" />
+                </svg>
+                <span className="min-w-0 flex-1 leading-tight">
+                  月の見開き
+                  <span className="block text-[11px] text-muted">1か月を1枚で</span>
+                </span>
+              </Link>
+              <Link
+                href="/habits/week"
+                className="flex min-h-11 items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 text-accent">
+                  <path d="M5 4.5h14v15H5z" />
+                  <path d="M8.5 9h7M8.5 12.5h7M8.5 16h4" />
+                </svg>
+                <span className="min-w-0 flex-1 leading-tight">
+                  週のふりかえり
+                  <span className="block text-[11px] text-muted">一言を書く</span>
+                </span>
+              </Link>
+            </nav>
 
             {/* 残り：未記録を大きく。ここだけが「やること」 */}
             <section className="mt-4" aria-label="今日やる習慣">
