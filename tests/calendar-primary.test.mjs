@@ -9,6 +9,7 @@ process.env.TZ = "UTC";
 
 import assert from "node:assert/strict";
 import {
+  DELETE_BRAKE_ENABLED,
   goneLeftovers,
   hasNotesOrDone,
   mergePrimary,
@@ -266,7 +267,7 @@ t("【ブレーキ】一度に多く消えるときは消さず、削除済み�
   const boxes = Array.from({ length: n }, (_, i) =>
     gbox({ id: primaryBoxId(`x${i}`), sourceEventId: `x${i}` }),
   );
-  const r = mergePrimary(boxes, { ...WINDOW, events: [] }, NOW);
+  const r = mergePrimary(boxes, { ...WINDOW, events: [] }, NOW, { brake: true });
   assert.equal(r.braked, true);
   assert.deepEqual(r.deletes, []);
   assert.equal(r.upserts.length, n);
@@ -280,6 +281,36 @@ t("ブレーキは非表示の記録の片付けには効かない（見えな�
   );
   const r = mergePrimary(boxes, { ...WINDOW, events: [] }, NOW);
   assert.equal(r.deletes.length, n);
+});
+
+t("【ブレーキを切った既定】繰り返し予定を Google で消したら、確認なしで全部消える", () => {
+  assert.equal(DELETE_BRAKE_ENABLED, false);
+  const n = PRIMARY_DELETE_BRAKE + 60;
+  const boxes = Array.from({ length: n }, (_, i) =>
+    gbox({ id: primaryBoxId(`d${i}`), sourceEventId: `d${i}` }),
+  );
+  const r = mergePrimary(boxes, { ...WINDOW, events: [] }, NOW);
+  assert.equal(r.braked, false);
+  assert.equal(r.deletes.length, n);
+  assert.deepEqual(r.upserts, []);
+});
+
+t("【ブレーキを切った既定】ブレーキで残っていた枠も、次の同期で消える", () => {
+  const n = 65;
+  const left = Array.from({ length: n }, (_, i) =>
+    gbox({ id: primaryBoxId(`l${i}`), sourceEventId: `l${i}`, sourceGoneAt: NOW }),
+  );
+  const r = mergePrimary(left, { ...WINDOW, events: [] }, NOW);
+  assert.equal(r.deletes.length, n);
+});
+
+t("【ブレーキを切った既定】書き込み・完了のある枠は、多数消えても残す", () => {
+  const boxes = Array.from({ length: 20 }, (_, i) =>
+    gbox({ id: primaryBoxId(`k${i}`), sourceEventId: `k${i}`, completedAt: NOW }),
+  );
+  const r = mergePrimary(boxes, { ...WINDOW, events: [] }, NOW);
+  assert.deepEqual(r.deletes, []);
+  assert.equal(r.upserts.length, 20, "削除済みの印だけ付く");
 });
 
 t("hasNotesOrDone: 振り返りの中身だけでも書き込みあり", () => {
@@ -301,11 +332,11 @@ t("本番の再現：繰り返し予定を消すとブレーキで残り、次�
   const boxes = Array.from({ length: n }, (_, i) =>
     gbox({ id: primaryBoxId(`r${i}`), sourceEventId: `r${i}` }),
   );
-  const first = mergePrimary(boxes, { ...WINDOW, events: [] }, NOW);
+  const first = mergePrimary(boxes, { ...WINDOW, events: [] }, NOW, { brake: true });
   assert.equal(first.braked, true);
   assert.equal(first.deletes.length, 0);
   const after = boxes.map((b) => ({ ...b, sourceGoneAt: NOW }));
-  const second = mergePrimary(after, { ...WINDOW, events: [] }, NOW);
+  const second = mergePrimary(after, { ...WINDOW, events: [] }, NOW, { brake: true });
   assert.equal(second.deletes.length, 0, "自動では消えない（だから片付ける入口が要る）");
   assert.equal(goneLeftovers(after).length, n, "片付けの対象として全部拾える");
 });

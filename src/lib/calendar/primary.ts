@@ -57,6 +57,19 @@ export interface PrimaryFetch {
  */
 export const PRIMARY_DELETE_BRAKE = 5;
 
+/**
+ * 「一度に多く消えるときは止めて、本人に確認する」仕組みを使うか（2026-10-10）。
+ *
+ * 本人の指示で、いったん切っている。繰り返し予定を Google で消すと一度に何十件も
+ * 消えるため、ブレーキに掛かって「まとめて片付ける」を押すまで時間割に残り続け、
+ * 「Google の削除が反映されない」ように見えていた（2026-09-16 本番で65件）。
+ * Google で消したら、確認なしでそのままアプリにも反映する。
+ *
+ * 戻すときはここを true にする。ブレーキの判定・帯・確認ボタンはすべて残してあり、
+ * この1か所で一緒に有効になる（同期の起動側 CalendarSyncBoot と時間割の帯も見ている）。
+ */
+export const DELETE_BRAKE_ENABLED = false;
+
 /** 取り込まない予定の種類。時間割の枠として意味を持たないもの */
 const SKIP_EVENT_TYPES = new Set(["workingLocation", "birthday"]);
 
@@ -175,11 +188,14 @@ export function goneLeftovers(all: readonly TimeBox[]): TimeBox[] {
  *
  * 「無い」と言えるのは取得した期間の中だけ。期間の外の枠には触らない
  * （期間より前の非表示の記録だけは、もう使わないので片付ける）。
+ *
+ * `opts.brake` を省くと DELETE_BRAKE_ENABLED に従う。
  */
 export function mergePrimary(
   all: TimeBox[],
   fetched: PrimaryFetch,
   nowIso: string,
+  opts: { brake?: boolean } = {},
 ): { upserts: TimeBox[]; deletes: string[]; braked: boolean } {
   const upserts: TimeBox[] = [];
   const hiddenDeletes: string[] = [];
@@ -256,7 +272,8 @@ export function mergePrimary(
     goneDeletes.push(b);
   }
 
-  const braked = goneDeletes.length > PRIMARY_DELETE_BRAKE;
+  const brake = opts.brake ?? DELETE_BRAKE_ENABLED;
+  const braked = brake && goneDeletes.length > PRIMARY_DELETE_BRAKE;
   if (braked) {
     for (const b of goneDeletes) {
       if (!b.sourceGoneAt) upserts.push({ ...b, sourceGoneAt: nowIso });

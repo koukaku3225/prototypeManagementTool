@@ -17,7 +17,7 @@ import {
   nextReconnectFlag,
   type ReconnectEvent,
 } from "@/lib/calendar/reconnect";
-import { mergePrimary, type PrimaryFetch } from "@/lib/calendar/primary";
+import { DELETE_BRAKE_ENABLED, mergePrimary, type PrimaryFetch } from "@/lib/calendar/primary";
 import { buildSyncBoxes } from "@/lib/calendar/payload";
 import { DEVICE_KEY } from "@/lib/storage-keys";
 import { getSyncState } from "@/lib/supabase/sync";
@@ -230,10 +230,12 @@ export function CalendarSyncBoot({
     // 向きが決着していなければ今回は見送る（次に開いたときに走る）
     if (getSyncState().kind !== "ready") return;
     ran.current = true;
-    void runSync(false);
+    // ブレーキを切っているときは、確認済みとして送る（サーバー側の削除ブレーキも外れる）
+    void runSync(!DELETE_BRAKE_ENABLED);
   }, [runSync]);
 
-  if (pending === 0) return null;
+  // ブレーキを切っているときは確認の帯を出さない（DELETE_BRAKE_ENABLED）
+  if (!DELETE_BRAKE_ENABLED || pending === 0) return null;
 
   return (
     <div

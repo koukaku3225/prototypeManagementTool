@@ -28,7 +28,7 @@ import {
   upsertTimeBox,
   upsertTimeBoxes,
 } from "@/lib/storage";
-import { goneLeftovers, isFromGoogle } from "@/lib/calendar/primary";
+import { DELETE_BRAKE_ENABLED, goneLeftovers, isFromGoogle } from "@/lib/calendar/primary";
 import { habitBoxesOn, habitsOfActiveCards, isGhost, materializeHabitBox } from "@/lib/habit-plan";
 import {
   countsAsPlanned,
@@ -65,6 +65,9 @@ import type { GoalCard } from "@/types/goal";
  *
  * 表示はいまのところ1日ぶんだけ。週表示は、1日ぶんが使われるのを見てから。
  */
+
+/** 消した直後に「取り消す」バーを出すか。いったん切っている */
+const SHOW_DELETE_UNDO = false;
 
 export default function PlanPage() {
   const [date, setDate] = useState(today());
@@ -364,8 +367,9 @@ export default function PlanPage() {
     removeTimeBox(id);
     reload(date);
     close();
-    // 消したものは戻せないと痛い。取り消しを出す
-    if (before) {
+    // 消した直後の「取り消す」バーは、いったん出さない（操作の邪魔になるため・本人の指示 2026-10-10）。
+    // 戻すときは SHOW_DELETE_UNDO を true にする
+    if (SHOW_DELETE_UNDO && before) {
       setUndo({
         message: `「${before.title || "（未記入）"}」を消しました`,
         revert: () => {
@@ -443,7 +447,7 @@ export default function PlanPage() {
           ブレーキで消さずに留めた枠は同期では二度と消えないので、ここで片付けてもらう。
           書き込み・完了のある枠は数えない（本人の記録なので1件ずつ判断してもらう）。
         */}
-        {goneCount > 0 && (
+        {DELETE_BRAKE_ENABLED && goneCount > 0 && (
           <div
             role="status"
             className="mb-3 rounded-xl border border-line bg-surface px-4 py-3 text-[12.5px] leading-relaxed"
