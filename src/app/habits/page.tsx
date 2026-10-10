@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
+import { HabitAddSheet } from "@/components/HabitAddSheet";
 import { HabitCheck } from "@/components/HabitCheck";
 import { Snackbar } from "@/components/Snackbar";
 import { useDayRollover } from "@/hooks/useDayRollover";
@@ -45,6 +46,7 @@ export default function HabitsPage() {
   // 記録済みの習慣は畳んで出す。押すと同じ4択が開いて、書き換えられる
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [showOff, setShowOff] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   const reload = useCallback(() => {
     const all = loadCards();
@@ -62,6 +64,11 @@ export default function HabitsPage() {
 
   useDayRollover(() => reload());
 
+  // 習慣を足せるのは進行中の目標だけ（完了した目標の習慣は、どの画面にも出ない）
+  const activeCards = useMemo(
+    () => cards.filter((c) => (c.status ?? "active") !== "done"),
+    [cards],
+  );
   const split = useMemo(() => splitTodayHabits(habits, logs, day), [habits, logs, day]);
   const labelOf = useCallback(
     (cardId: string) => {
@@ -118,15 +125,16 @@ export default function HabitsPage() {
               まだ、習慣がありません
             </h1>
             <p className="text-[14px] leading-relaxed text-muted">
-              習慣は、長期目標の詳細画面から足せます。「いつ・どこで・何をしたら」と、
+              習慣は、長期目標のために繰り返すことです。「いつ・どこで・何をしたら」と、
               最小版を決めておくと続きやすくなります。
             </p>
-            <Link
-              href="/goals"
-              className="min-h-11 rounded-xl border border-line bg-surface px-4 py-3 text-center text-[14px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              className="min-h-11 rounded-xl bg-indigo px-4 py-3 text-center text-[14px] font-medium text-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
-              目標を開く
-            </Link>
+              ＋ 習慣を足す
+            </button>
           </section>
         ) : (
           <>
@@ -203,6 +211,14 @@ export default function HabitsPage() {
               </section>
             )}
 
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              className="mt-6 min-h-11 rounded-xl border border-dashed border-line text-[13px] text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              ＋ 習慣を足す
+            </button>
+
             {/* 今日は予定なし：曜日が合わない習慣。閉じておく */}
             {split.off.length > 0 && (
               <section className="mt-6" aria-label="今日は予定のない習慣">
@@ -236,6 +252,16 @@ export default function HabitsPage() {
           </>
         )}
       </main>
+
+      {adding && (
+        <HabitAddSheet
+          cards={activeCards}
+          onClose={() => {
+            setAdding(false);
+            reload();
+          }}
+        />
+      )}
 
       {cheer && (
         <Snackbar

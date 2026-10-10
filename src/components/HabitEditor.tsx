@@ -16,14 +16,36 @@ import type { Habit, HabitSchedule } from "@/types/behavior";
  */
 const DOW = ["日", "月", "火", "水", "木", "金", "土"];
 
+function newDraft(cardId: string): Habit {
+  return {
+    id: crypto.randomUUID(),
+    cardId,
+    title: "",
+    minimalTitle: "",
+    estimateMin: 15,
+    schedule: { kind: "daily" },
+    startTime: null,
+    where: null,
+    cue: null,
+    createdAt: new Date().toISOString(),
+    archivedAt: null,
+  };
+}
+
 export function HabitEditor({
   cardId,
   habits,
   onChange,
+  startWithDraft,
 }: {
   cardId: string;
   habits: Habit[];
   onChange: () => void;
+  /**
+   * 開いた瞬間から、空の下書きを1件出す（習慣タブの「習慣を足す」用）。
+   * 下書きは画面上だけで、最初の入力があるまで保存されない。
+   */
+  startWithDraft?: boolean;
 }) {
   const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
   /*
@@ -32,24 +54,13 @@ export function HabitEditor({
    * TimeBoxSheet が「この時間に入れる」を押すまで枠を作らないのと同じ考え方で、
    * 押した直後は画面上だけの下書きにし、最初の入力があったときに初めて保存する。
    */
-  const [draft, setDraft] = useState<Habit | null>(null);
+  const [draft, setDraft] = useState<Habit | null>(() =>
+    startWithDraft ? newDraft(cardId) : null,
+  );
 
   function add() {
     if (draft) return; // 何も書いていない下書きが既にあるなら、それで足りる
-    const now = new Date().toISOString();
-    setDraft({
-      id: crypto.randomUUID(),
-      cardId,
-      title: "",
-      minimalTitle: "",
-      estimateMin: 15,
-      schedule: { kind: "daily" },
-      startTime: null,
-      where: null,
-      cue: null,
-      createdAt: now,
-      archivedAt: null,
-    });
+    setDraft(newDraft(cardId));
   }
 
   function patch(h: Habit, over: Partial<Habit>) {
@@ -65,7 +76,7 @@ export function HabitEditor({
     <div className="flex flex-col gap-3">
       {rows.length === 0 && (
         <p className="text-[12.5px] leading-relaxed text-muted">
-          繰り返す行動を決めておくと、［今日］にチェック欄が出ます。
+          繰り返す行動を決めておくと、［習慣］タブにチェック欄が出ます。
           一歩（1回きり）と違って、こちらは続き具合が記録されます。
         </p>
       )}
@@ -235,7 +246,7 @@ export function HabitEditor({
             {confirmArchive === h.id ? (
               <div className="rounded-md border border-line bg-surface px-2.5 py-2">
                 <p className="text-[12px] leading-relaxed">
-                  やめると［今日］に出なくなります。これまでの記録は残ります。
+                  やめると［習慣］タブに出なくなります。これまでの記録は残ります。
                 </p>
                 <div className="mt-1.5 flex gap-2">
                   <button
