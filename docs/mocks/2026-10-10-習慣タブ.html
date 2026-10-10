@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>習慣タブ モック</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Zen+Old+Mincho:wght@700&display=swap">
+<style>
+  /* アプリ本体（src/app/globals.css）と同じ色 */
+  :root {
+    --paper: #f2f5f9; --surface: #ffffff; --surface-2: #e7edf5;
+    --text: #151e36; --muted: #57657f; --line: #cfd9e7; --line-soft: #e2e9f2;
+    --indigo: #2e4a7d; --indigo-soft: #dde6f4; --accent: #a66a0b; --accent-soft: #f6ebd6; --accent-line: #d9a94a;
+    --c-amber-bg: #f6ebd6;  --c-amber-line: #d9a94a;  --c-amber-fg: #7d5008;
+    --c-teal-bg: #d8ece8;   --c-teal-line: #8ec3ba;   --c-teal-fg: #1f5a51;
+    --c-rose-bg: #f5dfe1;   --c-rose-line: #d79aa2;   --c-rose-fg: #7d2733;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0e1524; --surface: #161f33; --surface-2: #1d2841;
+      --text: #e2e8f4; --muted: #94a3be; --line: #2c3852; --line-soft: #232e45;
+      --indigo: #93acdb; --indigo-soft: #1c2942; --accent: #e2ac4e; --accent-soft: #2e2411; --accent-line: #7a5e24;
+      --c-amber-bg: #33280f;  --c-amber-line: #7a5e24;  --c-amber-fg: #e2ac4e;
+      --c-teal-bg: #122b28;   --c-teal-line: #2f5d55;   --c-teal-fg: #7fc4b6;
+      --c-rose-bg: #301a1e;   --c-rose-line: #63343c;   --c-rose-fg: #d98d98;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--text);
+    font-family: "Zen Kaku Gothic New", -apple-system, "Hiragino Kaku Gothic ProN", sans-serif; line-height: 1.6; }
+  .page { max-width: 900px; margin: 0 auto; padding: 24px 16px 56px; }
+  h1 { font-family: "Zen Old Mincho", serif; font-size: 20px; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+
+  /* 流れ：カレンダー → 習慣 → 中間目標 → 長期目標 */
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 22px; padding: 0; list-style: none; font-size: 12.5px; }
+  .flow li { background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; }
+  .flow li.new { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+  .flow .arr { border: 0; background: none; padding: 0; color: var(--muted); }
+
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; align-items: start; }
+  .col-title { font-size: 12px; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; font-weight: 700; }
+
+  /* 端末 */
+  .phone { max-width: 390px; border: 1px solid var(--line); border-radius: 20px; background: var(--paper); overflow: hidden; }
+  .appbar { padding: 14px 16px 6px; font-family: "Zen Old Mincho", serif; font-weight: 700; font-size: 17px; }
+  .main { padding: 4px 14px 16px; }
+  .sum { display: flex; align-items: baseline; gap: 8px; margin: 4px 2px 10px; font-size: 12.5px; color: var(--muted); }
+  .sum b { font-size: 20px; color: var(--text); font-variant-numeric: tabular-nums; }
+  .sum .bar { flex: 1; height: 6px; border-radius: 4px; background: var(--surface-2); overflow: hidden; align-self: center; }
+  .sum .bar i { display: block; height: 100%; width: 60%; background: var(--indigo); border-radius: 4px; }
+
+  .goal { margin-bottom: 14px; }
+  .goal h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px 2px; font-size: 12px; font-weight: 400; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 999px; flex: none; }
+  .goal h2 a { color: inherit; }
+  .goal h2 .more { margin-left: auto; font-size: 11.5px; }
+  ul.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+
+  .habit { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .top { display: flex; align-items: flex-start; gap: 10px; }
+  .tick { flex: none; width: 36px; height: 36px; border-radius: 999px; border: 1.5px solid var(--line); background: none; display: flex; align-items: center; justify-content: center; color: var(--surface); padding: 0; }
+  .tick svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  .tick.done { background: var(--indigo); border-color: var(--indigo); }
+  .tick.part { background: var(--c-amber-bg); border-color: var(--c-amber-line); color: var(--c-amber-fg); }
+  .name { flex: 1; min-width: 0; }
+  .name .t { font-size: 14.5px; line-height: 1.4; }
+  .name .m { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+  .stat { flex: none; text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; line-height: 1.35; }
+  .stat b { display: block; font-size: 15px; color: var(--text); }
+  .week { display: flex; gap: 4px; margin: 8px 0 0 46px; align-items: center; }
+  .week span { width: 18px; height: 18px; border-radius: 5px; background: var(--surface-2); font-size: 9.5px; color: var(--muted); display: flex; align-items: center; justify-content: center; }
+  .week span.d { background: var(--indigo); color: var(--surface); }
+  .week span.p { background: var(--c-amber-line); color: var(--surface); }
+  .week span.s { background: none; border: 1px dashed var(--line); }
+  .week span.today { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+  .link { margin: 8px 0 0 46px; font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .link em { font-style: normal; border: 1px solid var(--line); background: var(--paper); border-radius: 6px; padding: 0 6px; font-size: 10.5px; }
+  .add { width: 100%; min-height: 44px; border: 1px dashed var(--line); border-radius: 12px; background: none; color: var(--muted); font-size: 13px; font-family: inherit; }
+
+  /* 下タブ（5つ） */
+  .nav { display: flex; height: 58px; border-top: 1px solid var(--line); background: var(--paper); }
+  .nav a { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 10.5px; color: var(--muted); text-decoration: none; }
+  .nav a.on { color: var(--accent); font-weight: 700; }
+  .nav svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .nav a.on svg { stroke-width: 2; }
+  .nav a.new { position: relative; }
+
+  .notes { margin: 24px 0 0; padding: 14px 16px 14px 32px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; font-size: 12.5px; color: var(--muted); }
+  .notes li { margin: 3px 0; }
+  .notes strong { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>下タブに「習慣」を足す</h1>
+  <p class="lead">中間目標の左に習慣のタブを置き、長期目標につながる習慣をここでまとめて見る・直す形です。</p>
+
+  <ol class="flow" aria-label="タブの並びと意味">
+    <li>今日<span style="color:var(--muted)">（カレンダー）</span></li><li class="arr">→</li>
+    <li class="new">習慣</li><li class="arr">→</li>
+    <li>中間目標</li><li class="arr">→</li>
+    <li>目標<span style="color:var(--muted)">（長期）</span></li>
+  </ol>
+
+  <div class="cols">
+    <section>
+      <p class="col-title">習慣タブの画面</p>
+      <div class="phone">
+        <div class="appbar">習慣</div>
+        <div class="main">
+          <div class="sum"><b>3</b>/ 5 今日 <span class="bar"><i></i></span></div>
+
+          <div class="goal">
+            <h2><span class="dot" style="background:var(--c-amber-line)"></span><a>副業で月5万円を作る</a><span class="more">目標へ ›</span></h2>
+            <ul class="list">
+              <li class="habit">
+                <div class="top">
+                  <button class="tick done" aria-label="やったを取り消す"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+                  <div class="name"><div class="t">noteを30分書く</div><div class="m">毎日 7:00 ・ 自室の机 ・ コーヒーを淹れたら</div></div>
+                  <div class="stat"><b>12日</b>連続</div>
+                </div>
+                <div class="week" aria-label="直近7日"><span class="d">月</span><span class="d">火</span><span class="p">水</span><span class="d">木</span><span class="d">金</span><span class="d">土</span><span class="d today">日</span></div>
+                <div class="link">中間目標 <em>今週 書く 4.5 / 10時間</em></div>
+              </li>
+              <li class="habit">
+                <div class="top">
+                  <button class="tick" aria-label="やったにする"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+                  <div class="name"><div class="t">お金の記録をつける</div><div class="m">毎日 21:30 ・ 寝る前に</div></div>
+                  <div class="stat"><b>3日</b>連続</div>
+                </div>
+                <div class="week"><span class="s">月</span><span class="s">火</span><span class="s">水</span><span class="d">木</span><span class="d">金</span><span class="d">土</span><span class="today">日</span></div>
+              </li>
+            </ul>
+          </div>
+
+          <div class="goal">
+            <h2><span class="dot" style="background:var(--c-rose-line)"></span><a>卓球で県大会に出る</a><span class="more">目標へ ›</span></h2>
+            <ul class="list">
+              <li class="habit">
+                <div class="top">
+                  <button class="tick part" aria-label="最小版でやった"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button>
+                  <div class="name"><div class="t">素振り30回</div><div class="m">月水金 ・ 玄関 ・ 最小版：10回</div></div>
+                  <div class="stat"><b>87%</b>30日</div>
+                </div>
+                <div class="week"><span class="d">月</span><span class="s">火</span><span class="d">水</span><span class="s">木</span><span class="d">金</span><span class="s">土</span><span class="p today">日</span></div>
+                <div class="link">中間目標 <em>今週 練習 3 / 4回</em></div>
+              </li>
+              <li class="habit">
+                <div class="top">
+                  <button class="tick" aria-label="やったにする"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+                  <div class="name"><div class="t">ストレッチ</div><div class="m">週3回 ・ 曜日は決めない</div></div>
+                  <div class="stat"><b>1/3</b>今週</div>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <button class="add">＋ 習慣を足す</button>
+        </div>
+
+        <nav class="nav" aria-label="メインナビゲーション">
+          <a><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"/></svg>今日</a>
+          <a class="on new" aria-current="page"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5"/><path d="M20 4v4.5h-4.5"/><path d="M20 12a8 8 0 0 1-13.7 5.6L4 15.5"/><path d="M4 20v-4.5h4.5"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg>習慣</a>
+          <a><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></svg>中間目標</a>
+          <a><svg viewBox="0 0 24 24"><path d="M12 20.5V6"/><path d="M12 12.5c0-2.2 1.8-4 4-4h2.5"/><path d="M12 16.5c0-1.7-1.4-3-3-3H6.5"/><circle cx="12" cy="4.5" r="2"/></svg>目標</a>
+          <a><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/></svg>わたし</a>
+        </nav>
+      </div>
+    </section>
+
+    <section>
+      <p class="col-title">この形にした理由</p>
+      <ul class="notes" style="margin-top:0">
+        <li><strong>並びは左から右へ、小さい単位から大きい単位へ。</strong>左（毎日）ほど細かく、右ほど大きい。カレンダーの予定が習慣になり、習慣が中間目標を進め、長期目標へ届く。</li>
+        <li><strong>長期目標ごとにまとめる。</strong>「どの目標のための習慣か」が見出しで分かる。いまは目標の詳細画面に入らないと習慣を直せない。</li>
+        <li><strong>1行 = 1習慣。</strong>左の丸を押すと「やった」。薄い橙の丸は「最小版でやった」（途切れとは数えない）。</li>
+        <li><strong>7日のマス</strong>で続き具合が一目で分かる。破線は予定日ではない日、橙は最小版。</li>
+        <li><strong>中間目標との線</strong>を行の下に小さく出す。この習慣のやった回が、どの中間目標の数字を進めているか。</li>
+        <li>タブが5つになるので、ラベルは短くしている。</li>
+      </ul>
+    </section>
+  </div>
+</div>
+</body>
+</html>

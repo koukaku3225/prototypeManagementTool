@@ -18,6 +18,8 @@ import { usePathname } from "next/navigation";
 const NAV = [
   // 「今日」の既定は時間割。タスクリスト（/list）は時間割から切り替える
   { href: "/plan", label: "今日", icon: TodayIcon },
+  // 並びは「今日 → 習慣 → 中間目標 → 目標」。毎日の細かい単位から長期目標へ積み上がる順
+  { href: "/habits", label: "習慣", icon: HabitIcon },
   // 目標と今日の予定の間。目標を今週の測れる目安に分ける（2026-09-17）
   { href: "/checkpoints", label: "中間目標", icon: CheckpointIcon },
   { href: "/goals", label: "目標", icon: GoalIcon },
@@ -88,6 +90,19 @@ function TodayIcon({ active }: { active: boolean }) {
       <path d="M3.5 9.5h17" stroke="currentColor" strokeWidth={stroke(active)} />
       <path d="M8 3.5v3M16 3.5v3" stroke="currentColor" strokeWidth={stroke(active)} strokeLinecap="round" />
       {active && <circle cx="12" cy="14.5" r="2.2" fill="currentColor" />}
+    </svg>
+  );
+}
+
+function HabitIcon({ active }: { active: boolean }) {
+  // くり返しの矢印にチェック。毎日回るもの
+  return (
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5" stroke="currentColor" strokeWidth={stroke(active)} strokeLinecap="round" />
+      <path d="M20 4v4.5h-4.5" stroke="currentColor" strokeWidth={stroke(active)} strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20 12a8 8 0 0 1-13.7 5.6L4 15.5" stroke="currentColor" strokeWidth={stroke(active)} strokeLinecap="round" />
+      <path d="M4 20v-4.5h4.5" stroke="currentColor" strokeWidth={stroke(active)} strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9.5 12.2l1.8 1.8 3.4-3.6" stroke="currentColor" strokeWidth={stroke(active)} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

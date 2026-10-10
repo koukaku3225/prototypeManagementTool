@@ -675,12 +675,24 @@ t("clearHabitLogFromBox は、時刻が違う記録には触れない（手で�
   assert.equal(S.loadHabitLogs().length, 1);
 });
 
-t("clearHabitLogFromBox は、done 以外（skipped/partial/missed）には触れない", () => {
-  for (const state of ["skipped", "partial", "missed"]) {
+t("clearHabitLogFromBox は、skipped/missed には触れない（枠が付けたものではない）", () => {
+  for (const state of ["skipped", "missed"]) {
     reset({ "gc.habitlogs": JSON.stringify([hlog({ state })]) });
     S.clearHabitLogFromBox("h1", "2026-09-10", "2026-09-10T06:05:00.000Z");
     assert.equal(S.loadHabitLogs().length, 1, `${state} が消えた`);
   }
+});
+
+t("clearHabitLogFromBox は、習慣タブが枠と同じ時刻で付けた partial（最小版）も取り消す", () => {
+  reset({ "gc.habitlogs": JSON.stringify([hlog({ state: "partial" })]) });
+  S.clearHabitLogFromBox("h1", "2026-09-10", "2026-09-10T06:05:00.000Z");
+  assert.deepEqual(S.loadHabitLogs(), []);
+});
+
+t("clearHabitLogFromBox は、時刻が違う partial には触れない", () => {
+  reset({ "gc.habitlogs": JSON.stringify([hlog({ state: "partial", at: "2026-09-10T21:00:00.000Z" })]) });
+  S.clearHabitLogFromBox("h1", "2026-09-10", "2026-09-10T06:05:00.000Z");
+  assert.equal(S.loadHabitLogs().length, 1);
 });
 
 t("clearHabitLogFromBox は、記録が無くても落ちない", () => {

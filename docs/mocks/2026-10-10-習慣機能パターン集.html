@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>習慣機能パターン集 モック</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Zen+Old+Mincho:wght@700&display=swap">
+<style>
+  /* アプリ本体（src/app/globals.css）と同じ色 */
+  :root {
+    --paper: #f2f5f9; --surface: #ffffff; --surface-2: #e7edf5;
+    --text: #151e36; --muted: #57657f; --line: #cfd9e7; --line-soft: #e2e9f2;
+    --indigo: #2e4a7d; --indigo-soft: #dde6f4; --accent: #a66a0b; --accent-soft: #f6ebd6; --accent-line: #d9a94a;
+    --c-amber-bg: #f6ebd6;  --c-amber-line: #d9a94a;  --c-amber-fg: #7d5008;
+    --c-teal-bg: #d8ece8;   --c-teal-line: #8ec3ba;   --c-teal-fg: #1f5a51;
+    --c-rose-bg: #f5dfe1;   --c-rose-line: #d79aa2;   --c-rose-fg: #7d2733;
+    --c-violet-bg: #e6e0f2; --c-violet-line: #b3a3d4; --c-violet-fg: #45327a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0e1524; --surface: #161f33; --surface-2: #1d2841;
+      --text: #e2e8f4; --muted: #94a3be; --line: #2c3852; --line-soft: #232e45;
+      --indigo: #93acdb; --indigo-soft: #1c2942; --accent: #e2ac4e; --accent-soft: #2e2411; --accent-line: #7a5e24;
+      --c-amber-bg: #33280f;  --c-amber-line: #7a5e24;  --c-amber-fg: #e2ac4e;
+      --c-teal-bg: #122b28;   --c-teal-line: #2f5d55;   --c-teal-fg: #7fc4b6;
+      --c-rose-bg: #301a1e;   --c-rose-line: #63343c;   --c-rose-fg: #d98d98;
+      --c-violet-bg: #241f38; --c-violet-line: #4a3f73; --c-violet-fg: #b0a0dd;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--text);
+    font-family: "Zen Kaku Gothic New", -apple-system, "Hiragino Kaku Gothic ProN", sans-serif; line-height: 1.6; }
+  button { font-family: inherit; color: inherit; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .page { max-width: 1180px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-family: "Zen Old Mincho", serif; font-size: 22px; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  .jump { position: sticky; top: 0; z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 0; background: color-mix(in srgb, var(--paper) 92%, transparent); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line-soft); margin-bottom: 8px; }
+  .jump a { font-size: 12.5px; text-decoration: none; color: var(--muted); border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 2px 12px; }
+  .jump a:hover { color: var(--text); border-color: var(--accent-line); }
+  h2.stage-t { font-family: "Zen Old Mincho", serif; font-size: 17px; margin: 34px 0 2px; }
+  .stage-d { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 26px 22px; align-items: start; }
+  figure.shot { margin: 0; }
+  figcaption { margin: 0 0 8px; font-size: 12.5px; color: var(--muted); }
+  figcaption b { display: block; color: var(--text); font-size: 14px; }
+  figcaption i { font-style: normal; font-family: ui-monospace, monospace; font-size: 10.5px; background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 0 6px; margin-right: 6px; }
+
+  /* 端末 */
+  .phone { position: relative; max-width: 390px; border: 1px solid var(--line); border-radius: 20px; background: var(--paper); overflow: hidden; }
+  .appbar { display: flex; align-items: center; gap: 8px; padding: 13px 16px 6px; font-family: "Zen Old Mincho", serif; font-weight: 700; font-size: 16px; }
+  .appbar small { margin-left: auto; font-family: inherit; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+  .main { padding: 4px 14px 16px; }
+  .sec { margin: 12px 2px 6px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 999px; flex: none; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .stack { display: flex; flex-direction: column; gap: 8px; }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .grow { flex: 1; min-width: 0; }
+  .t { font-size: 14.5px; line-height: 1.4; }
+  .m { font-size: 11.5px; color: var(--muted); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .tick { flex: none; width: 36px; height: 36px; border-radius: 999px; border: 1.5px solid var(--line); background: none; display: flex; align-items: center; justify-content: center; color: transparent; padding: 0; transition: background .15s; }
+  .tick svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  .tick.on { background: var(--indigo); border-color: var(--indigo); color: var(--surface); }
+  .tick.part { background: var(--c-amber-bg); border-color: var(--c-amber-line); color: var(--c-amber-fg); }
+  .week { display: flex; gap: 4px; align-items: center; }
+  .week span { width: 18px; height: 18px; border-radius: 5px; background: var(--surface-2); }
+  .week span.d { background: var(--indigo); }
+  .week span.p { background: var(--c-amber-line); }
+  .week span.m { background: var(--c-rose-line); opacity: .75; }
+  .week span.s { background: none; border: 1px dashed var(--line); }
+  .week span.n { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+
+  .btn { min-height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); padding: 0 14px; font-size: 14px; }
+  .btn.pri { background: var(--indigo); border-color: var(--indigo); color: var(--surface); font-weight: 700; }
+  .btn.amb { background: var(--c-amber-bg); border-color: var(--c-amber-line); color: var(--c-amber-fg); font-weight: 700; }
+  .btn.sm { min-height: 34px; font-size: 12.5px; padding: 0 10px; border-radius: 9px; }
+  .btn.block { width: 100%; }
+  .btns { display: flex; gap: 8px; }
+  .btns .btn { flex: 1; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: 13px; min-height: 34px; }
+  .chip.on { background: var(--indigo-soft); border-color: var(--indigo); color: var(--indigo); font-weight: 700; }
+  .tag { display: inline-block; font-size: 10.5px; border-radius: 6px; padding: 0 6px; background: var(--surface-2); color: var(--muted); }
+  .tag.ok { background: var(--c-teal-bg); color: var(--c-teal-fg); }
+  .tag.warn { background: var(--c-amber-bg); color: var(--c-amber-fg); }
+  .note { border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.6; }
+  .note.amb { background: var(--c-amber-bg); border: 1px solid var(--c-amber-line); color: var(--c-amber-fg); }
+  .note.tea { background: var(--c-teal-bg); border: 1px solid var(--c-teal-line); color: var(--c-teal-fg); }
+  .note.ind { background: var(--indigo-soft); border: 1px solid var(--line); color: var(--text); }
+  .field { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 10px; font-size: 14px; min-height: 40px; }
+  .field.ph { color: var(--muted); }
+  .lbl { font-size: 11.5px; color: var(--muted); margin: 10px 2px 3px; display: block; }
+  .bar { height: 6px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 4px; background: var(--indigo); }
+  .seg { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .seg button { min-height: 38px; border: 1px solid var(--line); background: var(--surface); border-radius: 9px; font-size: 12px; }
+  .seg button.on { background: var(--indigo); border-color: var(--indigo); color: var(--surface); font-weight: 700; }
+
+  .toast { position: absolute; left: 14px; right: 14px; bottom: 14px; background: var(--indigo); color: var(--surface); border-radius: 14px; padding: 10px 14px; font-size: 13.5px; opacity: 0; transform: translateY(8px); transition: .22s; pointer-events: none; }
+  .toast.show { opacity: 1; transform: none; }
+  .toast b { display: block; font-size: 15px; }
+
+  .nav { display: flex; height: 54px; border-top: 1px solid var(--line); background: var(--paper); }
+  .nav span { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10.5px; color: var(--muted); }
+  .nav span.on { color: var(--accent); font-weight: 700; }
+
+  /* 月の見開き */
+  .mgrid { display: grid; grid-template-columns: 44px repeat(13, 1fr); gap: 3px; align-items: center; font-size: 10px; color: var(--muted); }
+  .mgrid > span { white-space: nowrap; overflow: hidden; }
+  .mgrid .c { aspect-ratio: 1; border-radius: 4px; background: var(--surface-2); }
+  .mgrid .c.d { background: var(--indigo); } .mgrid .c.p { background: var(--c-amber-line); } .mgrid .c.s { background: none; border: 1px dashed var(--line); } .mgrid .c.m { background: var(--c-rose-line); opacity: .7; }
+  /* ツリー */
+  .tree { margin: 0; padding: 0 0 0 12px; list-style: none; border-left: 2px solid var(--line); }
+  .tree li { position: relative; margin: 8px 0; padding-left: 12px; }
+  .tree li::before { content: ""; position: absolute; left: -14px; top: 18px; width: 12px; border-top: 2px solid var(--line); }
+  .tree .goal { font-weight: 700; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>習慣機能 パターン集</h1>
+  <p class="lead">「使うときの場面」ごとに、見た目と流れを並べました。ボタン・チップ・丸は押せます（保存はされません）。</p>
+
+  <nav class="jump" aria-label="段階へ移動">
+    <a href="#tab">0 習慣タブの並べ方</a><a href="#design">1 設計</a><a href="#daily">2 実行</a><a href="#lapse">3 失敗と復帰</a><a href="#track">4 記録</a><a href="#review">5 見直し・定着</a><a href="#link">6 中間目標とのつなぎ</a>
+  </nav>
+
+  <!-- ======================= 0. タブの並べ方 ======================= -->
+  <h2 class="stage-t" id="tab">0　習慣タブの並べ方（3パターン）</h2>
+  <p class="stage-d">同じ習慣を、何を軸に並べるか。毎日開く画面なので、一番迷う部分です。</p>
+  <div class="grid">
+
+    <figure class="shot">
+      <figcaption><b><i>P1</i>長期目標ごと</b>「何のためにやっているか」が見出しで分かる。目標を意識したい人向け。</figcaption>
+      <div class="phone">
+        <div class="appbar">習慣<small>今日 3 / 5</small></div>
+        <div class="main">
+          <div class="sec"><span class="dot" style="background:var(--c-amber-line)"></span>副業で月5万円を作る</div>
+          <div class="stack">
+            <div class="card"><div class="row"><button class="tick on" data-tick><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button><div class="grow"><div class="t">noteを30分書く</div><div class="m">毎日 7:00 ・ 机</div></div><span class="m num">12日連続</span></div></div>
+            <div class="card"><div class="row"><button class="tick" data-tick><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button><div class="grow"><div class="t">お金の記録をつける</div><div class="m">毎日 21:30</div></div><span class="m num">3日連続</span></div></div>
+          </div>
+          <div class="sec"><span class="dot" style="background:var(--c-rose-line)"></span>卓球で県大会に出る</div>
+          <div class="stack">
+            <div class="card"><div class="row"><button class="tick part" data-tick><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button><div class="grow"><div class="t">素振り30回</div><div class="m">月水金 ・ 最小版：10回</div></div><span class="m num">87%</span></div></div>
+          </div>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>P2</i>1日の流れ（時間帯）</b>朝・昼・夜に分ける。「いつやるか」で迷わない。きっかけ（〜したら）も並べて見える。</figcaption>
+      <div class="phone">
+        <div class="appbar">習慣<small>10/10（土）</small></div>
+        <div class="main">
+          <div class="sec">朝</div>
+          <div class="card"><div class="row"><button class="tick on" data-tick><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button><div class="grow"><div class="t">noteを30分書く</div><div class="m">7:00 ・ コーヒーを淹れたら</div></div></div></div>
+          <div class="sec">昼</div>
+          <div class="card"><div class="row"><button class="tick" data-tick><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button><div class="grow"><div class="t">素振り30回</div><div class="m">12:30 ・ 昼ごはんのあと</div></div><span class="tag warn">いま</span></div></div>
+          <div class="sec">夜</div>
+          <div class="stack">
+            <div class="card"><div class="row"><button class="tick" data-tick><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button><div class="grow"><div class="t">お金の記録をつける</div><div class="m">21:30 ・ 歯を磨いたら</div></div></div></div>
+            <div class="card"><div class="row"><button class="tick" data-tick><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button><div class="grow"><div class="t">ストレッチ</div><div class="m">時刻なし ・ 今週あと2回</div></div></div></div>
+          </div>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>P3</i>残りだけ大きく</b>やっていないものだけを大きく出し、終わったものは畳む。1日1回、サッと終わらせたい人向け。</figcaption>
+      <div class="phone">
+        <div class="appbar">習慣<small>残り 2</small></div>
+        <div class="main">
+          <div class="stack">
+            <div class="card" style="padding:14px"><div class="t" style="font-size:16px">素振り30回</div><div class="m">昼ごはんのあと ・ 玄関</div><div class="btns" style="margin-top:10px"><button class="btn amb" data-pick-one>最小版（10回）</button><button class="btn pri" data-pick-one>やった</button></div></div>
+            <div class="card" style="padding:14px"><div class="t" style="font-size:16px">お金の記録をつける</div><div class="m">歯を磨いたら ・ 21:30</div><div class="btns" style="margin-top:10px"><button class="btn amb" data-pick-one>最小版（1行）</button><button class="btn pri" data-pick-one>やった</button></div></div>
+          </div>
+          <div class="sec">今日できた（3）</div>
+          <div class="card"><div class="m">noteを30分書く ・ ストレッチ ・ 朝の散歩</div></div>
+        </div>
+      </div>
+    </figure>
+  </div>
+
+  <!-- ======================= 1. 設計 ======================= -->
+  <h2 class="stage-t" id="design">1　設計（習慣をつくるとき）</h2>
+  <p class="stage-d">作る瞬間に「続く形」へ整える。D1〜D5。</p>
+  <div class="grid">
+
+    <figure class="shot">
+      <figcaption><b><i>D1・D2・D4</i>習慣の型＋2分チェック＋摩擦の診断</b>「〜したあとに／〜する／そのあと祝う」で作る。長すぎる最小版は、その場で小さくするよう促す。</figcaption>
+      <div class="phone">
+        <div class="appbar">習慣をつくる</div>
+        <div class="main">
+          <span class="lbl">① きっかけ（〜したあとに）</span><div class="field">コーヒーを淹れたあとに</div>
+          <span class="lbl">② 最小の行動（〜する）</span><div class="field">机に座って、1行だけ書く</div>
+          <div class="note tea" style="margin-top:6px">2分以内に終わる大きさです。</div>
+          <span class="lbl">③ そのあとの祝い（自分を褒める）</span>
+          <div class="chips" data-single><button class="chip on" data-pick>「よし」と言う</button><button class="chip" data-pick>ガッツポーズ</button><button class="chip" data-pick>好きな飲み物</button></div>
+          <span class="lbl">始めるまでの手順は？</span>
+          <div class="seg" data-single><button data-pick>0</button><button class="on" data-pick>1</button><button data-pick>2</button><button data-pick>3</button><button data-pick>4+</button></div>
+          <div class="note ind" style="margin-top:8px">手順は<b>少ないほど続きます</b>。ノートPCを机に出しっぱなしにすると、手順が1つ減ります。</div>
+          <button class="btn pri block" style="margin-top:12px">この形で作る</button>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>D2</i>最小版が大きすぎるとき</b>「30分書く」を最小にしようとしたときの案内。小さくするほうが続く、という研究の事実を添える。</figcaption>
+      <div class="phone">
+        <div class="appbar">最小版を決める</div>
+        <div class="main">
+          <div class="card"><div class="m">本番</div><div class="t">noteを30分書く</div></div>
+          <span class="lbl">最小版</span><div class="field">20分だけ書く</div>
+          <div class="note amb" style="margin-top:8px"><b>20分は、疲れた日には重いかもしれません。</b><br>2分で終わる形だと、やる気のない日でも始められます。</div>
+          <div class="stack" style="margin-top:10px">
+            <button class="btn block" data-pick-one>「1行だけ書く」にする</button>
+            <button class="btn block" data-pick-one>「タイトルだけ決める」にする</button>
+            <button class="btn block" data-pick-one>このまま（20分）</button>
+          </div>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>D5・D3</i>誘惑バンドルと自己像</b>「好きなこと」と組にする。「私は〇〇な人」を置くと、やるたびに票が入る。</figcaption>
+      <div class="phone">
+        <div class="appbar">習慣のしかけ</div>
+        <div class="main">
+          <div class="card">
+            <div class="m">この習慣のときだけ楽しむもの</div>
+            <div class="field" style="margin-top:6px">好きなポッドキャスト（素振りのあいだだけ）</div>
+          </div>
+          <div class="card" style="margin-top:8px">
+            <div class="m">なりたい自分</div>
+            <div class="field" style="margin-top:6px">毎日少しでも手を動かす人</div>
+            <div class="row" style="margin-top:10px"><div class="grow m">これまでの「票」</div><b class="num" style="font-size:20px">34</b></div>
+            <div class="bar" style="margin-top:6px"><i style="width:34%"></i></div>
+          </div>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>D6</i>区切りで始める</b>週のはじめ・月のはじめに、新しい習慣を始めやすい日だと知らせる。</figcaption>
+      <div class="phone">
+        <div class="appbar">習慣</div>
+        <div class="main">
+          <div class="note amb">
+            <b>明日から10月の後半です。</b><br>
+            区切りの日は、新しく始めるのに向いています（続けるのは別の力が要ります）。
+            <div class="btns" style="margin-top:8px"><button class="btn sm">あとで</button><button class="btn sm pri">新しく1つ始める</button></div>
+          </div>
+        </div>
+      </div>
+    </figure>
+  </div>
+
+  <!-- ======================= 2. 実行 ======================= -->
+  <h2 class="stage-t" id="daily">2　実行（毎日）</h2>
+  <p class="stage-d">押した瞬間・朝・夜の使い方。E1〜E4。</p>
+  <div class="grid">
+
+    <figure class="shot">
+      <figcaption><b><i>E2</i>押した瞬間のお祝い</b>丸を押してみてください。手間を足さず、一瞬だけ祝う。</figcaption>
+      <div class="phone" style="min-height:260px">
+        <div class="appbar">習慣</div>
+        <div class="main">
+          <div class="card"><div class="row"><button class="tick" data-tick data-toast="やった！|12日連続。コーヒーのあとに書けましたね"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button><div class="grow"><div class="t">noteを30分書く</div><div class="m">毎日 7:00 ・ コーヒーを淹れたら</div></div></div></div>
+          <div class="card" style="margin-top:8px"><div class="row"><button class="tick" data-tick data-toast="最小版でもOK|途切れとは数えません。今日は十分です"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button><div class="grow"><div class="t">素振り30回</div><div class="m">最小版：10回 ・ 長押しで最小版</div></div></div></div>
+        </div>
+        <div class="toast" data-toastbox><b></b><span></span></div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>E1</i>朝の1つ決め</b>「今日これだけは」を1つ選ぶ。ほかは余裕があればでいい。</figcaption>
+      <div class="phone">
+        <div class="appbar">今日これだけは<small>7:12</small></div>
+        <div class="main">
+          <div class="note ind">今日の5つのうち、<b>1つだけ</b>選んでください。</div>
+          <div class="stack" style="margin-top:10px" data-single>
+            <button class="card" style="text-align:left" data-pick-one><div class="t">noteを30分書く</div><div class="m">副業 ・ 12日連続</div></button>
+            <button class="card" style="text-align:left;border-color:var(--indigo);background:var(--indigo-soft)" data-pick-one><div class="t">素振り30回</div><div class="m">卓球 ・ 今週あと1回で目安</div></button>
+            <button class="card" style="text-align:left" data-pick-one><div class="t">お金の記録をつける</div><div class="m">副業 ・ 3日連続</div></button>
+          </div>
+          <div class="m" style="margin:10px 2px">いつ・どこで：<b>12:30・玄関</b>（変えられます）</div>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>E4</i>今日のログ（1行で足す）</b>習慣の記録・枠の完了・思いつきが、同じ時系列に流れる。</figcaption>
+      <div class="phone">
+        <div class="appbar">今日のログ<small>10/10</small></div>
+        <div class="main">
+          <div class="stack">
+            <div class="card"><div class="row"><span class="m num">7:08</span><span>✓</span><div class="grow t">noteを30分書く</div></div></div>
+            <div class="card"><div class="row"><span class="m num">9:40</span><span>–</span><div class="grow t">価格の相談はDMより電話が早い</div></div></div>
+            <div class="card"><div class="row"><span class="m num">12:35</span><span>◐</span><div class="grow t">素振り10回（最小版）</div></div></div>
+            <div class="card"><div class="row"><span class="m num">15:00</span><span>○</span><div class="grow t">ここでき、で副業（枠が完了）</div></div></div>
+          </div>
+          <div class="row" style="margin-top:10px"><div class="field ph grow">いま思ったことを1行で…</div><button class="btn pri sm">足す</button></div>
+          <div class="m" style="margin:8px 2px">✓やった ◐最小版 ○枠 –メモ</div>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>E3</i>きっかけの通知</b>時刻ではなく「きっかけ」を添える。通知が責める言い方にならない。</figcaption>
+      <div class="phone">
+        <div class="appbar">通知の見え方</div>
+        <div class="main">
+          <div class="card" style="border-radius:16px"><div class="m">目標設定コーチ ・ 7:00</div><div class="t" style="margin-top:2px"><b>コーヒーを淹れたら、1行だけ書く</b></div><div class="m">最小版でOK。今日で13日目です。</div></div>
+          <div class="card" style="border-radius:16px;margin-top:8px"><div class="m">目標設定コーチ ・ 12:30</div><div class="t" style="margin-top:2px"><b>昼ごはんのあと、素振りを10回</b></div><div class="m">玄関に出ます。</div></div>
+          <div class="note ind" style="margin-top:10px">通知の頻度は習慣ごとに「毎日／きっかけの時刻だけ／出さない」から選べる想定です。</div>
+        </div>
+      </div>
+    </figure>
+  </div>
+
+  <!-- ======================= 3. 失敗と復帰 ======================= -->
+  <h2 class="stage-t" id="lapse">3　失敗と復帰</h2>
+  <p class="stage-d">一番「続く／やめる」が分かれる場面。F1〜F4。</p>
+  <div class="grid">
+
+    <figure class="shot">
+      <figcaption><b><i>F1・F2</i>休んだ翌日</b>責めず、事実を伝えて、今日は小さくていいと促す。</figcaption>
+      <div class="phone">
+        <div class="appbar">習慣<small>10/11（日）</small></div>
+        <div class="main">
+          <div class="note tea"><b>昨日は休みでした。</b><br>1〜2回の抜けは、習慣の形成にほとんど影響しないと分かっています。今日できれば、続いています。</div>
+          <div class="card" style="margin-top:10px;padding:14px">
+            <div class="t" style="font-size:16px">noteを30分書く</div><div class="m">今日は最小版でも十分です</div>
+            <div class="btns" style="margin-top:10px"><button class="btn amb" data-pick-one>1行だけ書く</button><button class="btn" data-pick-one>いつも通り</button></div>
+          </div>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>F3</i>つまずきログ</b>「できなかった」を押したときだけ、原因を1タップで。溜まると傾向が見える。</figcaption>
+      <div class="phone">
+        <div class="appbar">できなかった</div>
+        <div class="main">
+          <div class="card"><div class="t">素振り30回</div><div class="m">10/10（土）</div></div>
+          <span class="lbl">いちばん近いのは？（1つ）</span>
+          <div class="chips" data-single>
+            <button class="chip" data-pick>疲れていた</button><button class="chip on" data-pick>時間がなかった</button><button class="chip" data-pick>忘れた</button>
+            <button class="chip" data-pick>気分が乗らない</button><button class="chip" data-pick>予定が入った</button><button class="chip" data-pick>体調</button><button class="chip" data-pick>その他</button>
+          </div>
+          <span class="lbl">ひとこと（任意）</span><div class="field ph">空欄でOK</div>
+          <button class="btn pri block" style="margin-top:12px">記録する</button>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>F3 → V</i>つまずきの傾向</b>2週間ぶんが溜まったときに見える画面。原因が分かれば、直し方が決まる。</figcaption>
+      <div class="phone">
+        <div class="appbar">素振り30回の傾向</div>
+        <div class="main">
+          <div class="card">
+            <div class="m">できなかった5回の原因</div>
+            <div class="stack" style="margin-top:8px;gap:6px">
+              <div class="row"><span class="m" style="width:84px">時間がない</span><div class="bar grow"><i style="width:80%"></i></div><b class="num">4</b></div>
+              <div class="row"><span class="m" style="width:84px">疲れ</span><div class="bar grow"><i style="width:20%"></i></div><b class="num">1</b></div>
+            </div>
+          </div>
+          <div class="note amb" style="margin-top:10px"><b>「昼ごはんのあと」に落ちています。</b><br>時間帯を変える／最小版にする、のどちらかを試しませんか。</div>
+          <div class="btns" style="margin-top:8px"><button class="btn sm">時間帯を変える</button><button class="btn sm">最小版にする</button></div>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>F4</i>3日止まったとき</b>理由を聞かずに、選べる3択を出す。</figcaption>
+      <div class="phone">
+        <div class="appbar">習慣</div>
+        <div class="main">
+          <div class="note ind"><b>素振り30回が3日止まっています。</b><br>どれにしますか。</div>
+          <div class="stack" style="margin-top:10px">
+            <button class="btn block" style="text-align:left;padding:10px 14px;height:auto" data-pick-one><b>時間帯を変える</b><br><span class="m">いまは昼ごはんのあと</span></button>
+            <button class="btn block" style="text-align:left;padding:10px 14px;height:auto" data-pick-one><b>もっと小さくする</b><br><span class="m">10回 → 3回</span></button>
+            <button class="btn block" style="text-align:left;padding:10px 14px;height:auto" data-pick-one><b>しばらく休む</b><br><span class="m">畳んで残す。いつでも戻せます</span></button>
+          </div>
+        </div>
+      </div>
+    </figure>
+  </div>
+
+  <!-- ======================= 4. 記録 ======================= -->
+  <h2 class="stage-t" id="track">4　記録と見える化</h2>
+  <p class="stage-d">続いているかを、責められずに見る。R1〜R3。</p>
+  <div class="grid">
+
+    <figure class="shot">
+      <figcaption><b><i>R2</i>月の見開き</b>バレットジャーナルの習慣トラッカーのように、1か月を1枚で。</figcaption>
+      <div class="phone">
+        <div class="appbar">10月<small>前の月 ‹ ›</small></div>
+        <div class="main">
+          <div class="card">
+            <div class="mgrid">
+              <span></span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span>
+              <span>note</span><i class="c d"></i><i class="c d"></i><i class="c d"></i><i class="c p"></i><i class="c d"></i><i class="c d"></i><i class="c d"></i><i class="c m"></i><i class="c d"></i><i class="c d"></i><i class="c"></i><i class="c"></i><i class="c"></i>
+              <span>素振り</span><i class="c d"></i><i class="c s"></i><i class="c d"></i><i class="c s"></i><i class="c p"></i><i class="c s"></i><i class="c d"></i><i class="c s"></i><i class="c m"></i><i class="c m"></i><i class="c"></i><i class="c"></i><i class="c"></i>
+              <span>お金</span><i class="c"></i><i class="c"></i><i class="c"></i><i class="c d"></i><i class="c d"></i><i class="c d"></i><i class="c m"></i><i class="c d"></i><i class="c d"></i><i class="c d"></i><i class="c"></i><i class="c"></i><i class="c"></i>
+            </div>
+            <div class="row" style="margin-top:10px;gap:12px"><span class="m"><span class="tag" style="background:var(--indigo)">　</span> やった</span><span class="m"><span class="tag" style="background:var(--c-amber-line)">　</span> 最小版</span><span class="m"><span class="tag" style="background:var(--c-rose-line)">　</span> できず</span></div>
+          </div>
+          <div class="field ph" style="margin-top:8px">今月のひとこと（任意）</div>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>R1</i>連続日数より「習慣スコア」</b>1日休んでもゼロに戻らない。スコアは緩やかに動く。</figcaption>
+      <div class="phone">
+        <div class="appbar">noteを30分書く</div>
+        <div class="main">
+          <div class="card" style="text-align:center;padding:16px">
+            <div class="m">習慣スコア</div>
+            <div class="num" style="font-size:40px;font-weight:700;line-height:1.2">82</div>
+            <div class="bar" style="margin:8px 12px"><i style="width:82%"></i></div>
+            <div class="m">昨日は 84 → 休んだので 82（−2）</div>
+          </div>
+          <div class="card" style="margin-top:8px">
+            <div class="row"><div class="grow"><div class="m">連続</div><b class="num">0日</b></div><div class="grow"><div class="m">直近30日</div><b class="num">26日</b></div><div class="grow"><div class="m">最長</div><b class="num">19日</b></div></div>
+          </div>
+          <div class="note ind" style="margin-top:8px">連続は途切れても、スコアは積み上げを覚えています。</div>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>R3</i>習慣スコアカード（1回きりの診断）</b>1日の行動を全部書き出し、＋／−／＝で印を付ける。気づくための道具。</figcaption>
+      <div class="phone">
+        <div class="appbar">1日の行動を書き出す</div>
+        <div class="main">
+          <div class="stack" style="gap:6px">
+            <div class="card"><div class="row"><div class="grow t">起きてすぐスマホを見る</div><div class="chips" data-single style="flex:none"><button class="chip" data-pick>＋</button><button class="chip on" data-pick>−</button><button class="chip" data-pick>＝</button></div></div></div>
+            <div class="card"><div class="row"><div class="grow t">コーヒーを淹れる</div><div class="chips" data-single style="flex:none"><button class="chip on" data-pick>＋</button><button class="chip" data-pick>−</button><button class="chip" data-pick>＝</button></div></div></div>
+            <div class="card"><div class="row"><div class="grow t">歯を磨く</div><div class="chips" data-single style="flex:none"><button class="chip" data-pick>＋</button><button class="chip" data-pick>−</button><button class="chip on" data-pick>＝</button></div></div></div>
+          </div>
+          <div class="note amb" style="margin-top:10px">「コーヒーを淹れる」は＋です。新しい習慣のきっかけにできます。</div>
+        </div>
+      </div>
+    </figure>
+  </div>
+
+  <!-- ======================= 5. 見直し・定着 ======================= -->
+  <h2 class="stage-t" id="review">5　見直しと定着</h2>
+  <p class="stage-d">週末・夜・2か月ごとに立ち止まる場面。V1〜V5。</p>
+  <div class="grid">
+
+    <figure class="shot">
+      <figcaption><b><i>V1</i>週末の持ち越し会議</b>できなかった習慣を1件ずつ、4つのどれかに決める。決めないものは残す。</figcaption>
+      <div class="phone">
+        <div class="appbar">今週の持ち越し<small>2件</small></div>
+        <div class="main">
+          <div class="card">
+            <div class="t">素振り30回</div><div class="m">今週 1/3回。「時間がない」が4回</div>
+            <div class="chips" data-single style="margin-top:8px"><button class="chip" data-pick>続ける</button><button class="chip on" data-pick>小さくする</button><button class="chip" data-pick>時間を変える</button><button class="chip" data-pick>やめる</button></div>
+          </div>
+          <div class="card" style="margin-top:8px">
+            <div class="t">ストレッチ</div><div class="m">今週 2/3回。あと1回で目安</div>
+            <div class="chips" data-single style="margin-top:8px"><button class="chip on" data-pick>続ける</button><button class="chip" data-pick>小さくする</button><button class="chip" data-pick>時間を変える</button><button class="chip" data-pick>やめる</button></div>
+          </div>
+          <button class="btn pri block" style="margin-top:12px">決めた</button>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>V2</i>週のふりかえり</b>1週間を一覧にして、次の1つを決める。「前回の自分から」の一言つき。</figcaption>
+      <div class="phone">
+        <div class="appbar">10/4〜10/10</div>
+        <div class="main">
+          <div class="note tea"><b>前回の自分から</b><br>「昼ごはんのあとは眠いから、素振りは朝にしてみる」</div>
+          <div class="card" style="margin-top:8px">
+            <div class="row"><div class="grow"><div class="m">習慣</div><b class="num">18 / 24回</b></div><div class="grow"><div class="m">最小版</div><b class="num">3回</b></div><div class="grow"><div class="m">できばえ平均</div><b class="num">72</b></div></div>
+          </div>
+          <span class="lbl">うまくいったこと</span><div class="field">朝のnoteが12日続いた</div>
+          <span class="lbl">来週の自分へ</span><div class="field ph">一言（任意）</div>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>V3・V4</i>定着の判定と卒業</b>約2か月で3問だけ聞く。選ぶと結果が出る。</figcaption>
+      <div class="phone">
+        <div class="appbar">noteを30分書く<small>63日目</small></div>
+        <div class="main" id="srhi">
+          <div class="m" style="margin:2px">この30日間、当てはまりますか？</div>
+          <div class="card" style="margin-top:6px"><div class="t">考えなくても、やっている</div><div class="seg" style="margin-top:6px"><button data-pick data-s="1">全く</button><button data-pick data-s="2">あまり</button><button data-pick data-s="3">どちらも</button><button data-pick data-s="4">やや</button><button data-pick data-s="5">強く</button></div></div>
+          <div class="card" style="margin-top:8px"><div class="t">やらないと、落ち着かない</div><div class="seg" style="margin-top:6px"><button data-pick data-s="1">全く</button><button data-pick data-s="2">あまり</button><button data-pick data-s="3">どちらも</button><button data-pick data-s="4">やや</button><button data-pick data-s="5">強く</button></div></div>
+          <div class="card" style="margin-top:8px"><div class="t">自分らしいと感じる</div><div class="seg" style="margin-top:6px"><button data-pick data-s="1">全く</button><button data-pick data-s="2">あまり</button><button data-pick data-s="3">どちらも</button><button data-pick data-s="4">やや</button><button data-pick data-s="5">強く</button></div></div>
+          <div class="note ind" id="srhi-out" style="margin-top:10px">3つに答えると結果が出ます。</div>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>V5</i>夜の3行</b>今日の勝ち・つまずき・明日の1歩。枠ごとの振り返りの「1日版」。</figcaption>
+      <div class="phone">
+        <div class="appbar">夜の3行<small>21:40</small></div>
+        <div class="main">
+          <span class="lbl">今日の勝ち</span><div class="field">朝、コーヒーのあとに書き始められた</div>
+          <span class="lbl">つまずき</span><div class="field">昼の素振りを忘れた</div>
+          <span class="lbl">明日の1歩</span><div class="field">素振りは朝のコーヒーのあとに回す</div>
+          <button class="btn pri block" style="margin-top:12px">閉じる</button>
+          <div class="m" style="margin:8px 2px">すべて任意。空欄のまま閉じてかまいません。</div>
+        </div>
+      </div>
+    </figure>
+  </div>
+
+  <!-- ======================= 6. つなぎ ======================= -->
+  <h2 class="stage-t" id="link">6　中間目標・長期目標とのつなぎ（未決の2案）</h2>
+  <p class="stage-d">カレンダー → 習慣 → 中間目標 → 長期目標。習慣をどこにぶら下げるか。</p>
+  <div class="grid">
+
+    <figure class="shot">
+      <figcaption><b><i>A案</i>習慣は中間目標にぶら下がる</b>習慣をやると、その中間目標の数字が自動で進む。長期目標は最上段にまとまる。</figcaption>
+      <div class="phone">
+        <div class="appbar">目標「副業で月5万円」</div>
+        <div class="main">
+          <ul class="tree">
+            <li><div class="goal">長期：副業で月5万円を作る</div>
+              <ul class="tree">
+                <li><div class="card"><div class="t">中間：書く 10時間／週</div><div class="bar" style="margin:6px 0"><i style="width:45%"></i></div><div class="m num">4.5 / 10時間</div></div>
+                  <ul class="tree">
+                    <li><div class="card"><div class="row"><span class="tag ok">習慣</span><div class="grow t">noteを30分書く</div><span class="m">+0.5h</span></div></div></li>
+                    <li><div class="card"><div class="row"><span class="tag ok">習慣</span><div class="grow t">アイデアを1つ出す</div><span class="m">+0.1h</span></div></div></li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><b><i>B案</i>習慣は長期目標に直接つながる</b>普遍的な習慣として、中間目標とは別にずっと置く。中間目標は「その期間の的」。</figcaption>
+      <div class="phone">
+        <div class="appbar">目標「副業で月5万円」</div>
+        <div class="main">
+          <div class="goal" style="font-weight:700;margin:4px 2px">長期：副業で月5万円を作る</div>
+          <div class="sec">ずっと続ける習慣</div>
+          <div class="stack">
+            <div class="card"><div class="row"><span class="tag ok">習慣</span><div class="grow t">noteを30分書く</div><span class="m num">12日</span></div></div>
+            <div class="card"><div class="row"><span class="tag ok">習慣</span><div class="grow t">お金の記録をつける</div><span class="m num">3日</span></div></div>
+          </div>
+          <div class="sec">いまの中間目標（今週）</div>
+          <div class="card"><div class="t">書く 10時間</div><div class="bar" style="margin:6px 0"><i style="width:45%"></i></div><div class="m num">4.5 / 10時間 ・ 予定から自動で合計</div></div>
+        </div>
+      </div>
+    </figure>
+  </div>
+
+  <p class="lead" style="margin-top:36px">気になったものに印を付けて教えてください。複数でも、「これは要らない」でも構いません。</p>
+</div>
+
+<script>
+  // 丸のチェック。data-toast があれば一瞬だけ祝う
+  document.addEventListener("click", function (e) {
+    var tick = e.target.closest("[data-tick]");
+    if (tick) {
+      tick.classList.toggle("on");
+      var msg = tick.getAttribute("data-toast");
+      if (msg && tick.classList.contains("on")) {
+        var box = tick.closest(".phone").querySelector("[data-toastbox]");
+        var p = msg.split("|");
+        box.querySelector("b").textContent = p[0];
+        box.querySelector("span").textContent = p[1];
+        box.classList.add("show");
+        clearTimeout(box._t);
+        box._t = setTimeout(function () { box.classList.remove("show"); }, 2200);
+      }
+      return;
+    }
+    // 兄弟のうち1つだけ選ぶ（チップ・段階ボタン）
+    var pick = e.target.closest("[data-pick]");
+    if (pick) {
+      Array.prototype.forEach.call(pick.parentElement.children, function (x) { x.classList.remove("on"); });
+      pick.classList.add("on");
+      var root = pick.closest("#srhi");
+      if (root) {
+        var rows = root.querySelectorAll(".seg"), total = 0, n = 0;
+        Array.prototype.forEach.call(rows, function (r) {
+          var on = r.querySelector(".on");
+          if (on) { n++; total += Number(on.getAttribute("data-s")); }
+        });
+        var out = document.getElementById("srhi-out");
+        if (n === 3) {
+          var avg = total / 3;
+          out.innerHTML = avg >= 4
+            ? "<b>定着しています。</b><br>毎日のチェックから外して、週1の見守りにしますか？<div class='btns' style='margin-top:8px'><button class='btn sm'>このまま</button><button class='btn sm pri'>見守りにする</button></div>"
+            : avg >= 3
+              ? "<b>もう少しです。</b><br>あと1か月続けて、もう一度聞きます。"
+              : "<b>まだ意識して頑張っている段階です。</b><br>きっかけか最小版を見直しましょう。";
+        }
+      }
+      return;
+    }
+    // 1つ選ぶとほかを薄くする（案内用）
+    var one = e.target.closest("[data-pick-one]");
+    if (one) {
+      var siblings = one.parentElement.querySelectorAll("[data-pick-one]");
+      Array.prototype.forEach.call(siblings, function (x) { x.style.opacity = x === one ? "1" : ".5"; });
+    }
+  });
+</script>
+</body>
+</html>

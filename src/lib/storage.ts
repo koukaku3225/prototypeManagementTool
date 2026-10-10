@@ -652,7 +652,11 @@ export function setHabitLog(log: HabitLog): void {
  * ただし「completedAt を null に戻すと記録ごと消える」という Task 側の
  * 壊れ方は繰り返さない。消すのは「この枠がさっき付けた done」に厳しく絞る:
  * 実際に押した時刻（at）が枠の completedAt と一致するものだけが対象で、
- * 手で付けた記録・別の状態（partial / skipped / missed）には触れない。
+ * 手で付けた記録・別の状態（skipped / missed）には触れない。
+ *
+ * partial（最小版）も、習慣タブが枠を完了にするときに枠と同じ時刻で付ける
+ * （habit-today.ts の logHabitState）ので対象に含める。時刻が一致しない
+ * partial は、手で付けたものとして残す。
  */
 export function clearHabitLogFromBox(
   habitId: string,
@@ -662,7 +666,7 @@ export function clearHabitLogFromBox(
   const all = loadHabitLogs();
   const i = all.findIndex((l) => l.habitId === habitId && l.date === date);
   if (i < 0) return;
-  if (all[i].state !== "done" || all[i].at !== at) return;
+  if ((all[i].state !== "done" && all[i].state !== "partial") || all[i].at !== at) return;
   all.splice(i, 1);
   write(KEY.habitLogs, all);
 }
