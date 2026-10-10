@@ -2,7 +2,7 @@ import { requireAuthIfEnabled } from "@/lib/require-auth";
 import { addDays } from "@/lib/date";
 import { listEvents, needsReconnect, refreshAccessToken } from "@/lib/calendar/google";
 import { loadLink } from "@/lib/calendar/link";
-import { normalizePrimaryEvents } from "@/lib/calendar/primary";
+import { normalizePrimaryEvents, PRIMARY_PAST_DAYS } from "@/lib/calendar/primary";
 import { toRfc3339 } from "@/lib/calendar/time";
 
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ export const maxDuration = 30;
  * 取り込み（アプリの枠にする）の材料。枠を書くのはブラウザ側で、
  * 判断は calendar/primary.ts の mergePrimary が行う。ここは読んで整えるだけ。
  *
- * 取得期間は専用カレンダーの同期（engine.ts）と同じ -7日〜+60日。
+ * 取得期間は -PRIMARY_PAST_DAYS日〜+60日（過去側を狭くすると、Googleで消した予定の古い枠が一生残る）。
  * 返す from/to は「この期間は全件見た」という約束で、ブラウザはその中だけを
  * 「Googleで消えた」と判断する。**途中までしか読めなかったときは絶対に ok:true を返さない**
  * （見えなかった予定の枠を消してしまう）。
@@ -31,7 +31,7 @@ export async function GET() {
     if (!link) return Response.json({ ok: false, message: "連携していません。" });
 
     const token = await refreshAccessToken(link.refreshToken);
-    const from = addDays(-7);
+    const from = addDays(-PRIMARY_PAST_DAYS);
     const to = addDays(60);
     const listed = await listEvents(token, "primary", {
       timeMin: toRfc3339(from, "00:00"),

@@ -15,6 +15,7 @@ import {
   mergePrimary,
   normalizePrimaryEvents,
   PRIMARY_DELETE_BRAKE,
+  PRIMARY_PAST_DAYS,
   primaryBoxId,
 } from "../src/lib/calendar/primary.ts";
 import { isValidUuid } from "../src/lib/uuid.ts";
@@ -311,6 +312,18 @@ t("【ブレーキを切った既定】書き込み・完了のある枠は、�
   const r = mergePrimary(boxes, { ...WINDOW, events: [] }, NOW);
   assert.deepEqual(r.deletes, []);
   assert.equal(r.upserts.length, 20, "削除済みの印だけ付く");
+});
+
+t("【本番の再現】Googleで消した繰り返し予定の古い枠は、読む期間に入っていれば消える", () => {
+  // 期間の外は「見えなかっただけ」。期間を狭くすると過去の枠が一生残る（2026-10-10）
+  assert.ok(PRIMARY_PAST_DAYS >= 30, "過去側は最低でも1か月は読む");
+  const old = Array.from({ length: 8 }, (_, i) =>
+    gbox({ id: primaryBoxId(`m${i}`), sourceEventId: `m${i}`, date: `2026-09-${String(18 + i).padStart(2, "0")}` }),
+  );
+  const narrow = mergePrimary(old, { from: "2026-10-03", to: "2026-12-09", events: [] }, NOW);
+  assert.deepEqual(narrow.deletes, [], "期間の外は触らない（読めていない）");
+  const wide = mergePrimary(old, { from: "2026-08-11", to: "2026-12-09", events: [] }, NOW);
+  assert.equal(wide.deletes.length, 8);
 });
 
 t("hasNotesOrDone: 振り返りの中身だけでも書き込みあり", () => {
