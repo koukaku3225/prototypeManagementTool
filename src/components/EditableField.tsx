@@ -25,6 +25,7 @@ export function EditableField({
   multiline,
   type = "text",
   onSave,
+  onDraftChange,
 }: {
   value: string;
   label: string;
@@ -32,6 +33,8 @@ export function EditableField({
   /** "date" はクラウドの date 列に入る YYYY-MM-DD しか作らせないために使う */
   type?: "text" | "date";
   onSave: (next: string) => void;
+  /** 書いている最中の中身を知りたいとき（保存はしない）。入力のたびに呼ばれる */
+  onDraftChange?: (draft: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
   const [savedAt, setSavedAt] = useState(0);
@@ -121,6 +124,7 @@ export function EditableField({
           onChange={(e) => {
             draftRef.current = e.target.value;
             setDraft(e.target.value);
+            onDraftChange?.(e.target.value);
           }}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
@@ -140,6 +144,7 @@ export function EditableField({
             const v = e.target.value;
             draftRef.current = v;
             setDraft(v);
+            onDraftChange?.(v);
             // 日付は選んだ時点で確定する。選んで離れずに画面を移ると、離れる前に消える
             if (type === "date" && /^\d{4}-\d{2}-\d{2}$/.test(v)) commit();
           }}

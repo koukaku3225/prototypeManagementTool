@@ -43,6 +43,17 @@ export interface Habit {
   where: string | null;
   /** 「朝コーヒーを淹れたら」。既存の習慣に紐づける（習慣スタッキング） */
   cue: string | null;
+  /**
+   * 「やった」のあとの祝い（自分を褒める一言・しぐさ）。任意。
+   * 後から足した項目なので、保存済みの古いデータには無い（undefined）。読むときは `?? null`。
+   */
+  celebration?: string | null;
+  /**
+   * 始めるまでの手順の数（0〜4。4 は「4以上」）。任意。未回答は null。
+   * 手順が多いほど始めにくいので、3以上のときは減らす案を出す。
+   * 古いデータには無い（undefined）。読むときは `?? null`。
+   */
+  frictionSteps?: number | null;
   createdAt: string;
   /**
    * やめた習慣。消さずに畳む。

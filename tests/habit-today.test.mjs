@@ -227,5 +227,25 @@ t("祝いの文言: 連続数が入る。最小版は途切れないと伝える
   assert.equal(cheerFor("skipped", { streak: 5, unit: "day" }), null);
 });
 
+t("祝いが設定されていれば、やった・最小版の文言に添える。休み・できなかったには添えない", () => {
+  const c = "「よし」と言う";
+  assert.equal(
+    cheerFor("done", { streak: 12, unit: "day" }, c),
+    "やった！ 12日連続 ／ 祝い：「よし」と言う",
+  );
+  assert.equal(
+    cheerFor("partial", { streak: 5, unit: "day" }, c),
+    "最小版でも続いています（5日連続） ／ 祝い：「よし」と言う",
+  );
+  assert.equal(cheerFor("missed", { streak: 5, unit: "day" }, c), null);
+  assert.equal(cheerFor("skipped", { streak: 5, unit: "day" }, c), null);
+});
+
+t("祝いが未設定・空・空白だけなら、これまでの文言のまま", () => {
+  for (const c of [undefined, null, "", "   "]) {
+    assert.equal(cheerFor("done", { streak: 12, unit: "day" }, c), "やった！ 12日連続");
+  }
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

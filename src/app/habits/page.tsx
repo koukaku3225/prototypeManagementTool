@@ -100,7 +100,7 @@ export default function HabitsPage() {
     // メモの追記（同じ状態の再送）では祝わない
     const before = logs.find((l) => l.habitId === habit.id && l.date === day);
     if (before?.state === state) return;
-    const message = cheerFor(state, computeStats(habit, nextLogs, day));
+    const message = cheerFor(state, computeStats(habit, nextLogs, day), habit.celebration);
     if (message) setCheer({ message, key: Date.now() });
   }
 

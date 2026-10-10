@@ -175,5 +175,44 @@ t("予定の中間目標を送って戻せる。UUIDでない値は null にし�
   assert.equal(timeBoxToRow(base, "u").checkpoint_id, null);
 });
 
+// ---------------------------------------------------------------- 習慣の祝い・手順数（D1・D4）
+
+const habitBase = {
+  id: "00000000-0000-4000-8000-0000000000a1", cardId: "00000000-0000-4000-8000-0000000000b1",
+  title: "note", minimalTitle: "1行", estimateMin: 15, schedule: { kind: "daily" },
+  startTime: null, where: null, cue: "コーヒーを淹れたあとに",
+  createdAt: "2026-10-10T00:00:00.000Z", archivedAt: null,
+};
+
+t("習慣の祝い・手順数を送って戻せる", () => {
+  const { habitToRow, habitFromRow } = mappersForBox;
+  const row = habitToRow({ ...habitBase, celebration: "「よし」と言う", frictionSteps: 3 }, "u");
+  assert.equal(row.celebration, "「よし」と言う");
+  assert.equal(row.friction_steps, 3);
+  const back = habitFromRow(row);
+  assert.equal(back.celebration, "「よし」と言う");
+  assert.equal(back.frictionSteps, 3);
+});
+
+t("祝い・手順数が無い既存の習慣は null で送り、null で戻る（0 と未回答を区別する）", () => {
+  const { habitToRow, habitFromRow } = mappersForBox;
+  const row = habitToRow(habitBase, "u");
+  assert.equal(row.celebration, null);
+  assert.equal(row.friction_steps, null);
+  const back = habitFromRow({ ...row });
+  assert.equal(back.celebration, null);
+  assert.equal(back.frictionSteps, null);
+  // 手順0は「未回答」ではない
+  assert.equal(habitToRow({ ...habitBase, frictionSteps: 0 }, "u").friction_steps, 0);
+  assert.equal(habitFromRow({ ...row, friction_steps: 0 }).frictionSteps, 0);
+});
+
+t("手順数が壊れた値でも、送る値は 0〜4 か null（全件の拒否を防ぐ）", () => {
+  const { habitToRow } = mappersForBox;
+  assert.equal(habitToRow({ ...habitBase, frictionSteps: 9 }, "u").friction_steps, 4);
+  assert.equal(habitToRow({ ...habitBase, frictionSteps: -2 }, "u").friction_steps, null);
+  assert.equal(habitToRow({ ...habitBase, frictionSteps: 1.5 }, "u").friction_steps, null);
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { EditableField } from "@/components/EditableField";
+import { CelebrationField, FrictionField, MinimalField } from "@/components/HabitShapeFields";
 import { normalizeTime } from "@/lib/date";
 import { scheduleLabel } from "@/lib/habit";
 import { archiveHabit, upsertHabit } from "@/lib/storage";
@@ -27,6 +28,8 @@ function newDraft(cardId: string): Habit {
     startTime: null,
     where: null,
     cue: null,
+    celebration: null,
+    frictionSteps: null,
     createdAt: new Date().toISOString(),
     archivedAt: null,
   };
@@ -98,18 +101,44 @@ export function HabitEditor({
             onSave={(v) => patch(h, { title: v })}
           />
 
-          <div className="mt-2">
-            <p className="mb-1 text-[11px] text-muted">
-              これだけならできる（最小版）
-            </p>
-            <EditableField
-              label={`習慣${i + 1}の最小版`}
+          {/* 習慣の型: ① きっかけ → ② 最小の行動 → ③ そのあとの祝い。どれも任意 */}
+          <div className="mt-3">
+            <p className="mb-1 text-[11px] text-muted">① きっかけ（〜したあとに）</p>
+            <input
+              type="text"
+              value={h.cue ?? ""}
+              placeholder="例: コーヒーを淹れたあとに"
+              maxLength={100}
+              onChange={(e) => patch(h, { cue: e.target.value || null })}
+              className="w-full rounded-md border border-line bg-surface px-2.5 py-1 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
+              aria-label={`習慣${i + 1}のきっかけ`}
+            />
+          </div>
+
+          <div className="mt-3">
+            <p className="mb-1 text-[11px] text-muted">② 最小の行動（〜する）</p>
+            <MinimalField
+              n={i + 1}
               value={h.minimalTitle}
               onSave={(v) => patch(h, { minimalTitle: v })}
             />
-            <p className="mt-1 text-[11px] leading-relaxed text-muted">
-              無理な日にゼロにするより、最小版でも続けたほうが途切れません。
-            </p>
+          </div>
+
+          <div className="mt-3">
+            <p className="mb-1.5 text-[11px] text-muted">③ そのあとの祝い（自分を褒める）</p>
+            <CelebrationField
+              n={i + 1}
+              value={h.celebration ?? null}
+              onChange={(v) => patch(h, { celebration: v })}
+            />
+          </div>
+
+          <div className="mt-3">
+            <FrictionField
+              n={i + 1}
+              value={h.frictionSteps ?? null}
+              onChange={(v) => patch(h, { frictionSteps: v })}
+            />
           </div>
 
           {/* 繰り返し */}
@@ -229,18 +258,6 @@ export function HabitEditor({
               />
               分
             </label>
-          </div>
-
-          <div className="mt-2">
-            <input
-              type="text"
-              value={h.cue ?? ""}
-              placeholder="きっかけ（例: 朝コーヒーを淹れたら）"
-              maxLength={100}
-              onChange={(e) => patch(h, { cue: e.target.value || null })}
-              className="w-full rounded-md border border-line bg-surface px-2.5 py-1 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
-              aria-label={`習慣${i + 1}のきっかけ`}
-            />
           </div>
 
           {/* まだ保存していない下書きには「やめる」を出さない。やめる対象が無い */}

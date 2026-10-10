@@ -12,6 +12,7 @@ import type {
   Session,
   UserProfile,
 } from "@/types/goal";
+import { normalizeCelebration, normalizeFrictionSteps } from "@/lib/habit-shape";
 import type { Habit, HabitLog } from "@/types/behavior";
 import type { TimeBox } from "@/types/timebox";
 import { isValidUuid } from "@/lib/uuid";
@@ -161,6 +162,9 @@ export function habitToRow(h: Habit, userId: string) {
     start_time: h.startTime,
     location: h.where,
     cue: h.cue,
+    // 後から足した列。無い習慣は null（0手順と未回答を区別する）
+    celebration: normalizeCelebration(h.celebration),
+    friction_steps: normalizeFrictionSteps(h.frictionSteps),
     created_at: h.createdAt,
     archived_at: h.archivedAt,
   };
@@ -177,6 +181,8 @@ export function habitFromRow(r: Record<string, unknown>): Habit {
     startTime: (r.start_time as string | null) ?? null,
     where: (r.location as string | null) ?? null,
     cue: (r.cue as string | null) ?? null,
+    celebration: normalizeCelebration(r.celebration),
+    frictionSteps: normalizeFrictionSteps(r.friction_steps),
     createdAt: r.created_at as string,
     archivedAt: (r.archived_at as string | null) ?? null,
   };

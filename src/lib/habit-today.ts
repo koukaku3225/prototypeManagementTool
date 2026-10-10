@@ -1,4 +1,5 @@
 import { computeStats } from "@/lib/habit";
+import { normalizeCelebration } from "@/lib/habit-shape";
 import {
   canPlace,
   habitBoxesOn,
@@ -114,13 +115,19 @@ export function logHabitState(args: {
 export function cheerFor(
   state: HabitLogState,
   stats: Pick<HabitStats, "streak" | "unit">,
+  /** その習慣に決めてある祝い。あれば、やった・最小版の文言に添える */
+  celebration?: string | null,
 ): string | null {
   const n = stats.streak;
   const unit = stats.unit === "week" ? "週" : "日";
+  const treat = normalizeCelebration(celebration);
+  const withTreat = (m: string) => (treat ? `${m} ／ 祝い：${treat}` : m);
   if (state === "done") {
-    if (n <= 1) return "やった！ 今日がはじめの1回";
-    return stats.unit === "week" ? `やった！ ${n}週続いています` : `やった！ ${n}日連続`;
+    if (n <= 1) return withTreat("やった！ 今日がはじめの1回");
+    return withTreat(
+      stats.unit === "week" ? `やった！ ${n}週続いています` : `やった！ ${n}日連続`,
+    );
   }
-  if (state === "partial") return `最小版でも続いています（${n}${unit}連続）`;
+  if (state === "partial") return withTreat(`最小版でも続いています（${n}${unit}連続）`);
   return null;
 }
